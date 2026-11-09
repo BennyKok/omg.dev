@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PATHS } from "./config.ts";
-import { normalizePlan, PlanTracker, readSessionPlan, writeSessionPlan, type SessionPlan } from "./session-plan.ts";
+import { normalizePlan, PlanTracker, readSessionPlan, summarizeSessionPlan, writeSessionPlan, type SessionPlan } from "./session-plan.ts";
 
 const originalData = PATHS.data;
 const root = mkdtempSync(join(tmpdir(), "session-plan-"));
@@ -199,5 +199,29 @@ describe("store", () => {
     const tr = new PlanTracker("resume", "claude", (_id, p) => writes.push(structuredClone(p)));
     tr.claudeMessage(assistant([{ type: "tool_use", id: "u", name: "TaskUpdate", input: { taskId: "3", status: "completed" } }]));
     expect(writes.at(-1)!.items[0]).toMatchObject({ id: "3", status: "completed" });
+  });
+});
+
+describe("summary for the session list", () => {
+  test("progress, the current step, and the running sub-agents newest first", () => {
+    const plan: SessionPlan = {
+      source: "claude",
+      updatedAt: 1,
+      items: [
+        { id: "1", text: "Read", status: "completed" },
+        { id: "2", text: "Write the tests", activeText: "Writing the tests", status: "in_progress" },
+        { id: "3", text: "Ship", status: "pending" },
+      ],
+      agents: [
+        { id: "a", title: "Old", status: "completed", startedAt: 1 },
+        ...Array.from({ length: 7 }, (_, i) => ({ id: `r${i}`, title: `Run ${i}`, kind: "Explore", detail: "x".repeat(400), status: "running" as const, startedAt: 2 + i })),
+      ],
+    };
+    const s = summarizeSessionPlan(plan)!;
+    expect(s).toMatchObject({ done: 1, total: 3, current: "Writing the tests", finished: 1 });
+    expect(s.running.map((a) => a.title)).toEqual(["Run 6", "Run 5", "Run 4", "Run 3", "Run 2"]);
+    expect(s.running[0].detail!.length).toBeLessThanOrEqual(120);
+    expect(summarizeSessionPlan(null)).toBeNull();
+    expect(summarizeSessionPlan({ source: "x", updatedAt: 1, items: [], agents: [] })).toBeNull();
   });
 });

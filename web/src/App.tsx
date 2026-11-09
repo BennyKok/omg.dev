@@ -16,7 +16,7 @@ import { LiveHeaderContext } from "./components/live-header-context";
 import { CreateBackdrop, Spinner } from "./components/apps-home";
 import { SessionTerminalDock } from "./components/session-terminal-dock";
 import {
-  hasPlan,
+  hasPanel,
   SessionPlanChip,
   SessionPlanPane,
   SessionPlanScreen,
@@ -76,6 +76,7 @@ import {
   omgUpload,
 } from "./lib/omg-client";
 import { registerSessionRefHandlers } from "./lib/session-ref-link";
+import { publishTeamSessions, useSessionTeam, type TeamPlanSummary } from "./lib/session-team";
 import {
   FRONTEND_VERSION,
   formatComputerVersion,
@@ -960,6 +961,8 @@ export type Session = {
    * off the row — see web/src/lib/session-unread.ts for why.
    */
   unread?: boolean;
+  /** The agent's plan in brief, when it keeps one (sessionListRow on the server). */
+  plan?: TeamPlanSummary;
 };
 
 type User = { email: string; name?: string; avatar?: string };
@@ -6029,6 +6032,8 @@ export function App() {
   const sessionsForRefs = useRef<Session[]>(sessions);
   const openThreadPageRef = useRef<(id: string) => void>(() => {});
   sessionsForRefs.current = sessions;
+  // The plan pane's Team view reads the same list (see lib/session-team.ts).
+  useEffect(() => publishTeamSessions(sessions), [sessions]);
   useEffect(() => {
     registerSessionRefHandlers({
       navigate: openSessionPage,
@@ -16672,9 +16677,10 @@ function SessionChat(rawProps: SessionChatProps) {
   // wide enough (the phone swipes to it instead; see SessionTitleSheet). Not
   // for a bot chat: a bot is talked to, not supervised.
   const plan = useSessionPlan(botId ? null : sid, onSubscribeTranscript);
+  const team = useSessionTeam(botId ? null : sid);
   const planPaneOpen = usePlanPaneOpen();
   const sendToAgent = useSessionSend(sid);
-  const showPlanPane = !botId && planPaneOpen && hasPlan(plan);
+  const showPlanPane = !botId && planPaneOpen && hasPanel(plan, team);
   return (
     <>
       {/* Always the same wrapper, so opening the pane never remounts the chat.
@@ -16691,7 +16697,7 @@ function SessionChat(rawProps: SessionChatProps) {
           </OmgChatEngine>
         </Suspense>
         {showPlanPane ? (
-          <SessionPlanPane plan={plan} send={sendToAgent} />
+          <SessionPlanPane plan={plan} team={team} send={sendToAgent} />
         ) : null}
       </div>
       {terminalOpen && sid ? (
@@ -18449,6 +18455,7 @@ function SessionTitleSheet({
   const planOpenRef = useRef(false);
   planOpenRef.current = planOpen;
   const plan = useSessionPlan(sid, onSubscribeTranscript);
+  const team = useSessionTeam(sid);
   const sendToAgent = useSessionSend(sid);
 
   // Per-session live data, selected for whichever session is active right now.
@@ -18892,7 +18899,7 @@ function SessionTitleSheet({
             </span>
           ) : null}
           {/* Progress at a glance; a tap opens the plan, as a swipe left does. */}
-          <SessionPlanChip plan={plan} onClick={() => setPlanOpen(true)} />
+          <SessionPlanChip plan={plan} team={team} onClick={() => setPlanOpen(true)} />
           <SessionActionsMenu
             session={session}
             busy={busy}
@@ -18929,7 +18936,7 @@ function SessionTitleSheet({
           inert={!planOpen}
           className="absolute inset-0 z-20 shadow-[-12px_0_32px_rgba(0,0,0,0.12)]"
         >
-          <SessionPlanScreen plan={plan} send={sendToAgent} onBack={() => setPlanOpen(false)} />
+          <SessionPlanScreen plan={plan} team={team} send={sendToAgent} onBack={() => setPlanOpen(false)} />
         </div>
       </div>
     </div>,

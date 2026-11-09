@@ -15,6 +15,7 @@ import {
   Bot,
   ChevronLeft,
   Circle,
+  CircleAlert,
   CircleCheck,
   CircleStop,
   CircleX,
@@ -23,6 +24,8 @@ import {
   Send,
 } from "lucide-react";
 import type { OmgTranscriptSubscribe } from "@/lib/omg-chat-transport";
+import { openSessionRef } from "@/lib/session-ref-link";
+import { flattenTeam, useSessionTeam, type TeamMember } from "@/lib/session-team";
 
 export type SessionPlan = OmgSessionPlan;
 
@@ -42,9 +45,29 @@ export function planProgress(plan: SessionPlan | null): {
   };
 }
 
-/** True when there is anything to show. */
+/** True when the agent's own plan has anything to show. */
 export const hasPlan = (plan: SessionPlan | null): plan is SessionPlan =>
   !!plan && (plan.items.length > 0 || plan.agents.length > 0);
+
+/** True when the pane has anything to show: the plan, or a team of child sessions. */
+export const hasPanel = (plan: SessionPlan | null, team: readonly TeamMember[] = []): boolean =>
+  hasPlan(plan) || team.length > 0;
+
+/** Child sessions working now, at any depth. */
+export const teamWorking = (team: readonly TeamMember[]): number =>
+  flattenTeam(team).filter((m) => m.state === "working").length;
+
+/** "now", "40s", "5m", "3h", "2d": how long ago, coarse. */
+export function ago(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 10) return "now";
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h}h`;
+  return `${Math.floor(h / 24)}d`;
+}
 
 /**
  * The session's plan, live. Listens passively: the chat holds the session's
@@ -126,23 +149,33 @@ function useTick(active: boolean): number {
   return now;
 }
 
-/** The header chip: "3/7", with the current step on wider screens while the plan is closed. Opens the plan. */
+/**
+ * The header chip: "3/7", the current step on wider screens while the plan is
+ * closed, and how many agents are working (the session's own sub-agents and
+ * its child sessions). Opens the plan.
+ */
 export function SessionPlanChip({
   plan,
+  team = [],
   onClick,
   pressed,
   className = "",
 }: {
   plan: SessionPlan | null;
+  team?: readonly TeamMember[];
   onClick: () => void;
   pressed?: boolean;
   className?: string;
 }) {
-  if (!hasPlan(plan)) return null;
+  if (!hasPanel(plan, team)) return null;
   const { done, total, current, running } = planProgress(plan);
-  const label = total
-    ? `Plan: ${done} of ${total} done${current ? `, now ${current.activeText || current.text}` : ""}`
-    : `Plan: ${running} sub-agent${running === 1 ? "" : "s"} running`;
+  const working = running + teamWorking(team);
+  const parts = [
+    total ? `${done} of ${total} done` : "",
+    current ? `now ${current.activeText || current.text}` : "",
+    working ? `${working} agent${working === 1 ? "" : "s"} working` : "",
+  ].filter(Boolean);
+  const label = `Plan${parts.length ? `: ${parts.join(", ")}` : ""}`;
   return (
     <button
       type="button"
@@ -162,10 +195,10 @@ export function SessionPlanChip({
           {current.activeText || current.text}
         </span>
       ) : null}
-      {running ? (
+      {working ? (
         <span className="flex shrink-0 items-center gap-0.5 text-sky-600 dark:text-sky-400">
           <Bot className="size-3.5" />
-          <span className="tabular-nums">{running}</span>
+          <span className="tabular-nums">{working}</span>
         </span>
       ) : null}
     </button>
@@ -374,24 +407,131 @@ function AgentRow({ agent, now }: { agent: OmgPlanAgent; now: number }) {
   );
 }
 
+function TeamStateIcon({ state }: { state: TeamMember["state"] }) {
+  if (state === "working") return <LoaderCircle className="size-4 animate-spin text-sky-600 dark:text-sky-400" aria-hidden />;
+  if (state === "blocked") return <CircleAlert className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />;
+  return (
+    <span className="flex size-4 items-center justify-center" aria-hidden>
+      <span className="size-1.5 rounded-full bg-muted-foreground/50" />
+    </span>
+  );
+}
+
+const TEAM_WORD: Record<TeamMember["state"], string> = { working: "Working", blocked: "Blocked", idle: "Idle" };
+
+/**
+ * One child session: its state, title, latest activity and, when its agent
+ * keeps one, its progress and running sub-agents. Its own children nest under
+ * it. A tap opens the session.
+ */
+function TeamRow({ member, now, onOpen }: { member: TeamMember; now: number; onOpen: (id: string) => void }) {
+  const plan = member.plan;
+  const line = member.activity || plan?.current || "";
+  return (
+    <li data-testid="team-member" data-state={member.state} data-id={member.id}>
+      <button
+        type="button"
+        onClick={() => onOpen(member.id)}
+        title={member.title}
+        className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-muted/60"
+      >
+        <span className="mt-px shrink-0">
+          <TeamStateIcon state={member.state} />
+        </span>
+        <span className="min-w-0 flex-1 leading-5">
+          <span className={`block truncate text-[13px] ${member.state === "idle" ? "text-muted-foreground" : "text-foreground"}`}>
+            {member.title}
+          </span>
+          {line || plan?.total ? (
+            <span
+              className={`flex min-w-0 items-center gap-1.5 text-[11px] leading-4 ${
+                member.state === "blocked" ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"
+              }`}
+            >
+              {plan?.total ? (
+                <span className="shrink-0 rounded bg-muted px-1 tabular-nums text-foreground/80">
+                  {plan.done}/{plan.total}
+                </span>
+              ) : null}
+              <span className="truncate">{line}</span>
+            </span>
+          ) : null}
+        </span>
+        <span className="sr-only">{TEAM_WORD[member.state]}</span>
+        <span className="shrink-0 text-right text-[11px] leading-5 text-muted-foreground">
+          {member.agent}
+          {member.lastActivityAt ? <span className="tabular-nums"> · {ago(now - member.lastActivityAt)}</span> : null}
+        </span>
+      </button>
+      {plan?.running.length ? (
+        <ul aria-label="Sub-agents" className="mb-0.5 ml-[1.15rem] border-l border-border/60 pl-3">
+          {plan.running.map((a, i) => (
+            <li key={i} data-testid="team-subagent" className="flex min-w-0 items-center gap-1.5 py-0.5 text-[11px] leading-4 text-muted-foreground">
+              <LoaderCircle className="size-3 shrink-0 animate-spin text-sky-600 dark:text-sky-400" aria-hidden />
+              <span className="truncate">
+                <span className="text-foreground/80">{a.title}</span>
+                {a.detail || a.kind ? ` · ${a.detail || a.kind}` : ""}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {member.children.length ? (
+        <ul className="ml-[1.15rem] border-l border-border/60 pl-1">
+          {member.children.map((child) => (
+            <TeamRow key={child.id} member={child} now={now} onOpen={onOpen} />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+const openTeamMember = (id: string) => void openSessionRef(`omg:session_${id}`);
+
+/** The child sessions this session started, and theirs, as a tree. */
+function TeamSection({ team, now, onOpen }: { team: readonly TeamMember[]; now: number; onOpen: (id: string) => void }) {
+  const all = flattenTeam(team);
+  const working = all.filter((m) => m.state === "working").length;
+  const blocked = all.filter((m) => m.state === "blocked").length;
+  return (
+    <section aria-label="Team" data-testid="plan-team" className="mx-4 mt-3 border-t border-border/60 pt-2 first:mt-0 first:border-t-0 first:pt-3">
+      <h3 className="pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Team · {all.length}
+        {working ? ` · ${working} working` : ""}
+        {blocked ? ` · ${blocked} blocked` : ""}
+      </h3>
+      <ul className="-mx-2.5">
+        {team.map((member) => (
+          <TeamRow key={member.id} member={member} now={now} onOpen={onOpen} />
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /**
  * The plan itself: progress, steps and sub-agents. The agent owns the list;
  * the only input here is a message about a step the agent already has.
  */
 export function SessionPlanView({
   plan,
+  team = [],
   send,
+  onOpenMember = openTeamMember,
   className = "",
 }: {
   plan: SessionPlan | null;
+  team?: readonly TeamMember[];
   send: (text: string) => Promise<void>;
+  onOpenMember?: (id: string) => void;
   className?: string;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [showFinished, setShowFinished] = useState(false);
   const { state, run } = useSender(send);
   const { done, total, running } = planProgress(plan);
-  const now = useTick(running > 0);
+  const now = useTick(running > 0 || team.length > 0);
   const items = plan?.items ?? [];
   // Newest first. Running sub-agents stay in view; finished ones fold away.
   const agents = [...(plan?.agents ?? [])].reverse();
@@ -439,14 +579,15 @@ export function SessionPlanView({
               />
             ))}
           </ul>
-        ) : (
+        ) : team.length ? null : (
           <div className="px-4 py-8 text-center">
             <ListTodo className="mx-auto size-5 text-muted-foreground/50" aria-hidden />
             <p className="mt-2 text-[13px] text-muted-foreground">No to-do list yet. When the agent plans its work, the steps show here.</p>
           </div>
         )}
+        {team.length ? <TeamSection team={team} now={now} onOpen={onOpenMember} /> : null}
         {agents.length ? (
-          <section aria-label="Sub-agents" className="mx-4 mt-3 border-t border-border/60 pt-2">
+          <section aria-label="Sub-agents" className="mx-4 mt-3 border-t border-border/60 pt-2 first:mt-0 first:border-t-0 first:pt-3">
             <h3 className="-mx-4 flex items-center px-4 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               <span className="flex-1">
                 Sub-agents{live.length ? ` · ${live.length} running` : ""}
@@ -493,10 +634,12 @@ export function SessionPlanView({
 /** The phone page: the plan, full screen, over the chat it came from. */
 export function SessionPlanScreen({
   plan,
+  team,
   send,
   onBack,
 }: {
   plan: SessionPlan | null;
+  team?: readonly TeamMember[];
   send: (text: string) => Promise<void>;
   onBack: () => void;
 }) {
@@ -516,13 +659,21 @@ export function SessionPlanScreen({
         </button>
         <h2 className="min-w-0 flex-1 text-base font-semibold leading-tight">Plan</h2>
       </div>
-      <SessionPlanView plan={plan} send={send} />
+      <SessionPlanView plan={plan} team={team} send={send} />
     </div>
   );
 }
 
 /** The desktop pane, on the right of the chat. The header chip opens and closes it. */
-export function SessionPlanPane({ plan, send }: { plan: SessionPlan | null; send: (text: string) => Promise<void> }) {
+export function SessionPlanPane({
+  plan,
+  team,
+  send,
+}: {
+  plan: SessionPlan | null;
+  team?: readonly TeamMember[];
+  send: (text: string) => Promise<void>;
+}) {
   return (
     <aside
       aria-label="Plan"
@@ -533,7 +684,7 @@ export function SessionPlanPane({ plan, send }: { plan: SessionPlan | null; send
         <ListTodo className="size-4 text-muted-foreground" aria-hidden />
         <h2 className="flex-1 text-sm font-semibold">Plan</h2>
       </div>
-      <SessionPlanView plan={plan} send={send} />
+      <SessionPlanView plan={plan} team={team} send={send} />
     </aside>
   );
 }
@@ -541,6 +692,9 @@ export function SessionPlanPane({ plan, send }: { plan: SessionPlan | null; send
 /** The desktop header chip: opens and closes the pane. */
 export function SessionPlanToggleChip({ sid, subscribe }: { sid: string | null; subscribe?: OmgTranscriptSubscribe }) {
   const plan = useSessionPlan(sid, subscribe);
+  const team = useSessionTeam(sid);
   const open = usePlanPaneOpen();
-  return <SessionPlanChip plan={plan} pressed={open} onClick={() => setPlanPaneOpen(!open)} className="hidden md:flex" />;
+  return (
+    <SessionPlanChip plan={plan} team={team} pressed={open} onClick={() => setPlanPaneOpen(!open)} className="hidden md:flex" />
+  );
 }

@@ -32,6 +32,42 @@ export type PlanAgent = {
 };
 export type SessionPlan = { source: string; updatedAt: number; items: PlanItem[]; agents: PlanAgent[] };
 
+/**
+ * A few hundred bytes of a plan, for the session list: progress, the current
+ * step, and the running sub-agents. A parent's Team view shows this for each
+ * child session without subscribing to every child's live channel.
+ */
+export type SessionPlanSummary = {
+  done: number;
+  total: number;
+  current?: string;
+  running: Array<{ title: string; kind?: string; detail?: string }>;
+  finished: number;
+};
+
+const SUMMARY_RUNNING = 5;
+const SUMMARY_TEXT = 120;
+
+export function summarizeSessionPlan(plan: SessionPlan | null): SessionPlanSummary | null {
+  if (!plan || (!plan.items.length && !plan.agents.length)) return null;
+  const current = plan.items.find((i) => i.status === "in_progress");
+  const running = plan.agents.filter((a) => a.status === "running");
+  return {
+    done: plan.items.filter((i) => i.status === "completed").length,
+    total: plan.items.length,
+    ...(current ? { current: clip(current.activeText || current.text, SUMMARY_TEXT) } : {}),
+    running: running
+      .slice(-SUMMARY_RUNNING)
+      .reverse()
+      .map((a) => ({
+        title: clip(a.title, SUMMARY_TEXT),
+        ...(a.kind ? { kind: clip(a.kind, 40) } : {}),
+        ...(a.detail ? { detail: clip(a.detail, SUMMARY_TEXT) } : {}),
+      })),
+    finished: plan.agents.length - running.length,
+  };
+}
+
 const MAX_ITEMS = 100;
 const MAX_AGENTS = 30;
 const MAX_TEXT = 500;

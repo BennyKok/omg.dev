@@ -35,6 +35,16 @@ Other agents: add a tracker method in `src/session-plan.ts` and call it from
 the harness. ACP agents (Grok, Cursor, fx) send a standard `plan` update that
 maps directly.
 
+## Team
+
+The pane also shows the omg child sessions a session started, and theirs, as
+a tree (`web/src/lib/session-team.ts`). The source is the session list the
+app already polls: each row has its parent, working flag, status and last
+message. `sessionListRow` (src/commands/serve.ts) adds `plan`, a short
+summary of the child's own plan (progress, current step, running
+sub-agents), so each child shows its internal sub-agents too, with no
+subscription per child. A tap on a member opens that session.
+
 ## UI
 
 - Header chip: "1/4", running sub-agents, and the current step on wide

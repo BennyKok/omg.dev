@@ -1,4 +1,5 @@
 import { cleanupSessionMcpConfigs } from "../private-mcp-config.ts";
+import { readSessionPlan, summarizeSessionPlan, type SessionPlanSummary } from "../session-plan.ts";
 import { existingNoProjectWorkspace, NO_PROJECT, noProjectWorkspacePath, prepareNoProjectWorkspace } from "../no-project-chat.ts";
 import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app-builder.ts";
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
@@ -1700,9 +1701,14 @@ function withAutoAgentListMeta<T extends { id: string; cwd?: string; prompt?: st
  * nothing. `?full=1` on /api/sessions opts back in for the one caller that
  * genuinely wants the command line: omg_list_sessions with verbose:true.
  */
-export function sessionListRow(session: Session): Omit<Session, "cmd"> {
+type SessionListRow = Omit<Session, "cmd"> & { plan?: SessionPlanSummary };
+
+export function sessionListRow(session: Session): SessionListRow {
   const { cmd: _dropped, ...row } = session;
-  return row;
+  // The agent's plan in brief, so a parent's Team view can show what each
+  // child is doing (see src/session-plan.ts). mtime-cached; absent when none.
+  const plan = session.sessionId ? summarizeSessionPlan(readSessionPlan(session.sessionId)) : null;
+  return plan ? { ...row, plan } : row;
 }
 
 /**
@@ -8903,11 +8909,9 @@ a{color:#60a5fa}
         // this is — its `identity` is documented as "which unread watermark to
         // read and write" — and nothing about it is bot-specific.
         const identity = botViewerFromRequest(req, url.searchParams.get("user")).identity;
+        const rows: SessionListRow[] = full ? sessions : sessions.map(sessionListRow);
         return json({
-          sessions: withSessionUnread(
-            identity,
-            full ? sessions : sessions.map(sessionListRow),
-          ),
+          sessions: withSessionUnread(identity, rows),
           pendingLogins: pendingCodingAgentLogins(),
         });
       }

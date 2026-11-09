@@ -4,6 +4,7 @@ import { mount, type Mounted } from "../test-support/render";
 import type { OmgSessionPlan } from "@omg-dev/protocol";
 
 const { SessionPlanChip, SessionPlanView, planActionMessage, planProgress, useSessionPlan } = await import("./session-plan");
+import type { TeamMember } from "@/lib/session-team";
 
 const plan: OmgSessionPlan = {
   source: "claude",
@@ -62,7 +63,7 @@ describe("chip", () => {
     ui.render(<SessionPlanChip plan={plan} onClick={() => opened++} />);
     const chip = ui.query('[data-testid="session-plan-chip"]')!;
     expect(chip.textContent).toContain("1/3");
-    expect(chip.getAttribute("aria-label")).toBe("Plan: 1 of 3 done, now Writing the tests");
+    expect(chip.getAttribute("aria-label")).toBe("Plan: 1 of 3 done, now Writing the tests, 1 agent working");
     await click(chip);
     expect(opened).toBe(1);
   });
@@ -185,4 +186,62 @@ describe("useSessionPlan", () => {
 test("action messages read as the user's own words", () => {
   expect(planActionMessage("skip", { text: "Ship it" })).toBe('Please skip this step: "Ship it".');
   expect(planActionMessage("note", { text: "Ship it" }, "  Use staging  ")).toBe('About the step "Ship it": Use staging');
+});
+
+describe("team", () => {
+  const now = Date.now();
+  const team: TeamMember[] = [
+    {
+      id: "c1",
+      title: "APPS OWNER: move every app",
+      agent: "Codex",
+      state: "working",
+      activity: "Running a command",
+      lastActivityAt: now - 120_000,
+      plan: { done: 2, total: 5, current: "Move games", running: [{ title: "Check parity", detail: "Using Bash" }], finished: 1 },
+      children: [
+        { id: "g1", title: "GROUP B mover", agent: "Codex", state: "blocked", activity: "Out of credits", lastActivityAt: now, plan: null, children: [] },
+      ],
+    },
+    { id: "c2", title: "Storage cleanup", agent: "Claude", state: "idle", activity: "Waiting for your OK", lastActivityAt: now - 3 * 3600_000, plan: null, children: [] },
+  ];
+
+  test("shows every child session, nested, with its state, activity, progress and sub-agents", () => {
+    ui.render(<SessionPlanView plan={null} team={team} send={async () => {}} />);
+    const members = ui.queryAll('[data-testid="team-member"]');
+    expect(members.map((m) => [m.getAttribute("data-id"), m.getAttribute("data-state")])).toEqual([
+      ["c1", "working"],
+      ["g1", "blocked"],
+      ["c2", "idle"],
+    ]);
+    // The grandchild sits inside its parent's row.
+    expect(members[0].contains(members[1])).toBe(true);
+    expect(members[0].textContent).toContain("2/5");
+    expect(members[0].textContent).toContain("Running a command");
+    expect(members[0].textContent).toContain("Codex · 2m");
+    expect(ui.queryAll('[data-testid="team-subagent"]')[0].textContent).toContain("Check parity · Using Bash");
+    expect(members[1].textContent).toContain("Out of credits");
+    expect(members[2].textContent).toContain("Claude · 3h");
+    expect(ui.text()).toContain("Team · 3 · 1 working · 1 blocked");
+    // A team alone is enough: no "No to-do list yet".
+    expect(ui.text()).not.toContain("No to-do list yet");
+  });
+
+  test("a tap opens that session", async () => {
+    const opened: string[] = [];
+    ui.render(<SessionPlanView plan={plan} team={team} send={async () => {}} onOpenMember={(id) => opened.push(id)} />);
+    const grandchild = ui.queryAll('[data-testid="team-member"]')[1];
+    await click(grandchild.querySelector("button"));
+    expect(opened).toEqual(["g1"]);
+  });
+
+  test("the chip shows for a team alone and counts its working agents", () => {
+    ui.render(<SessionPlanChip plan={null} team={team} onClick={() => {}} />);
+    const chip = ui.query('[data-testid="session-plan-chip"]')!;
+    expect(chip.getAttribute("aria-label")).toBe("Plan: 1 agent working");
+    ui.render(<SessionPlanChip plan={plan} team={team} onClick={() => {}} />);
+    expect(ui.query('[data-testid="session-plan-chip"]')!.getAttribute("aria-label")).toBe(
+      "Plan: 1 of 3 done, now Writing the tests, 2 agents working",
+    );
+  });
 });
