@@ -304,11 +304,12 @@ export class PlanTracker {
     if (!agent) return;
     if (toolUseId) this.taskBacked.add(toolUseId);
     if (subtype === "task_progress") {
+      // A progress event's description is the current activity ("Reading
+      // two.txt"), not the sub-agent's name: it goes in the detail line.
       const tool = clip(msg.last_tool_name, 64);
-      const detail = clip(msg.summary, MAX_DETAIL) || (tool ? `Using ${tool}` : "");
+      const detail =
+        clip(msg.summary, MAX_DETAIL) || clip(msg.description, MAX_DETAIL) || (tool ? `Using ${tool}` : "");
       if (detail) agent.detail = detail;
-      const description = clip(msg.description, 200);
-      if (description) agent.title = description;
     } else if (subtype === "task_updated") {
       const patch = (msg.patch && typeof msg.patch === "object" ? msg.patch : {}) as Block;
       const description = clip(patch.description, 200);

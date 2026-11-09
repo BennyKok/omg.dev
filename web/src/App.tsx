@@ -16691,7 +16691,7 @@ function SessionChat(rawProps: SessionChatProps) {
           </OmgChatEngine>
         </Suspense>
         {showPlanPane ? (
-          <SessionPlanPane plan={plan} send={sendToAgent} onClose={() => setPlanPaneOpen(false)} />
+          <SessionPlanPane plan={plan} send={sendToAgent} />
         ) : null}
       </div>
       {terminalOpen && sid ? (

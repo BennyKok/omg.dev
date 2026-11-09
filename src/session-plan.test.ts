@@ -101,7 +101,10 @@ describe("Claude", () => {
     tr.claudeMessage({ type: "system", subtype: "task_started", task_id: "task-a", tool_use_id: "ag1", description: "Review", subagent_type: "general-purpose" });
     tr.claudeMessage(user([{ type: "tool_result", tool_use_id: "ag1", content: "Async agent launched successfully." }]));
     expect(last().agents[0].status).toBe("running");
-    tr.claudeMessage({ type: "system", subtype: "task_progress", task_id: "task-a", tool_use_id: "ag1", description: "Review", last_tool_name: "Grep", usage: {} });
+    // The progress description is the current activity; the name stays.
+    tr.claudeMessage({ type: "system", subtype: "task_progress", task_id: "task-a", tool_use_id: "ag1", description: "Reading src/app.ts", last_tool_name: "Read", usage: {} });
+    expect(last().agents[0]).toMatchObject({ title: "Review", detail: "Reading src/app.ts" });
+    tr.claudeMessage({ type: "system", subtype: "task_progress", task_id: "task-a", tool_use_id: "ag1", last_tool_name: "Grep", usage: {} });
     expect(last().agents[0].detail).toBe("Using Grep");
     tr.claudeMessage({ type: "system", subtype: "task_notification", task_id: "task-a", tool_use_id: "ag1", status: "completed", summary: "Two findings", output_file: "" });
     expect(last().agents).toHaveLength(1);

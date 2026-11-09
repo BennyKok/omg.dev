@@ -21,7 +21,6 @@ import {
   ListTodo,
   LoaderCircle,
   Send,
-  X,
 } from "lucide-react";
 import type { OmgTranscriptSubscribe } from "@/lib/omg-chat-transport";
 
@@ -522,16 +521,8 @@ export function SessionPlanScreen({
   );
 }
 
-/** The desktop pane, on the right of the chat. */
-export function SessionPlanPane({
-  plan,
-  send,
-  onClose,
-}: {
-  plan: SessionPlan | null;
-  send: (text: string) => Promise<void>;
-  onClose: () => void;
-}) {
+/** The desktop pane, on the right of the chat. The header chip opens and closes it. */
+export function SessionPlanPane({ plan, send }: { plan: SessionPlan | null; send: (text: string) => Promise<void> }) {
   return (
     <aside
       aria-label="Plan"
@@ -541,14 +532,6 @@ export function SessionPlanPane({
       <div className="flex h-11 shrink-0 items-center gap-2 border-b border-border px-4">
         <ListTodo className="size-4 text-muted-foreground" aria-hidden />
         <h2 className="flex-1 text-sm font-semibold">Plan</h2>
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close plan"
-          className="flex size-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted"
-        >
-          <X className="size-4" />
-        </button>
       </div>
       <SessionPlanView plan={plan} send={send} />
     </aside>
