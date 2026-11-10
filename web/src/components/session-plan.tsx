@@ -445,7 +445,7 @@ function TeamRow({ member, now, onOpen }: { member: TeamMember; now: number; onO
       <button
         type="button"
         onClick={() => onOpen(member.id)}
-        title={member.title}
+        title={member.brief || member.title}
         className="flex w-full items-start gap-2.5 rounded-lg px-2.5 py-1.5 text-left transition-colors hover:bg-muted/60"
       >
         <span className="mt-px shrink-0">
@@ -471,10 +471,11 @@ function TeamRow({ member, now, onOpen }: { member: TeamMember; now: number; onO
           ) : null}
         </span>
         <span className="sr-only">{TEAM_WORD[member.state]}</span>
-        <span className="shrink-0 text-right text-[11px] leading-5 text-muted-foreground">
-          {member.agent}
-          {member.lastActivityAt ? <span className="tabular-nums"> · {ago(now - member.lastActivityAt)}</span> : null}
-        </span>
+        {member.lastActivityAt ? (
+          <span className="shrink-0 text-right text-[11px] leading-5 tabular-nums text-muted-foreground">
+            {ago(now - member.lastActivityAt)}
+          </span>
+        ) : null}
       </button>
       {plan?.running.length ? (
         <ul aria-label="Sub-agents" className="mb-0.5 ml-[1.15rem] border-l border-border/60 pl-3">

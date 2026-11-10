@@ -44,6 +44,8 @@ export type TeamState = "working" | "blocked" | "idle" | "done";
 
 export type TeamMember = {
   id: string;
+  /** The full first line of the session's title, for hover. */
+  brief?: string;
   /** The agent's own id for the session, when it differs. Questions may carry either. */
   nativeId: string | null;
   title: string;
@@ -59,10 +61,23 @@ export type TeamMember = {
 const MAX_DEPTH = 6;
 
 /** The first useful line of a session title. Some titles are a whole prompt. */
-export function teamTitle(row: TeamSessionRow): string {
+export function teamBrief(row: TeamSessionRow): string {
   const raw = (row.title || row.lastUserText || "").replace(/^undefined\s*/, "");
-  const line = raw.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
-  return line || "Untitled session";
+  return raw.split("\n").map((l) => l.trim()).find(Boolean) ?? "";
+}
+
+// A parent names a child with its whole brief: "MIGRATION MANAGER: finish
+// moving everyone from ...". The name is the part before the first ": ",
+// ". ", " (" or " - ", when that part is short enough to be one.
+const NAME = /^(.{3,80}?)(?::\s|\.\s|\s\(|\s[—–-]\s)/;
+const LEAD_IN = /^(?:task|goal|job|context)\s*:\s*/i;
+
+/** A short name for the session: what its parent called it. */
+export function teamTitle(row: TeamSessionRow): string {
+  const brief = teamBrief(row).replace(LEAD_IN, "");
+  if (!brief) return "Untitled session";
+  const name = brief.match(NAME)?.[1].trim() || brief;
+  return name[0].toUpperCase() + name.slice(1);
 }
 
 export function agentName(row: Pick<TeamSessionRow, "agent" | "agentLabel">): string {
@@ -143,6 +158,7 @@ export function buildTeam(rows: readonly TeamSessionRow[], sid: string | null | 
         id: k.sessionId!,
         nativeId: k.nativeSessionId && k.nativeSessionId !== k.sessionId ? k.nativeSessionId : null,
         title: teamTitle(k),
+        brief: teamBrief(k),
         agent: agentName(k),
         state: teamState(k),
         activity: teamActivity(k),

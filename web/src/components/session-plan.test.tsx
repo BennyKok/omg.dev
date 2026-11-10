@@ -222,10 +222,13 @@ describe("team", () => {
     expect(members[0].contains(members[1])).toBe(true);
     expect(members[0].textContent).toContain("2/5");
     expect(members[0].textContent).toContain("Running a command");
-    expect(members[0].textContent).toContain("Codex · 2m");
+    // The age, without which coding agent runs it.
+    expect(members[0].textContent).toContain("2m");
+    expect(members[0].textContent).not.toContain("Codex");
     expect(ui.queryAll('[data-testid="team-subagent"]')[0].textContent).toContain("Check parity · Using Bash");
     expect(members[1].textContent).toContain("Out of credits");
-    expect(members[2].textContent).toContain("Claude · 3h");
+    expect(members[2].textContent).toContain("3h");
+    expect(members[2].textContent).not.toContain("Claude");
     expect(ui.text()).toContain("Team · 3 · 1 working · 1 blocked");
     // A team alone is enough: no "No to-do list yet".
     expect(ui.text()).not.toContain("No to-do list yet");

@@ -49,7 +49,14 @@ describe("buildTeam", () => {
 
 describe("what a member shows", () => {
   test("the first line of a long or broken title", () => {
-    expect(teamTitle(row("x", null, { title: "undefined\nGROUP B: move the games\nmore" }))).toBe("GROUP B: move the games");
+    expect(teamTitle(row("x", null, { title: "undefined\nGROUP B: move the games\nmore" }))).toBe("GROUP B");
+    // The name a parent gave the child, not its whole brief.
+    const t = (title: string) => teamTitle(row("x", null, { title }));
+    expect(t("MIGRATION MANAGER: finish moving everyone from legacy")).toBe("MIGRATION MANAGER");
+    expect(t("RELEASE MANAGER 3 for make.omg.dev (repo BennyKok/vibes, branch x)")).toBe("RELEASE MANAGER 3 for make.omg.dev");
+    expect(t("DEV BOX MIGRATION + STORAGE. This is Benny's box")).toBe("DEV BOX MIGRATION + STORAGE");
+    expect(t("Task: create the separate Cloudflare accounts (punch-list D5)")).toBe("Create the separate Cloudflare accounts");
+    expect(t("Independent code review of a production diff")).toBe("Independent code review of a production diff");
     expect(teamTitle(row("x", null, { title: null, lastUserText: null }))).toBe("Untitled session");
   });
 
