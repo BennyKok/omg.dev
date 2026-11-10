@@ -179,6 +179,7 @@ describe("omg.dev runtime capabilities", () => {
       "omg_create_subagent / omg_delegate_*",
       "omg_list_auto_agents / omg_save_auto_agent / omg_run_auto_agent",
       "omg_save_event_hook / omg_preview_event_source / omg_list_event_hooks",
+      "omg_device_request / omg_list_devices",
     ]);
   });
 

@@ -16,6 +16,7 @@ Agents:
   omg subagent create|models       Start a managed agent session on any harness
   omg agents list|run|show         Run or inspect insight agents (see 'omg agents help')
   omg projects status|clean        Check or clean old project state
+  omg device pair|list|remove      Link another machine; agents ask, it approves (see 'omg device help')
   omg session-token status|rotate  Inspect or rotate the session signing key
   omg mcp                          Run the omg.dev MCP server (stdio)
   omg computer-mcp                 Run the Computer MCP server (stdio)
@@ -113,6 +114,11 @@ async function main() {
       console.error("Connecting your own computer has been removed. omg.dev runs on this computer only.");
       process.exitCode = 1;
       return;
+    }
+    case "device":
+    case "devices": {
+      const { cmdDevice } = await import("./devices/agent.ts");
+      return await cmdDevice(rest);
     }
     case "projects": {
       const { cmdProjects } = await import("./commands/projects.ts");

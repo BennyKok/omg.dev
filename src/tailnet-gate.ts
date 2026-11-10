@@ -13,6 +13,10 @@
 // - The connector OAuth callback passes through: the provider redirects the
 //   browser there, and the handler only accepts a state this box issued.
 // - Everything else, page loads, the API and websockets included, gets 401.
+//
+// Linked devices (src/devices) are handled before this gate: `/api/devices/link/*`
+// goes to their own handler, which requires a device signature on every call
+// except pairing (a one-use code). Nothing else on the API opens.
 
 export const TAILNET_PASSTHROUGH_PATHS = new Set(["/api/connectors/oauth/callback"]);
 

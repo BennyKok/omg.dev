@@ -1,6 +1,6 @@
 # Device link
 
-Status: design (2026-11-10). Not implemented.
+Status: phase 2 (core) implemented in `src/devices/` (2026-11-10).
 
 A device link lets an agent on this computer ask a linked device, such as a
 test Mac, to do one action. The user approves the action on that device. The
@@ -83,10 +83,65 @@ These rules come from the first user's answers and from IR-2026-11-01.
 
 ## Agent surface
 
-- In chat, `@bennys-mac` resolves to a paired device.
-- `omg_device_request(device, action, args)` returns at once with
-  `waiting for approval`, `running` or the result.
-- `omg_list_devices` lists devices, their actions and the active grant.
+- `omg_device_request(device, action, args, wait)` queues one request and
+  waits up to `wait` seconds for `done`, `failed` or `denied`. A leading `@` in
+  the device name is accepted.
+- `omg_device_request_status(id, wait)` reads a request later.
+- `omg_list_devices` lists devices, their actions and recent requests.
+- `omg_pair_device(name)` makes a pairing code. Only the person at the device
+  can use it.
+- `@device` in the web composer is phase 3.
+
+## Code
+
+- `protocol.ts`: the wire contract and signing. Both sides import it.
+- `store.ts`: the only owner of `<data>/devices/` (devices, requests, files, log).
+- `http.ts`: `handleDeviceLink` (device calls, tailnet listener only) and
+  `handleDevicesApi` (local API for agents and the UI).
+- `agent.ts`: `omg device ...`, the device side and the pairing commands.
+
+## Device config
+
+`~/.omg-device/config.json` on the device. Example:
+
+```json
+{
+  "grant": { "maxMinutes": 120, "idleMinutes": 15 },
+  "actions": {
+    "snap": {
+      "approval": "in-grant",
+      "argv": ["/Users/me/erase-tester/erase-mac/target/debug/erase-app",
+               "--snap", "{out}/{scene}.png", "--scene", "{scene}",
+               ["--theme", "{theme}"]],
+      "args": { "scene": { "pattern": "[a-z0-9-]+" },
+                "theme": { "enum": ["light", "dark"], "optional": true } },
+      "timeoutSec": 300
+    }
+  }
+}
+```
+
+- `argv[0]` must be an absolute path. Each value fills one argument and cannot
+  start with `-` unless the rule has `"allowDash": true`.
+- Every argument needs a `pattern` or an `enum`.
+- An inner list is left out when an optional argument in it is missing.
+- `{out}` is the request's output folder. Only plain files in it go back.
+- Run `omg device check snap scene=home` to see the exact command.
+
+## Setup
+
+1. On the omg computer: `omg device pair test-mac`.
+2. On the device: write the config, then run the printed
+   `omg device link --server ... --code ...`.
+3. On the device: `omg device run` starts a grant. Ctrl-C ends it.
+4. To unlink: `omg device remove test-mac` on the omg computer, and
+   `omg device unlink` on the device.
+
+The device must reach `/api/devices/link/*` on the `LFG_TAILNET_PORT`
+listener. With `tailscale serve` pointed at that port, nothing else is needed.
+A box that puts its own proxy in front (Caddy with an identity gate) needs a
+route for `/api/devices/link/*` to that port. Behind such a proxy the server
+sees `127.0.0.1`, so the address pin is off and the signature is the check.
 
 ## Known risk
 

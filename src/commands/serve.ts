@@ -7450,6 +7450,18 @@ a{color:#60a5fa}
         }
       }
 
+      // ---- linked devices (src/devices): agents ask, the device approves ----
+      // Device calls themselves never arrive here; only the tailnet listener
+      // routes /api/devices/link/*. This is the local side: list, pair, request.
+      if (path.startsWith("/api/devices")) {
+        const { handleDevicesApi } = await import("../devices/http.ts");
+        const handled = await handleDevicesApi(req, path, url, {
+          isBot: async () => !!(await callerBotId(req)),
+          callerSessionId: req.headers.get("x-omg-caller-session-id")?.trim() || undefined,
+        });
+        if (handled) return handled;
+      }
+
       // ---- event hooks (src/events): source → new events → action ----
       // A hook runs scripts unattended, so a bot caller may not create, run or
       // delete one. Bots have no shell; a hook would give them one.
@@ -12495,7 +12507,13 @@ a{color:#60a5fa}
       port: TAILNET_PORT,
       hostname: "127.0.0.1",
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
-      fetch(req) {
+      async fetch(req) {
+        // Linked devices sign every call (src/devices). They are the one
+        // tailnet caller that does not need a person's sign-in.
+        if (new URL(req.url).pathname.startsWith("/api/devices/link/")) {
+          const { handleDeviceLink } = await import("../devices/http.ts");
+          return handleDeviceLink(req);
+        }
         const gated = tailnetGateResponse(req);
         if (gated) {
           if (gated.status === 401) console.warn(`[tailnet-gate] 401 ${req.method} ${new URL(req.url).pathname}`);
