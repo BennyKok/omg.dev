@@ -1036,6 +1036,62 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_panel",
+    {
+      title: "Show Your Status In The Side Panel",
+      description:
+        "Keep a short, current status for the person in your session's side panel, next to the chat, and on your row in a parent session's team list. Use it for long-running work, so the person sees where it stands without reading the transcript: a headline, a few lines of markdown, key numbers, and one chart (progress over time, rows per table). Each call replaces the whole status. Update it when something meaningful changes, not every step. Call with clear: true when the work is done. It is data, not HTML: omg.dev renders it in its own design. Questions for the person go through omg_input, not here.",
+      inputSchema: {
+        headline: z
+          .string()
+          .max(120)
+          .optional()
+          .describe("Required unless clear is set. One plain line: where the work stands now, such as \"Migrating tables: 12 of 40 done\"."),
+        text: z.string().max(4000).optional().describe("Optional markdown: what is happening, what is next, what is at risk. Keep it short."),
+        stats: z
+          .array(
+            z.object({
+              label: z.string().min(1).max(40),
+              value: z.union([z.string().min(1).max(40), z.number()]),
+              tone: z.enum(["good", "warn", "bad"]).optional().describe("Colour the value: good, warn, or bad."),
+            }),
+          )
+          .max(8)
+          .optional()
+          .describe("Up to 8 key numbers, such as {label: \"Rows copied\", value: \"1.2M\"}."),
+        chart: z
+          .object({
+            title: z.string().max(80).optional(),
+            kind: z.enum(["line", "bar"]).optional().describe("line (default) for change over time, bar to compare items."),
+            unit: z.string().max(16).optional().describe("Unit shown after values, such as \"%\" or \"rows\"."),
+            points: z
+              .array(z.object({ label: z.string().max(24), value: z.number() }))
+              .min(1)
+              .max(120),
+          })
+          .optional()
+          .describe("One chart from plain numbers. Send the full series each time; the last 120 points are kept."),
+        clear: z.boolean().optional().describe("Remove the status from the panel."),
+      },
+    },
+    async ({ headline, text, stats, chart, clear }) => {
+      const sid = await ownedSessionId();
+      const path = `/api/sessions/${encodeURIComponent(sid)}/panel`;
+      if (clear) {
+        await api(path, { method: "DELETE", headers: { "X-OMG-Session-ID": sid } });
+        return result({ cleared: true, sessionId: shortSid(sid) });
+      }
+      if (!headline?.trim()) throw new Error("headline is required unless clear is set");
+      const data = await api<{ status?: unknown }>(path, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
+        body: JSON.stringify({ headline, text, stats, chart }),
+      });
+      return result({ shown: true, sessionId: shortSid(sid), status: data.status });
+    },
+  );
+
+  server.registerTool(
     "omg_publish_artifact",
     {
       title: "Publish HTML Artifact In omg.dev",

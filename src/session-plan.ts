@@ -17,6 +17,7 @@
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
+import { readPanelStatus, type PanelStatus } from "./session-panel.ts";
 
 export type PlanItemStatus = "pending" | "in_progress" | "completed";
 export type PlanItem = { id: string; text: string; activeText?: string; status: PlanItemStatus };
@@ -30,7 +31,14 @@ export type PlanAgent = {
   endedAt?: number;
   detail?: string;
 };
-export type SessionPlan = { source: string; updatedAt: number; items: PlanItem[]; agents: PlanAgent[] };
+export type SessionPlan = {
+  source: string;
+  updatedAt: number;
+  items: PlanItem[];
+  agents: PlanAgent[];
+  /** The agent's own status (src/session-panel.ts). Never in the plan file: added on read. */
+  status?: PanelStatus;
+};
 
 /**
  * A few hundred bytes of a plan, for the session list: progress, the current
@@ -43,13 +51,15 @@ export type SessionPlanSummary = {
   current?: string;
   running: Array<{ title: string; kind?: string; detail?: string }>;
   finished: number;
+  /** The agent's status headline, when it keeps one. */
+  headline?: string;
 };
 
 const SUMMARY_RUNNING = 5;
 const SUMMARY_TEXT = 120;
 
 export function summarizeSessionPlan(plan: SessionPlan | null): SessionPlanSummary | null {
-  if (!plan || (!plan.items.length && !plan.agents.length)) return null;
+  if (!plan || (!plan.items.length && !plan.agents.length && !plan.status)) return null;
   const current = plan.items.find((i) => i.status === "in_progress");
   const running = plan.agents.filter((a) => a.status === "running");
   return {
@@ -65,6 +75,7 @@ export function summarizeSessionPlan(plan: SessionPlan | null): SessionPlanSumma
         ...(a.detail ? { detail: clip(a.detail, SUMMARY_TEXT) } : {}),
       })),
     finished: plan.agents.length - running.length,
+    ...(plan.status ? { headline: clip(plan.status.headline, SUMMARY_TEXT) } : {}),
   };
 }
 
@@ -110,6 +121,18 @@ export function readSessionPlan(sessionId: string): SessionPlan | null {
   }
   cache.set(path, { mtimeMs: st.mtimeMs, size: st.size, plan });
   return plan;
+}
+
+/**
+ * The plan with the agent's status folded in: what live-ws sends and what the
+ * session list summarizes. Two files, two owners (the harness writes the plan,
+ * serve writes the status); readers see one shape.
+ */
+export function readSessionView(sessionId: string): SessionPlan | null {
+  const plan = readSessionPlan(sessionId);
+  const status = readPanelStatus(sessionId);
+  if (!status) return plan;
+  return { ...(plan ?? { source: "omg", updatedAt: status.updatedAt, items: [], agents: [] }), status };
 }
 
 /** Replace the session's plan. Atomic: a reader never sees half a file. */

@@ -196,6 +196,37 @@ export interface OmgSessionPlan {
   updatedAt: number;
   items: OmgPlanItem[];
   agents: OmgPlanAgent[];
+  /** The agent's own status, set with the omg_panel tool. */
+  status?: OmgPanelStatus;
+}
+
+/** One key number in an agent's status. */
+export interface OmgPanelStat {
+  label: string;
+  value: string;
+  tone?: "good" | "warn" | "bad";
+}
+
+/** One chart in an agent's status: plain numbers, drawn by the client. */
+export interface OmgPanelChart {
+  title?: string;
+  kind: "line" | "bar";
+  unit?: string;
+  points: Array<{ label: string; value: number }>;
+}
+
+/**
+ * What a long-running agent wants the person to see at a glance. Data only:
+ * the client renders it in its own design.
+ */
+export interface OmgPanelStatus {
+  updatedAt: number;
+  /** One line: where the work stands. */
+  headline: string;
+  /** Markdown. */
+  text?: string;
+  stats?: OmgPanelStat[];
+  chart?: OmgPanelChart;
 }
 
 export type OmgLiveChannelKind =

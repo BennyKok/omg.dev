@@ -1,5 +1,6 @@
 import { cleanupSessionMcpConfigs } from "../private-mcp-config.ts";
-import { readSessionPlan, summarizeSessionPlan, type SessionPlanSummary } from "../session-plan.ts";
+import { readSessionView, summarizeSessionPlan, type SessionPlanSummary } from "../session-plan.ts";
+import { handlePanelRequest } from "../session-panel.ts";
 import { existingNoProjectWorkspace, NO_PROJECT, noProjectWorkspacePath, prepareNoProjectWorkspace } from "../no-project-chat.ts";
 import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app-builder.ts";
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
@@ -1707,7 +1708,7 @@ export function sessionListRow(session: Session): SessionListRow {
   const { cmd: _dropped, ...row } = session;
   // The agent's plan in brief, so a parent's Team view can show what each
   // child is doing (see src/session-plan.ts). mtime-cached; absent when none.
-  const plan = session.sessionId ? summarizeSessionPlan(readSessionPlan(session.sessionId)) : null;
+  const plan = session.sessionId ? summarizeSessionPlan(readSessionView(session.sessionId)) : null;
   return plan ? { ...row, plan } : row;
 }
 
@@ -10378,6 +10379,14 @@ a{color:#60a5fa}
             });
           }
           return new Response(file, { headers: baseHeaders });
+        }
+      }
+
+      // The agent's status in the side panel (src/session-panel.ts, omg_panel).
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/panel$/);
+        if (m && (req.method === "PUT" || req.method === "DELETE")) {
+          return handlePanelRequest(req, m[1], callerSessionHeader(req));
         }
       }
 

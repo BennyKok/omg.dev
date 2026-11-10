@@ -171,6 +171,7 @@ describe("omg.dev runtime capabilities", () => {
       "omg_ship",
       "omg_request_secret",
       "omg_display_image / omg_display_video / omg_display_file",
+      "omg_panel",
       "omg_input",
       "omg_list_threads / omg_read_thread / omg_send_thread_message",
       "omg_find_sessions",

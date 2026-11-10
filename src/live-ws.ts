@@ -40,7 +40,7 @@ import {
   type ImageArtifactMessage,
 } from "./artifacts.ts";
 import { listQueue, reconcileQueued } from "./sendq.ts";
-import { readSessionPlan, type SessionPlan } from "./session-plan.ts";
+import { readSessionView, type SessionPlan } from "./session-plan.ts";
 import { listConversationsShared } from "./conversations.ts";
 import { traceLog } from "./trace-log.ts";
 
@@ -1044,14 +1044,15 @@ export function createLiveWsSupport(opts: {
     publishSid(tail.sid, "queue", { queue });
   };
 
-  // The agent's to-do list and sub-agents (src/session-plan.ts). The harness
-  // writes it under its own id, which is the sid for every current agent; the
-  // registry id is the fallback for a session opened under another of its ids.
+  // The agent's to-do list and sub-agents (src/session-plan.ts), with its own
+  // status (src/session-panel.ts) folded in. The harness writes the plan under
+  // its own id, which is the sid for every current agent; the registry id is
+  // the fallback for a session opened under another of its ids.
   const pollPlan = (tail: SidTail) => {
-    let plan = readSessionPlan(tail.sid);
+    let plan = readSessionView(tail.sid);
     if (!plan) {
       const entry = findEntryByAnyId(tail.sid);
-      if (entry && entry.sessionId !== tail.sid) plan = readSessionPlan(entry.sessionId);
+      if (entry && entry.sessionId !== tail.sid) plan = readSessionView(entry.sessionId);
     }
     const sig = plan ? JSON.stringify(plan) : "";
     if (sig === tail.lastPlan) return;

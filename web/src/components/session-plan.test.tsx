@@ -5,6 +5,9 @@ import type { OmgSessionPlan } from "@omg-dev/protocol";
 
 const { SessionPlanChip, SessionPlanView, planActionMessage, planProgress, useSessionPlan } = await import("./session-plan");
 import type { TeamMember } from "@/lib/session-team";
+import { createSameOriginTransport } from "@omg-dev/client";
+import { configureOmgTransport } from "../lib/omg-client";
+const { AskProvider } = await import("./ask-center");
 
 const plan: OmgSessionPlan = {
   source: "claude",
@@ -193,6 +196,7 @@ describe("team", () => {
   const team: TeamMember[] = [
     {
       id: "c1",
+      nativeId: null,
       title: "APPS OWNER: move every app",
       agent: "Codex",
       state: "working",
@@ -200,10 +204,10 @@ describe("team", () => {
       lastActivityAt: now - 120_000,
       plan: { done: 2, total: 5, current: "Move games", running: [{ title: "Check parity", detail: "Using Bash" }], finished: 1 },
       children: [
-        { id: "g1", title: "GROUP B mover", agent: "Codex", state: "blocked", activity: "Out of credits", lastActivityAt: now, plan: null, children: [] },
+        { id: "g1", nativeId: "g1-native", title: "GROUP B mover", agent: "Codex", state: "blocked", activity: "Out of credits", lastActivityAt: now, plan: null, children: [] },
       ],
     },
-    { id: "c2", title: "Storage cleanup", agent: "Claude", state: "idle", activity: "Waiting for your OK", lastActivityAt: now - 3 * 3600_000, plan: null, children: [] },
+    { id: "c2", nativeId: null, title: "Storage cleanup", agent: "Claude", state: "idle", activity: "Waiting for your OK", lastActivityAt: now - 3 * 3600_000, plan: null, children: [] },
   ];
 
   test("shows every child session, nested, with its state, activity, progress and sub-agents", () => {
@@ -243,5 +247,138 @@ describe("team", () => {
     expect(ui.query('[data-testid="session-plan-chip"]')!.getAttribute("aria-label")).toBe(
       "Plan: 1 of 3 done, now Writing the tests, 2 agents working",
     );
+  });
+});
+
+describe("status", () => {
+  const status = {
+    updatedAt: Date.now() - 5 * 60_000,
+    headline: "Migrating tables: 12 of 40 done",
+    text: "Next: **orders**.",
+    stats: [
+      { label: "Rows copied", value: "1.2M" },
+      { label: "Errors", value: "3", tone: "bad" as const },
+    ],
+    chart: { kind: "line" as const, title: "Tables done", points: [{ label: "09:00", value: 2 }, { label: "10:00", value: 7 }, { label: "11:00", value: 12 }] },
+  };
+
+  test("shows the agent's headline, numbers, chart and text before the plan", async () => {
+    ui.render(<SessionPlanView plan={{ ...plan, status }} send={async () => {}} />);
+    await ui.flushAsync();
+    const section = ui.query('[data-testid="plan-status"]')!;
+    expect(section.textContent).toContain("Migrating tables: 12 of 40 done");
+    expect(section.textContent).toContain("5m ago");
+    const stats = ui.queryAll('[data-testid="panel-stat"]');
+    expect(stats.map((s) => s.textContent)).toEqual(["Rows copied1.2M", "Errors3"]);
+    expect(stats[1].querySelector("dd")!.className).toContain("text-red-600");
+    const chart = ui.query('[data-testid="panel-chart"]')!;
+    expect(chart.getAttribute("data-kind")).toBe("line");
+    expect(chart.querySelector("svg")!.getAttribute("aria-label")).toBe("Tables done: 3 points, latest 11:00 12");
+    expect(chart.querySelector("polyline")).not.toBeNull();
+    expect(section.textContent).toContain("orders");
+    // The status leads; the to-do list follows it.
+    const items = ui.queryAll('[data-testid="plan-item"]');
+    expect(section.compareDocumentPosition(items[0]) & window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  test("a few bars get a labeled row each", () => {
+    const bars = { kind: "bar" as const, unit: "rows", points: [{ label: "users", value: 300 }, { label: "orders", value: 1500 }] };
+    ui.render(<SessionPlanView plan={{ source: "omg", updatedAt: 1, items: [], agents: [], status: { ...status, chart: bars } }} send={async () => {}} />);
+    const chart = ui.query('[data-testid="panel-chart"]')!;
+    expect(chart.getAttribute("data-kind")).toBe("bar");
+    expect(chart.textContent).toContain("users300 rows");
+    expect(chart.textContent).toContain("orders1.5K rows");
+    // A status alone is enough: no "No to-do list yet".
+    expect(ui.text()).not.toContain("No to-do list yet");
+  });
+
+  test("the chip shows for a status alone and leads with its headline", () => {
+    ui.render(<SessionPlanChip plan={{ source: "omg", updatedAt: 1, items: [], agents: [], status }} onClick={() => {}} />);
+    expect(ui.query('[data-testid="session-plan-chip"]')!.getAttribute("aria-label")).toBe(
+      "Plan: now Migrating tables: 12 of 40 done",
+    );
+  });
+
+  test("a child's headline is its line in the team, unless it is blocked", () => {
+    const team: TeamMember[] = [
+      { id: "c1", nativeId: null, title: "Mover", agent: "Codex", state: "working", activity: "Running a command", lastActivityAt: null, plan: { done: 0, total: 0, running: [], finished: 0, headline: "Moved 4 of 9 apps" }, children: [] },
+      { id: "c2", nativeId: null, title: "Blocked", agent: "Codex", state: "blocked", activity: "Out of credits", lastActivityAt: null, plan: { done: 0, total: 0, running: [], finished: 0, headline: "Moved 1 of 9" }, children: [] },
+    ];
+    ui.render(<SessionPlanView plan={null} team={team} send={async () => {}} />);
+    const rows = ui.queryAll('[data-testid="team-member"]');
+    expect(rows[0].textContent).toContain("Moved 4 of 9 apps");
+    expect(rows[0].textContent).not.toContain("Running a command");
+    expect(rows[1].textContent).toContain("Out of credits");
+  });
+});
+
+describe("needs you", () => {
+  const originalFetch = globalThis.fetch;
+  let calls: { url: string; body: unknown }[] = [];
+  let open: Record<string, unknown>[] = [];
+  const team: TeamMember[] = [
+    {
+      id: "c1", nativeId: null, title: "APPS OWNER", agent: "Codex", state: "working", activity: "", lastActivityAt: null, plan: null,
+      children: [{ id: "g1", nativeId: "g1-native", title: "GROUP B mover", agent: "Codex", state: "blocked", activity: "", lastActivityAt: null, plan: null, children: [] }],
+    },
+  ];
+
+  beforeEach(() => {
+    calls = [];
+    open = [
+      { id: "q1", question: "Delete the **old** bucket?", options: ["Delete it", "Keep it"], sessionId: "g1-native", createdAt: 2 },
+      { id: "q2", question: "Which region?", sessionId: "c1", createdAt: 1 },
+      { id: "q3", question: "Not on this team", options: ["Yes"], sessionId: "other", createdAt: 3 },
+    ];
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input instanceof Request ? input.url : input);
+      calls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : null });
+      if (url.includes("/api/ask?status=open")) return Response.json({ questions: open });
+      return Response.json({});
+    }) as typeof fetch;
+    configureOmgTransport(createSameOriginTransport());
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("lists the team's open questions, oldest first, answerable in place", async () => {
+    const opened: string[] = [];
+    ui.render(
+      <AskProvider>
+        <SessionPlanView plan={null} team={team} send={async () => {}} onOpenMember={(id) => opened.push(id)} />
+      </AskProvider>,
+    );
+    await ui.flushAsync();
+    const needs = ui.queryAll('[data-testid="team-need"]');
+    expect(needs.map((n) => n.getAttribute("data-id"))).toEqual(["q2", "q1"]);
+    expect(ui.text()).toContain("Needs you · 2");
+    expect(needs[1].textContent).toContain("GROUP B mover");
+    expect(needs[1].textContent).toContain("Delete the old bucket?");
+
+    // No options: the way to answer is the session that asked.
+    await click(button("Open to reply"));
+    expect(opened).toEqual(["c1"]);
+
+    await click(button("Delete it"));
+    const answer = calls.find((c) => c.url.endsWith("/api/ask/q1/answer"));
+    expect(answer?.body).toEqual({ answer: "Delete it", via: "web" });
+    expect(ui.queryAll('[data-testid="team-need"]').map((n) => n.getAttribute("data-id"))).toEqual(["q2"]);
+  });
+
+  test("the chip counts them", async () => {
+    ui.render(
+      <AskProvider>
+        <SessionPlanChip plan={null} team={team} onClick={() => {}} />
+      </AskProvider>,
+    );
+    await ui.flushAsync();
+    expect(ui.query('[data-testid="session-plan-chip"]')!.getAttribute("aria-label")).toBe("Plan: 2 need you, 1 agent working");
+  });
+
+  test("without the questions feed the view still renders", () => {
+    ui.render(<SessionPlanView plan={null} team={team} send={async () => {}} />);
+    expect(ui.query('[data-testid="plan-needs"]')).toBeNull();
+    expect(ui.queryAll('[data-testid="team-member"]')).toHaveLength(2);
   });
 });

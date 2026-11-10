@@ -26,6 +26,7 @@ import {
 import type { OmgTranscriptSubscribe } from "@/lib/omg-chat-transport";
 import { openSessionRef } from "@/lib/session-ref-link";
 import { flattenTeam, useSessionTeam, type TeamMember } from "@/lib/session-team";
+import { PanelStatusSection, TeamNeedsSection, useTeamQuestions } from "./session-panel-sections";
 
 export type SessionPlan = OmgSessionPlan;
 
@@ -45,11 +46,11 @@ export function planProgress(plan: SessionPlan | null): {
   };
 }
 
-/** True when the agent's own plan has anything to show. */
+/** True when the agent's own plan or status has anything to show. */
 export const hasPlan = (plan: SessionPlan | null): plan is SessionPlan =>
-  !!plan && (plan.items.length > 0 || plan.agents.length > 0);
+  !!plan && (plan.items.length > 0 || plan.agents.length > 0 || !!plan.status);
 
-/** True when the pane has anything to show: the plan, or a team of child sessions. */
+/** True when the pane has anything to show: the plan, the status, or a team of child sessions. */
 export const hasPanel = (plan: SessionPlan | null, team: readonly TeamMember[] = []): boolean =>
   hasPlan(plan) || team.length > 0;
 
@@ -167,12 +168,17 @@ export function SessionPlanChip({
   pressed?: boolean;
   className?: string;
 }) {
+  const needs = useTeamQuestions(team).length;
   if (!hasPanel(plan, team)) return null;
   const { done, total, current, running } = planProgress(plan);
   const working = running + teamWorking(team);
+  // On wide screens the chip says what the agent is on: its own headline
+  // first, then the current step.
+  const now = plan?.status?.headline || (current ? current.activeText || current.text : "");
   const parts = [
+    needs ? `${needs} need${needs === 1 ? "s" : ""} you` : "",
     total ? `${done} of ${total} done` : "",
-    current ? `now ${current.activeText || current.text}` : "",
+    now ? `now ${now}` : "",
     working ? `${working} agent${working === 1 ? "" : "s"} working` : "",
   ].filter(Boolean);
   const label = `Plan${parts.length ? `: ${parts.join(", ")}` : ""}`;
@@ -189,11 +195,15 @@ export function SessionPlanChip({
       } ${className}`}
     >
       <ListTodo className="size-3.5 shrink-0 text-muted-foreground" />
-      {total ? <span className="shrink-0 tabular-nums">{done}/{total}</span> : null}
-      {current && !pressed ? (
-        <span className="hidden max-w-[16rem] truncate text-muted-foreground lg:inline">
-          {current.activeText || current.text}
+      {needs ? (
+        <span className="flex shrink-0 items-center gap-0.5 text-amber-600 dark:text-amber-400">
+          <CircleAlert className="size-3.5" />
+          <span className="tabular-nums">{needs}</span>
         </span>
+      ) : null}
+      {total ? <span className="shrink-0 tabular-nums">{done}/{total}</span> : null}
+      {now && !pressed ? (
+        <span className="hidden max-w-[16rem] truncate text-muted-foreground lg:inline">{now}</span>
       ) : null}
       {working ? (
         <span className="flex shrink-0 items-center gap-0.5 text-sky-600 dark:text-sky-400">
@@ -426,7 +436,9 @@ const TEAM_WORD: Record<TeamMember["state"], string> = { working: "Working", blo
  */
 function TeamRow({ member, now, onOpen }: { member: TeamMember; now: number; onOpen: (id: string) => void }) {
   const plan = member.plan;
-  const line = member.activity || plan?.current || "";
+  // What the child says about itself beats what it did last ("Running a
+  // command"); a blocked child's reason beats both.
+  const line = (member.state === "blocked" ? member.activity : "") || plan?.headline || member.activity || plan?.current || "";
   return (
     <li data-testid="team-member" data-state={member.state} data-id={member.id}>
       <button
@@ -531,7 +543,9 @@ export function SessionPlanView({
   const [showFinished, setShowFinished] = useState(false);
   const { state, run } = useSender(send);
   const { done, total, running } = planProgress(plan);
-  const now = useTick(running > 0 || team.length > 0);
+  const needs = useTeamQuestions(team);
+  const status = plan?.status;
+  const now = useTick(running > 0 || team.length > 0 || !!status);
   const items = plan?.items ?? [];
   // Newest first. Running sub-agents stay in view; finished ones fold away.
   const agents = [...(plan?.agents ?? [])].reverse();
@@ -549,8 +563,10 @@ export function SessionPlanView({
   return (
     <div data-testid="session-plan" className={`relative flex min-h-0 flex-1 flex-col ${className}`}>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[calc(1rem+var(--lfg-safe-bottom,0px))]">
+        <TeamNeedsSection needs={needs} onOpen={onOpenMember} />
+        {status ? <PanelStatusSection status={status} ago={ago(now - status.updatedAt)} /> : null}
         {total ? (
-          <div className="flex items-center gap-3 px-4 pb-1.5 pt-3">
+          <div className={`flex items-center gap-3 px-4 pb-1.5 pt-3 ${status ? "mx-4 mt-3 border-t border-border/60 px-0" : ""}`}>
             <div
               className="h-1 flex-1 overflow-hidden rounded-full bg-muted"
               role="progressbar"
@@ -579,7 +595,7 @@ export function SessionPlanView({
               />
             ))}
           </ul>
-        ) : team.length ? null : (
+        ) : team.length || status ? null : (
           <div className="px-4 py-8 text-center">
             <ListTodo className="mx-auto size-5 text-muted-foreground/50" aria-hidden />
             <p className="mt-2 text-[13px] text-muted-foreground">No to-do list yet. When the agent plans its work, the steps show here.</p>

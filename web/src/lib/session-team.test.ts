@@ -32,11 +32,11 @@ describe("buildTeam", () => {
   test("finds children that point at the native id, and survives a cycle", () => {
     const rows = [
       row("lead", null, { nativeSessionId: "native-lead" }),
-      { ...row("c", null), parentNativeSessionId: "native-lead" },
+      { ...row("c", null), parentNativeSessionId: "native-lead", nativeSessionId: "native-c" },
       row("loop1", "loop2"),
       row("loop2", "loop1"),
     ];
-    expect(buildTeam(rows, "lead").map((m) => m.id)).toEqual(["c"]);
+    expect(buildTeam(rows, "lead").map((m) => [m.id, m.nativeId])).toEqual([["c", "native-c"]]);
     const loop = buildTeam(rows, "loop1");
     expect(flattenTeam(loop).map((m) => m.id)).toEqual(["loop2"]);
   });

@@ -14,6 +14,8 @@ export type TeamPlanSummary = {
   current?: string;
   running: Array<{ title: string; kind?: string; detail?: string }>;
   finished: number;
+  /** The child's own status headline (omg_panel), when it keeps one. */
+  headline?: string;
 };
 
 /** The fields of a session-list row the team view reads. */
@@ -39,6 +41,8 @@ export type TeamState = "working" | "blocked" | "idle";
 
 export type TeamMember = {
   id: string;
+  /** The agent's own id for the session, when it differs. Questions may carry either. */
+  nativeId: string | null;
   title: string;
   agent: string;
   state: TeamState;
@@ -125,6 +129,7 @@ export function buildTeam(rows: readonly TeamSessionRow[], sid: string | null | 
       .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))
       .map((k) => ({
         id: k.sessionId!,
+        nativeId: k.nativeSessionId && k.nativeSessionId !== k.sessionId ? k.nativeSessionId : null,
         title: teamTitle(k),
         agent: agentName(k),
         state: teamState(k),

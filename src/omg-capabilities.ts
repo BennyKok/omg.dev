@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-11-01.1";
+export const OMG_CAPABILITY_VERSION = "2026-11-10.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -39,6 +39,12 @@ export const OMG_CAPABILITIES = [
     tool: "omg_display_image / omg_display_video / omg_display_file",
     useWhen: "A local screenshot, recording, or file would be useful evidence in the omg.dev transcript.",
     guidance: "Use omg_display_file for a PDF, an audio clip, a CSV, a log, or any other document. Use these to show artifacts, not to talk: communicate with the human through normal assistant messages.",
+  },
+  {
+    tool: "omg_panel",
+    useWhen: "Work runs long enough that the person needs to see where it stands without reading the transcript: a migration, a batch job, a multi-hour build-out, a team of child sessions.",
+    guidance:
+      "Set a one-line headline, optional short markdown, up to 8 key numbers and one chart. Each call replaces the whole status; update it when something meaningful changes, not every step, and clear it when the work is done. Questions go through omg_input, not the panel.",
   },
   {
     tool: "omg_input",
@@ -96,6 +102,7 @@ export const OMG_MCP_INSTRUCTIONS = [
   // is one of the reasons bot chats behaved like task sessions.
   "In a task session, publish every verified result with omg_ship; work that is never shipped never reaches the human. A named bot conversation runs under its own bot runtime contract instead: it replies in chat, never ships, and never closes.",
   "Decide autonomously and keep working: do not ask to check in, to confirm the next step, or to approve work already in scope. Use omg_input (or your own AskUserQuestion tool) only for a genuinely irreversible, external, or ambiguous decision, with 2-4 options. Use omg.dev-managed delegation only when delegation is explicitly requested.",
+  "In long-running work, keep a current status in the side panel with omg_panel (a headline, key numbers, a chart); update it on real progress and clear it when done.",
   "Recurring scheduled work belongs to the auto agent tools (omg_list_auto_agents, omg_compose_auto_agent, omg_save_auto_agent, omg_run_auto_agent, omg_list_findings).",
   "When a project needs an API key or token the user has not given, use omg_request_secret; never ask for a secret in chat.",
   `Session ids are returned in short form (${SHORT_SESSION_ID_LENGTH}-char prefix, like a git short sha). Pass them back exactly as given — any unambiguous prefix resolves to the full id.`,

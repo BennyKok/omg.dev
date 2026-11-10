@@ -74,6 +74,11 @@ type AskContextValue = {
 
 const AskContext = createContext<AskContextValue | null>(null);
 
+/** The questions feed, or null outside <AskProvider> (a view rendered on its own). */
+export function useOptionalAsk(): AskContextValue | null {
+  return useContext(AskContext);
+}
+
 export function useAsk(): AskContextValue {
   const ctx = useContext(AskContext);
   if (!ctx) throw new Error("useAsk must be used within <AskProvider>");
