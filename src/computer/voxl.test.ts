@@ -14,19 +14,25 @@ const fakeBin = () => {
 
 test("voxl is the default stream when its binary is installed", () => {
   const { bin } = fakeBin();
-  expect(computerStream({ OMG_VOXL_BIN: bin })).toBe("voxl");
-  expect(computerStream({ OMG_COMPUTER_STREAM: "voxl", OMG_VOXL_BIN: bin })).toBe("voxl");
+  expect(computerStream({ OMG_VOXL_BIN: bin }, "linux")).toBe("voxl");
+  expect(computerStream({ OMG_COMPUTER_STREAM: "voxl", OMG_VOXL_BIN: bin }, "linux")).toBe("voxl");
+});
+
+test("darwin always streams VNC", () => {
+  const { bin } = fakeBin();
+  expect(computerStream({ OMG_VOXL_BIN: bin }, "darwin")).toBe("vnc");
+  expect(computerStream({ OMG_COMPUTER_STREAM: "voxl", OMG_VOXL_BIN: bin }, "darwin")).toBe("vnc");
 });
 
 test("a box can opt out of voxl", () => {
   const { bin } = fakeBin();
-  expect(computerStream({ OMG_COMPUTER_STREAM: "vnc", OMG_VOXL_BIN: bin })).toBe("vnc");
-  expect(computerStream({ OMG_COMPUTER_STREAM: " VNC ", OMG_VOXL_BIN: bin })).toBe("vnc");
+  expect(computerStream({ OMG_COMPUTER_STREAM: "vnc", OMG_VOXL_BIN: bin }, "linux")).toBe("vnc");
+  expect(computerStream({ OMG_COMPUTER_STREAM: " VNC ", OMG_VOXL_BIN: bin }, "linux")).toBe("vnc");
 });
 
 test("without the binary the stream is VNC", () => {
-  expect(computerStream({ OMG_VOXL_BIN: "/nonexistent/voxl" })).toBe("vnc");
-  expect(computerStream({ OMG_COMPUTER_STREAM: "voxl", OMG_VOXL_BIN: "/nonexistent/voxl" })).toBe("vnc");
+  expect(computerStream({ OMG_VOXL_BIN: "/nonexistent/voxl" }, "linux")).toBe("vnc");
+  expect(computerStream({ OMG_COMPUTER_STREAM: "voxl", OMG_VOXL_BIN: "/nonexistent/voxl" }, "linux")).toBe("vnc");
   expect(voxlBinary({ OMG_VOXL_BIN: "/nonexistent/voxl" })).toBeNull();
 });
 

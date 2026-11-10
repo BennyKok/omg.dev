@@ -4,8 +4,10 @@ import { join } from "node:path";
 
 // Each worker has an isolated HOME and module singleton. These are real OS
 // processes and sockets, not mocks of kill(), /proc, or the desktop lifecycle.
+// The fixtures write /proc/self/comm and read /proc stat fields, so they only
+// run on Linux; darwin uses `ps` process identity instead.
 for (const scenario of ["stale-start", "stale-stop", "stale-boot", "legacy-foreign", "mixed-wm", "missing-identity", "adopt-stop", "record-stop"]) {
-  test(`desktop process identity: ${scenario}`, async () => {
+  test.skipIf(process.platform !== "linux")(`desktop process identity: ${scenario}`, async () => {
     const base = join(process.env.HOME ?? ".", ".cache", "lfg", "tmp");
     mkdirSync(base, { recursive: true });
     const home = mkdtempSync(join(base, "desktop-identity-"));

@@ -21,7 +21,7 @@
 
 import { spawn } from "node:child_process";
 import type { KioskFrame, KioskRect } from "../../packages/protocol/src/computer-kiosk.ts";
-import { cdpWebSocketUrl, chromePath, desktopConfig } from "./desktop.ts";
+import { cdpWebSocketUrl, chromePath, desktopCaptureScale, desktopConfig, desktopScreenPoints } from "./desktop.ts";
 
 /** An iPhone 15 is 390 CSS pixels wide. */
 export const KIOSK_WIDTH = 390;
@@ -36,8 +36,12 @@ export interface KioskDeps {
   cdp(): Promise<Cdp | null>;
   /** Open `url` in a new app window of the desktop's browser. */
   launchApp(url: string): void;
-  /** The desktop size in pixels. */
+  /** The streamed framebuffer size, for cropping the stream. */
   screen(): { width: number; height: number } | null;
+  /** The display in window coordinates, for placing the kiosk window. */
+  windowScreen?(): { width: number; height: number } | null;
+  /** Framebuffer pixels per CSS pixel, when the stream is scaled. */
+  captureScale?(): number;
   sleep?(ms: number): Promise<void>;
   /** How long to wait for the app window to appear. */
   launchWaitMs?: number;
@@ -96,8 +100,21 @@ export function kioskFrameFrom(g: PageGeometry, screen: { width: number; height:
   };
 }
 
+/** CDP geometry is CSS pixels; a scaled darwin stream is framebuffer pixels. */
+function scaleGeometry(g: PageGeometry, scale: number): PageGeometry {
+  if (scale === 1) return g;
+  const s = (n: number) => n * scale;
+  return {
+    ...g,
+    sx: s(g.sx), sy: s(g.sy), ow: s(g.ow), oh: s(g.oh), iw: s(g.iw), ih: s(g.ih),
+    inputs: g.inputs.map((r) => ({ x: s(r.x), y: s(r.y), width: s(r.width), height: s(r.height) })),
+  };
+}
+
 export function createKiosk(deps: KioskDeps) {
   const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  /** Window placement uses display points; the stream uses framebuffer pixels. */
+  const windowScreen = () => deps.windowScreen?.() ?? deps.screen();
   /** The kiosk page, then the popups it opened, newest last. */
   let stack: string[] = [];
   const sessions = new Map<string, string>();
@@ -119,7 +136,7 @@ export function createKiosk(deps: KioskDeps) {
 
   /** Put a window on the kiosk rectangle, at the right edge of the desktop, and raise it. */
   async function place(c: Cdp, targetId: string): Promise<void> {
-    const screen = deps.screen();
+    const screen = windowScreen();
     if (!screen) return;
     const { windowId } = await c.send("Browser.getWindowForTarget", { targetId }) as { windowId: number };
     // A maximised or minimised window ignores new bounds, and the state must
@@ -162,7 +179,7 @@ export function createKiosk(deps: KioskDeps) {
       await sleep(120);
       await c.send("Browser.setWindowBounds", { windowId, bounds: { windowState: "normal" } });
       // A restored window can come back at its old size.
-      const screen = deps.screen();
+      const screen = windowScreen();
       if (screen) await fit(c, windowId, screen);
     } catch { /* A window that cannot move still shows. */ }
     await c.send("Target.activateTarget", { targetId }).catch(() => {});
@@ -259,7 +276,7 @@ export function createKiosk(deps: KioskDeps) {
     const sid = await session(c, top);
     const evaluated = await c.send("Runtime.evaluate", { expression: GEOMETRY, returnByValue: true }, sid) as { result?: { value?: PageGeometry } };
     const g = evaluated.result?.value;
-    return g ? kioskFrameFrom(g, screen) : { open: false };
+    return g ? kioskFrameFrom(scaleGeometry(g, deps.captureScale?.() ?? 1), screen) : { open: false };
   }
 
   async function close(): Promise<void> {
@@ -341,6 +358,8 @@ function liveKioskDeps(): KioskDeps {
       const config = desktopConfig();
       return config ? { width: config.width, height: config.height } : null;
     },
+    windowScreen: desktopScreenPoints,
+    captureScale: desktopCaptureScale,
     launchApp(url) {
       const config = desktopConfig();
       const chrome = chromePath();

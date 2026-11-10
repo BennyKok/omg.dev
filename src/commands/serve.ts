@@ -446,6 +446,7 @@ import { computerStream, ensureVoxl, stopVoxl } from "../computer/voxl.ts";
 import { computerKiosk } from "../computer/kiosk.ts";
 import {
   desktopConfig,
+  desktopScreenRunning,
   desktopStatus,
   ensureDesktopAdopted,
   startDesktop,
@@ -5301,7 +5302,12 @@ export async function cmdServe() {
       // dies on the first frame.
       if (path === "/api/computer") {
         await ensureDesktopAdopted();
-        if (!computerRfbPort()) return err(409, "the computer is not running");
+        // The record can outlive the helper. Without this check the socket is
+        // upgraded and then bridges to a loopback port nobody serves, which the
+        // client shows as a dead screen instead of asking Start to recover.
+        if (!desktopScreenRunning() || !computerRfbPort()) {
+          return err(409, "the computer is not running");
+        }
         const ok = server.upgrade(req, {
           data: { computer: true } satisfies ComputerSocketData,
         });

@@ -56,7 +56,12 @@ export function voxlBinary(env: NodeJS.ProcessEnv = process.env): string | null 
  * Which stream the Computer page should use: voxl whenever its binary is
  * installed, unless the box opts out with OMG_COMPUTER_STREAM=vnc.
  */
-export function computerStream(env: NodeJS.ProcessEnv = process.env): ComputerStream {
+export function computerStream(
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): ComputerStream {
+  // voxl captures the X display, which macOS does not have.
+  if (platform === "darwin") return "vnc";
   if (env.OMG_COMPUTER_STREAM?.trim().toLowerCase() === "vnc") return "vnc";
   return voxlBinary(env) ? "voxl" : "vnc";
 }
