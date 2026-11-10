@@ -53,6 +53,17 @@ if (role === "google-chrome") {
     if (!healed.browserRunning || healed.startedAt !== a.startedAt) throw new Error("start did not relaunch the browser in place");
     if (after.pids.xvfb !== before.xvfb || after.pids.vnc !== before.vnc || after.pids.chrome === before.chrome) throw new Error("relaunch touched the screen or kept the dead browser");
     if (after.config.cdpPort !== healed.cdpPort || !(await cdpWebSocketUrl())?.endsWith("/devtools/browser/owned")) throw new Error("relaunched browser endpoint not published");
+    // A stream that dies under a live browser is not "running" either. Its
+    // persisted record outlives the process, and reporting it as running kept
+    // the Computer tab on a frozen screen with no way to start it again.
+    process.kill(after.pids.vnc, "SIGKILL");
+    for (let i = 0; i < 100 && desktopStatus().running; i++) await Bun.sleep(20);
+    if (desktopStatus().running) throw new Error("dead stream reported as running");
+    // The browser is still on the display, so status must keep reporting it.
+    // A false here made callers think Chrome had died as well.
+    if (!desktopStatus().browserRunning) throw new Error("live browser reported dead when only the stream died");
+    const revived = await startDesktop();
+    if (!revived.running) throw new Error("start did not revive the dead stream");
     await stopDesktop();
     if (desktopStatus().running) throw new Error("stop left state running");
     // Stop arriving during startup runs after startup, and cleans its children.

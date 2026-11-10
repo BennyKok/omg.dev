@@ -19,7 +19,8 @@ export function createClipboardDependency(deps: {
 }
 
 const ensureClipboardDependency = createClipboardDependency({
-  installed: () => !!Bun.which("xclip"),
+  // macOS has pbcopy/pbpaste and one shared pasteboard.
+  installed: () => process.platform === "darwin" || !!Bun.which("xclip"),
   hosted: () => process.platform === "linux" && existsSync("/usr/local/bin/vibes-agent"),
   async install() {
     console.info("[computer] installing missing hosted clipboard helper");
@@ -35,6 +36,14 @@ const ensureClipboardDependency = createClipboardDependency({
  *  it until something else takes the selection, which is exactly clipboard
  *  semantics. */
 export async function setDesktopClipboard(text: string, display = desktopStatus().display): Promise<void> {
+  if (process.platform === "darwin") {
+    if (!desktopStatus().running) throw new Error("the computer is not running; start it first");
+    const copy = Bun.spawn(["pbcopy"], { stdin: "pipe", stdout: "ignore", stderr: "pipe" });
+    copy.stdin.write(text);
+    copy.stdin.end();
+    if (await copy.exited !== 0) throw new Error("pbcopy failed");
+    return;
+  }
   if (!display) throw new Error("the computer is not running; start it first");
   await ensureClipboardDependency();
   const proc = Bun.spawn(["xclip", "-selection", "clipboard"], {
@@ -54,6 +63,12 @@ export async function setDesktopClipboard(text: string, display = desktopStatus(
 
 /** Read UTF-8 directly, because legacy RFB clipboard packets lose Unicode. */
 export async function readDesktopClipboard(display = desktopStatus().display): Promise<string> {
+  if (process.platform === "darwin") {
+    if (!desktopStatus().running) throw new Error("the computer is not running; start it first");
+    const paste = Bun.spawn(["pbpaste"], { stdout: "pipe", stderr: "ignore", stdin: "ignore", timeout: 5000 });
+    const text = await new Response(paste.stdout).text();
+    return (await paste.exited) === 0 ? text : "";
+  }
   if (!display) throw new Error("the computer is not running; start it first");
   await ensureClipboardDependency();
   const proc = Bun.spawn(["xclip", "-selection", "clipboard", "-out"], {

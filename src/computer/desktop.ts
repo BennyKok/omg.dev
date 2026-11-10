@@ -31,11 +31,12 @@
 // what is missing and the command that fixes it, and the desktop only starts
 // when someone asks for it.
 
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, readlinkSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { hostname } from "node:os";
 import { browserTimeZone } from "./timezone.ts";
+import { darwinChromePath, darwinDeps, ensureDarwinHelper, isDarwin, type DarwinReady } from "./darwin.ts";
 
 export interface DesktopConfig {
   /** X display number. 99 keeps us clear of any real session on :0. */
@@ -50,6 +51,12 @@ export interface DesktopConfig {
   profileDir: string;
   /** Optional upstream proxy for Chrome, e.g. a webshare endpoint. */
   proxy?: string;
+  /**
+   * darwin only: the display in points. `width`/`height` are the streamed
+   * framebuffer (scaled down), while AppKit and CDP geometry use points.
+   */
+  screenWidth?: number;
+  screenHeight?: number;
 }
 
 /**
@@ -227,9 +234,16 @@ function readStateFile(): PersistedDesktop | null {
   }
 }
 
-/** Linux start ticks plus boot ID distinguish a process from a reused PID. */
+/** Start time (and, on Linux, boot ID) distinguish a process from a reused PID. */
 function processIdentity(pid: number | undefined): ProcessIdentity | undefined {
   if (!Number.isSafeInteger(pid) || !pid || pid <= 0) return;
+  if (isDarwin) {
+    // There is no /proc. `lstart` is stable for the life of the process.
+    const result = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], { encoding: "utf8", timeout: 3000 });
+    const startTime = result.stdout?.trim();
+    if (result.status !== 0 || !startTime) return;
+    return { bootId: "darwin", startTime };
+  }
   try {
     const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
     // comm can contain spaces and parentheses. Field 22 follows the last ')'.
@@ -253,6 +267,23 @@ function roleAlive(s: DesktopState, role: ProcessRole): boolean {
   return sameProcess(pid, s.identities[role]);
 }
 
+/** The screen and the stream are up. macOS has no separate X server process. */
+function desktopScreenUp(s: DesktopState): boolean {
+  return isDarwin ? roleAlive(s, "vnc") : roleAlive(s, "xvfb") && roleAlive(s, "vnc");
+}
+
+/**
+ * Whether the display and its stream are alive right now.
+ *
+ * The record outlives its processes: the helper can exit (a ScreenCaptureKit
+ * stop, a crash) while serve keeps running, and Chrome stays on the display.
+ * Callers that gate a connection on "running" must ask this, not just whether
+ * a state object exists, or they open an RFB socket to a port nobody serves.
+ */
+export function desktopScreenRunning(): boolean {
+  return !!state && desktopScreenUp(state);
+}
+
 // Counts Chrome launches in this process. A cached DevTools attachment from an
 // earlier launch points at a browser that no longer exists; consumers compare
 // this number to know when to drop it.
@@ -265,6 +296,7 @@ export function browserGeneration(): number {
 
 /** Legacy PIDs have no start ticks. Require this role's executable and config. */
 function legacyProcessMatches(pid: number, role: ProcessRole, config: DesktopConfig): boolean {
+  if (isDarwin) return false;
   try {
     const executable = basename(readlinkSync(`/proc/${pid}/exe`));
     const args = readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").filter(Boolean);
@@ -328,7 +360,7 @@ async function adoptOrReap(): Promise<boolean> {
   // An interrupted start can leave a record with cdpPort=0. It is not ready
   // for adoption until Chrome's assigned endpoint has been persisted.
   const healthy =
-    !!identities.xvfb && !!identities.vnc && !!identities.chrome &&
+    (isDarwin || !!identities.xvfb) && !!identities.vnc && !!identities.chrome &&
     PROCESS_ROLES.every(role => record.pids?.[role] === undefined || !!identities[role]) && record.config.cdpPort > 0 &&
     (await waitForPort(record.config.rfbPort, 1500)) && (await waitForPort(record.config.cdpPort, 1500)) &&
     // The probes await I/O. Recheck every role immediately before adoption.
@@ -390,6 +422,7 @@ function which(bin: string): string | null {
 
 /** Which parts of the stack are installed. Never throws. */
 export function ensureDeps(): DepReport {
+  if (isDarwin) return darwinDeps(computerDir());
   const missing: string[] = [];
   for (const dep of DEPS) {
     const candidates = dep.alt ?? [dep.bin];
@@ -428,6 +461,7 @@ export function desktopSessionCommand(): { cmd: string; args: string[] } | null 
 
 /** The Chrome binary to drive, or null when none is installed. */
 export function chromePath(): string | null {
+  if (isDarwin) return darwinChromePath();
   for (const c of ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser"]) {
     const p = which(c);
     if (p) return p;
@@ -443,29 +477,41 @@ export interface DesktopStatus {
   width: number;
   height: number;
   startedAt: number | null;
-  /** False when the desktop is up but its Chrome has exited. Start relaunches it. */
+  /**
+   * Whether the desktop's Chrome is alive, independent of the stream. False when
+   * it has exited. Start relaunches a dead browser without resetting the desktop.
+   */
   browserRunning: boolean;
   deps: DepReport;
 }
 
 export function desktopStatus(): DesktopStatus {
   const deps = ensureDeps();
-  if (!state) {
+  // A dead display or stream is not "running". Reporting the record instead of
+  // the live processes is what used to leave the Computer tab on a frozen
+  // screen: status said running, the client kept the canvas, and no Start was
+  // offered. The UI polls this and starts the desktop again by itself.
+  //
+  // Chrome is reported separately because it can outlive the stream: the
+  // helper exits on its own, Chrome and its signed-in tabs stay on the display,
+  // and Start brings back only the stream. Collapsing browserRunning to false
+  // with the stream told callers the browser had died too.
+  if (!state || !desktopScreenUp(state)) {
     return {
       running: false,
       display: null,
       rfbPort: null,
       cdpPort: null,
-      width: DEFAULT_DESKTOP.width,
-      height: DEFAULT_DESKTOP.height,
+      width: state?.config.width ?? DEFAULT_DESKTOP.width,
+      height: state?.config.height ?? DEFAULT_DESKTOP.height,
       startedAt: null,
-      browserRunning: false,
+      browserRunning: state ? roleAlive(state, "chrome") : false,
       deps,
     };
   }
   return {
     running: true,
-    display: `:${state.config.display}`,
+    display: isDarwin ? "main" : `:${state.config.display}`,
     rfbPort: state.config.rfbPort,
     cdpPort: state.config.cdpPort,
     width: state.config.width,
@@ -579,10 +625,18 @@ export async function startDesktop(partial: Partial<DesktopConfig> = {}): Promis
 
 async function startDesktopOwned(partial: Partial<DesktopConfig>): Promise<DesktopStatus> {
   if (state) {
-    const screenUp = roleAlive(state, "xvfb") && roleAlive(state, "vnc");
+    const screenUp = desktopScreenUp(state);
     if (screenUp && roleAlive(state, "chrome")) return desktopStatus();
     if (screenUp) {
       await relaunchBrowser(state);
+      return desktopStatus();
+    }
+    // On macOS the stream is its own process, so a dead helper under a live
+    // Chrome costs only a stream restart. Linux needs its X server and window
+    // manager torn down together, so a dead stream there restarts the stack.
+    if (isDarwin) {
+      await relaunchDarwinStream(state);
+      if (!roleAlive(state, "chrome")) await relaunchBrowser(state);
       return desktopStatus();
     }
     // The display or the stream is gone, so nothing on it can be reused.
@@ -617,6 +671,7 @@ async function startDesktopOwned(partial: Partial<DesktopConfig>): Promise<Deskt
 }
 
 async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
+  if (isDarwin) return launchDarwinDesktop(next);
   const config = next.config;
   const display = `:${config.display}`;
   const env = { ...process.env, DISPLAY: display };
@@ -682,6 +737,140 @@ async function launchDesktop(next: DesktopState): Promise<DesktopStatus> {
   return desktopStatus();
 }
 
+/**
+ * macOS: the helper is the display server, the stream and the input device.
+ *
+ * It reports the framebuffer it settled on (aspect-preserving inside the
+ * requested box) and the display in points, because Chrome windows and CDP
+ * geometry use points while the stream is scaled pixels.
+ */
+async function launchDarwinDesktop(next: DesktopState): Promise<DesktopStatus> {
+  const config = next.config;
+  await spawnDarwinStream(next);
+
+  await spawnBrowser(next);
+  next.startedAt = Date.now();
+  state = next;
+  writeStateFile(next);
+
+  const [rfbUp, cdpUp] = await Promise.all([
+    waitForPort(config.rfbPort, 10_000),
+    waitForBrowser(next),
+  ]);
+  if (!rfbUp || !cdpUp) throw new Error("The Computer could not start its browser. Try again.");
+  writeStateFile(next);
+  return desktopStatus();
+}
+
+/** Spawn the macOS helper and fold what it reports back into the config. */
+async function spawnDarwinStream(next: DesktopState): Promise<void> {
+  const config = next.config;
+  const binary = await ensureDarwinHelper(computerDir());
+  const helper = spawn(
+    binary,
+    [
+      "--port", String(config.rfbPort),
+      "--max-width", String(config.width),
+      "--max-height", String(config.height),
+      "--fps", String(envPort("OMG_COMPUTER_FPS", 12)),
+    ],
+    { stdio: ["ignore", "pipe", "pipe"], detached: false },
+  );
+  next.vnc = helper;
+  next.identities.vnc = processIdentity(helper.pid);
+
+  // The helper reports why capture stopped on stderr. Keep it: the old
+  // `ignore` turned every later death into a silent "running" record.
+  helper.stderr?.setEncoding("utf8");
+  helper.stderr?.on("data", (chunk: string) => {
+    for (const line of chunk.split("\n")) {
+      if (line.trim()) console.warn(line.trimEnd());
+    }
+  });
+  helper.on("exit", (code, signal) => {
+    // Only an unexpected death of the current helper. A stop or relaunch has
+    // already detached `state` from it, so this stays quiet for those.
+    if (state?.vnc !== helper) return;
+    console.warn(`[computer] macOS helper exited (${code ?? signal}); the next status check restarts the stream`);
+  });
+
+  const ready = await readDarwinReady(helper);
+  config.width = ready.width;
+  config.height = ready.height;
+  config.screenWidth = ready.screenWidth;
+  config.screenHeight = ready.screenHeight;
+  if (!ready.accessible) {
+    console.warn("[computer] macOS Accessibility permission is missing; the screen streams but input is refused");
+  }
+}
+
+/**
+ * Bring back the macOS stream without touching the browser.
+ *
+ * The helper exits on its own when ScreenCaptureKit stops (display sleep or
+ * reconfiguration, a capture failure). Chrome and its signed-in tabs are still
+ * on the display, so restarting only the helper keeps them; killing the whole
+ * desktop would throw away the person's browser session for a stream failure.
+ */
+async function relaunchDarwinStream(s: DesktopState): Promise<void> {
+  // A dead helper leaves its port free. Something still answering is not ours
+  // and a second listener cannot bind, so only a full restart can clear it.
+  if (await waitForPort(s.config.rfbPort, 0)) {
+    console.warn(`[computer] port ${s.config.rfbPort} still answers while the stream is down`);
+    throw new Error("The Computer's stream is not responding. Stop the Computer and start it again.");
+  }
+  await spawnDarwinStream(s);
+  // An adopted desktop is stopped and persisted through its recorded pids.
+  if (s.adoptedPids) s.adoptedPids.vnc = s.vnc?.pid;
+  writeStateFile(s);
+  if (!(await waitForPort(s.config.rfbPort, 10_000))) {
+    killPid(s.vnc?.pid, s.identities.vnc, "SIGKILL");
+    throw new Error("The Computer could not restart its stream. Try again.");
+  }
+}
+
+/** The helper's one READY line, or the ERROR line before it exits. */
+function readDarwinReady(helper: Proc): Promise<DarwinReady> {
+  return new Promise((resolve, reject) => {
+    let buffered = "";
+    const finish = (error: Error | null, ready?: DarwinReady) => {
+      clearTimeout(timer);
+      helper.stdout?.removeAllListeners("data");
+      if (error) reject(error);
+      else resolve(ready!);
+    };
+    const timer = setTimeout(() => finish(new Error("The Computer helper did not start in time. Try again.")), 20_000);
+    helper.stdout?.setEncoding("utf8");
+    helper.stdout?.on("data", (chunk: string) => {
+      buffered += chunk;
+      for (;;) {
+        const newline = buffered.indexOf("\n");
+        if (newline < 0) return;
+        const line = buffered.slice(0, newline).trim();
+        buffered = buffered.slice(newline + 1);
+        if (line.startsWith("READY ")) {
+          try {
+            finish(null, JSON.parse(line.slice("READY ".length)) as DarwinReady);
+          } catch {
+            finish(new Error("The Computer helper reported an unreadable display."));
+          }
+          return;
+        }
+        if (line.startsWith("ERROR ")) {
+          finish(new Error(line.slice("ERROR ".length)));
+          return;
+        }
+      }
+    });
+    helper.on("error", (error) => finish(error));
+    helper.on("exit", (code) => finish(new Error(
+      code === 3
+        ? "Screen Recording permission is required for the Computer. Grant it in System Settings > Privacy & Security > Screen Recording, then start the Computer again."
+        : `The Computer helper exited (${code ?? "signal"}). Try again.`,
+    )));
+  });
+}
+
 /** Match only a kiosk launcher that took over this Computer's own profile. */
 export function isOrphanKioskBrowser(executable: string, args: string[], config: DesktopConfig): boolean {
   // Chrome rewrites /proc/cmdline to one space-separated process title.
@@ -715,6 +904,24 @@ async function reapOrphanKioskBrowsers(config: DesktopConfig): Promise<void> {
 
 /** The command-line flags for the desktop's Chrome. */
 export function chromeLaunchArgs(config: DesktopConfig): string[] {
+  if (isDarwin) {
+    // A window on the real display it is streamed from. Points, not the
+    // scaled framebuffer: AppKit sizes windows in points.
+    const width = config.screenWidth ?? 2560;
+    const height = config.screenHeight ?? 1440;
+    const args = [
+      `--remote-debugging-port=${config.cdpPort}`,
+      "--remote-debugging-address=127.0.0.1",
+      `--user-data-dir=${config.profileDir}`,
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-blink-features=AutomationControlled",
+      "--window-position=60,40",
+      `--window-size=${Math.round(width * 0.82)},${Math.round(height * 0.78)}`,
+    ];
+    if (config.proxy) args.push(`--proxy-server=${config.proxy}`);
+    return args;
+  }
   const args = [
     `--remote-debugging-port=${config.cdpPort}`,
     "--remote-debugging-address=127.0.0.1",
@@ -926,6 +1133,25 @@ export function desktopConfig(): DesktopConfig | null {
   return state ? { ...state.config } : null;
 }
 
+/**
+ * The display in points, for placing windows. Equals the framebuffer size
+ * everywhere except darwin, where the stream is scaled down.
+ */
+export function desktopScreenPoints(): { width: number; height: number } | null {
+  if (!state) return null;
+  return {
+    width: state.config.screenWidth ?? state.config.width,
+    height: state.config.screenHeight ?? state.config.height,
+  };
+}
+
+/** Framebuffer pixels per CDP CSS pixel. 1 everywhere except scaled darwin. */
+export function desktopCaptureScale(): number {
+  if (!state) return 1;
+  const points = state.config.screenWidth;
+  return points ? state.config.width / points : 1;
+}
+
 export function rfbPort(): number | null {
   return state?.config.rfbPort ?? null;
 }
@@ -944,6 +1170,16 @@ export function rfbPort(): number | null {
  * key on purpose. Resolves false when the desktop is down or the command fails.
  */
 export function releaseHeldInput(): Promise<boolean> {
+  if (isDarwin) {
+    const pid = state?.adoptedPids?.vnc ?? state?.vnc?.pid;
+    if (!pid) return Promise.resolve(false);
+    try {
+      process.kill(pid, "SIGUSR1");
+      return Promise.resolve(true);
+    } catch {
+      return Promise.resolve(false);
+    }
+  }
   const display = state?.config.display;
   if (display === undefined) return Promise.resolve(false);
   return new Promise((resolve) => {

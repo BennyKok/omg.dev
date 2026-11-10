@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-test("desktop isolates foreign CDP, reuses/adopts/relaunches its browser, serializes starts and cleans cancellation/failure", async () => {
+test.skipIf(process.platform !== "linux")("desktop isolates foreign CDP, reuses/adopts/relaunches its browser, serializes starts and cleans cancellation/failure", async () => {
   const base = join(process.env.HOME ?? ".", ".cache", "lfg", "tmp");
   mkdirSync(base, { recursive: true });
   const home = mkdtempSync(join(base, "desktop-lifecycle-"));
@@ -41,8 +41,9 @@ test("desktop isolates foreign CDP, reuses/adopts/relaunches its browser, serial
     expect({ code, err: code ? err : "" }).toEqual({ code: 0, err: "" });
     expect(JSON.parse(out)).toEqual({ isolated: true, persisted: true, reused: true, adopted: true, relaunched: true, concurrent: true, cleanup: true });
     const calls = readFileSync(join(home, "calls"), "utf8").trim().split("\n");
-    // Three starts, including the failure, plus one relaunch of a dead browser.
-    expect(calls.filter(line => line.startsWith("google-chrome "))).toHaveLength(4);
+    // Four starts, including the failure, plus one relaunch of a dead browser
+    // and one full restart after the stream died under a live Chrome.
+    expect(calls.filter(line => line.startsWith("google-chrome "))).toHaveLength(5);
     // Every launch runs in the configured zone. Sign-in checks refuse a mismatch.
     for (const line of calls.filter(line => line.startsWith("google-chrome "))) expect(line.split(" ")[2]).toBe("Asia/Hong_Kong");
     // The session must not start a screen locker that asks for a Linux password.
