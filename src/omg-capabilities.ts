@@ -80,6 +80,12 @@ export const OMG_CAPABILITIES = [
     guidance:
       "Auto agents are the box's cron-shaped fleet: a prompt plus a schedule that reports back as findings. Use omg_compose_auto_agent to turn a freeform ask into a draft, then omg_save_auto_agent to persist it, and omg_list_findings to read what they reported.",
   },
+  {
+    tool: "omg_save_event_hook / omg_preview_event_source / omg_list_event_hooks",
+    useWhen: "Work should happen only when something new appears: a GitHub issue or comment, or anything a script can check.",
+    guidance:
+      "A hook checks its source with no model and runs its action only for new items, so nothing runs while nothing changes. Test the source with omg_preview_event_source before saving.",
+  },
 ] as const;
 
 // Session ids are 36-char uuids minted by the underlying harness and are

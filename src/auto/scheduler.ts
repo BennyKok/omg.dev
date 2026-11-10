@@ -113,7 +113,7 @@ export function cronMatches(expr: string, d: Date, tz: string = getGlobalSetting
 
 // The most recent minute <= now (within lookback) at which the cron matched,
 // or null if it hasn't matched in the window. Used for catch-up.
-function mostRecentDue(expr: string, now: Date, tz: string, lookbackMin = 1500): number | null {
+export function mostRecentDue(expr: string, now: Date, tz: string, lookbackMin = 1500): number | null {
   const base = Math.floor(now.getTime() / 60_000) * 60_000;
   for (let i = 0; i <= lookbackMin; i++) {
     const t = base - i * 60_000;
@@ -150,6 +150,13 @@ export async function autoSchedulerTickNow(
     // awaited: a dispatch makes HTTP calls to this same server and must not
     // hold the scheduler's minute.
     void autopilotTick(onLog, now.getTime()).catch((e) => onLog(`[auto-sched] autopilot failed: ${e}`));
+
+    // Event hooks (src/events/bus.ts) ride the same minute. Not awaited: a
+    // source may take up to its time limit, and the bus has its own overlap
+    // guard. Imported lazily because the bus imports this module's cron helpers.
+    void import("../events/bus.ts")
+      .then(({ eventsTick }) => eventsTick(onLog, now))
+      .catch((e) => onLog(`[auto-sched] event hooks failed: ${e}`));
 
     let agents;
     try {

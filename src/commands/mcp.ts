@@ -1749,6 +1749,111 @@ export function buildOmgMcpServer(): McpServer {
     },
   );
 
+  // ---- Event hooks (src/events) ----------------------------------------------
+  const eventSourceSchema = z
+    .object({
+      kind: z.enum(["script", "github"]),
+      command: z.string().optional().describe("script: shell command that prints what is there NOW. One JSON object per line with a string \"key\" (optional topic, title, url, data) gives one event per line; any other output is one event, keyed by its hash."),
+      cwd: z.string().optional().describe("script: absolute working directory. Defaults to the home directory."),
+      repo: z.string().optional().describe("github: \"owner/name\"."),
+      watch: z.enum(["issues", "pulls", "comments"]).optional().describe("github: what to watch."),
+      issue: z.number().int().positive().optional().describe("github comments: one issue or PR number. Omit for the whole repo."),
+    })
+    .describe("Where events come from.");
+  server.registerTool(
+    "omg_save_event_hook",
+    {
+      title: "Create Or Update An Event Hook",
+      description:
+        "An event hook checks a source on a cron schedule with no model, and runs its action only for NEW items (stable keys; the first check only records what exists). Use it instead of an auto agent when the work is 'when X happens, do Y'. Sources: script (any system), github (issues, pulls, comments). Actions: session (start an agent with the events as untrusted data), notify (push only), command (script gets the events as JSON lines on stdin). Test a source first with omg_preview_event_source. Omit id to create; pass id to replace.",
+      inputSchema: {
+        id: z.string().optional().describe("Existing hook id to replace. Omit to create."),
+        name: z.string().min(1).describe("Short human-readable name."),
+        schedule: z.string().optional().describe("5-field cron for checking the source. Default every 5 minutes."),
+        enabled: z.boolean().optional().describe("Default true."),
+        maxRunsPerHour: z.number().int().min(1).max(60).optional().describe("Most action runs per hour. Default 6."),
+        source: eventSourceSchema,
+        action: z
+          .object({
+            kind: z.enum(["session", "notify", "command"]),
+            prompt: z.string().optional().describe("session: what the agent does with the events. If it may reply on GitHub, say so here."),
+            cwd: z.string().optional().describe("session or command: absolute working directory."),
+            agent: z.string().optional().describe("session: coding agent kind. Default is the box default."),
+            model: z.string().optional().describe("session: model id."),
+            command: z.string().optional().describe("command: shell command; the events arrive on stdin, one JSON object per line."),
+          })
+          .describe("What runs for each batch of new events."),
+      },
+    },
+    async (input) => {
+      const data = await api<{ hook: unknown }>("/api/events/hooks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      });
+      return result({ hook: data.hook, updated: !!input.id });
+    },
+  );
+
+  server.registerTool(
+    "omg_preview_event_source",
+    {
+      title: "Preview An Event Source",
+      description: "Run a source once and return what it sees now, without saving anything or running an action. Use it to test a script or a GitHub source before omg_save_event_hook.",
+      inputSchema: { source: eventSourceSchema },
+    },
+    async ({ source }) =>
+      result(
+        await api("/api/events/preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source }),
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "omg_list_event_hooks",
+    {
+      title: "List Event Hooks",
+      description: "List event hooks with their last check, last event and last error. Pass id to also get that hook's recent events.",
+      inputSchema: {
+        id: z.string().optional().describe("Hook id to include recent events for."),
+      },
+    },
+    async ({ id }) => {
+      const data = await api<{ hooks: Array<{ id: string }> }>("/api/events/hooks");
+      if (!id) return result(data);
+      const hook = data.hooks.find((h) => h.id === id);
+      if (!hook) throw new Error(`unknown event hook "${id}"`);
+      const recent = await api<{ events: unknown[] }>(`/api/events?hook=${encodeURIComponent(id)}&limit=20`);
+      return result({ hook, events: recent.events });
+    },
+  );
+
+  server.registerTool(
+    "omg_run_event_hook",
+    {
+      title: "Check An Event Hook Now",
+      description: "Check one hook's source now, outside its schedule. The same rules apply: only new items fire, and the hourly limit holds.",
+      inputSchema: { id: z.string().min(1).describe("Hook id from omg_list_event_hooks.") },
+    },
+    async ({ id }) => result(await api(`/api/events/hooks/${encodeURIComponent(id)}/run`, { method: "POST" })),
+  );
+
+  server.registerTool(
+    "omg_delete_event_hook",
+    {
+      title: "Delete An Event Hook",
+      description: "Permanently delete an event hook, its seen keys and its script state. To pause one, save it with enabled:false.",
+      inputSchema: { id: z.string().min(1).describe("Hook id from omg_list_event_hooks.") },
+    },
+    async ({ id }) => {
+      await api(`/api/events/hooks/${encodeURIComponent(id)}`, { method: "DELETE" });
+      return result({ ok: true, deleted: id });
+    },
+  );
+
   // ---- Bot-scoped routine tools ---------------------------------------------
   // Purpose-built self-service surface for a bot's OWN schedules — no
   // id-guessing, no cross-owner visibility by construction (the server scopes

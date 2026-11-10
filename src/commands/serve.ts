@@ -7444,6 +7444,62 @@ a{color:#60a5fa}
         }
       }
 
+      // ---- event hooks (src/events): source → new events → action ----
+      // A hook runs scripts unattended, so a bot caller may not create, run or
+      // delete one. Bots have no shell; a hook would give them one.
+      if (path.startsWith("/api/events")) {
+        const events = await import("../events/bus.ts");
+        const store = await import("../events/store.ts");
+        const refuseBot = async () =>
+          (await callerBotId(req)) ? err(403, "a bot cannot manage event hooks") : null;
+        if (path === "/api/events/hooks" && req.method === "GET") {
+          return json({ hooks: await store.listHooks(), sources: events.SOURCE_KINDS, actions: events.ACTION_KINDS });
+        }
+        if (path === "/api/events/hooks" && req.method === "POST") {
+          const refused = await refuseBot();
+          if (refused) return refused;
+          const parsed = events.validateHookInput(await req.json().catch(() => null));
+          if (!parsed.ok) return err(400, parsed.error);
+          const createdBy = req.headers.get("x-omg-caller-session-id")?.trim() || undefined;
+          try {
+            const hook = await store.saveHook({ ...parsed.hook, createdBy });
+            return json({ hook });
+          } catch (e) {
+            return err(404, e instanceof Error ? e.message : String(e));
+          }
+        }
+        if (path === "/api/events/preview" && req.method === "POST") {
+          const refused = await refuseBot();
+          if (refused) return refused;
+          const b = (await req.json().catch(() => null)) as { source?: unknown } | null;
+          try {
+            const found = await events.previewSource(b?.source);
+            return json({ total: found.length, events: found.slice(0, events.MAX_BATCH) });
+          } catch (e) {
+            return err(400, e instanceof Error ? e.message : String(e));
+          }
+        }
+        if (path === "/api/events" && req.method === "GET") {
+          const hookId = url.searchParams.get("hook") || undefined;
+          const limit = Number(url.searchParams.get("limit")) || 20;
+          return json({ events: await store.listEvents({ hookId, limit }) });
+        }
+        const one = path.match(/^\/api\/events\/hooks\/([a-z0-9_-]+)(\/run)?$/);
+        if (one) {
+          const refused = await refuseBot();
+          if (refused) return refused;
+          const hook = await store.getHook(one[1]);
+          if (!hook) return err(404, "unknown event hook");
+          if (one[2] && req.method === "POST") {
+            return json(await events.runHook(hook, (l) => console.log(l)));
+          }
+          if (!one[2] && req.method === "DELETE") {
+            await store.deleteHook(hook.id);
+            return json({ ok: true });
+          }
+        }
+      }
+
       // ---- auto agents (streamlined: prompt + schedule → findings) ----
       if (path === "/api/auto/agents") {
         const callerBot = await callerBotId(req);
