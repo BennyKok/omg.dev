@@ -198,6 +198,7 @@ import {
 } from "./lib/transcript-find";
 import { clearFindHighlight, paintFindHighlight } from "./lib/find-highlight";
 import { applyBotMention, botMentionAt, matchBots, type BotMentionState } from "./lib/bot-mention";
+import { deviceMentionHint, useLinkedDevices } from "./lib/linked-devices";
 import {
   applySessionMention,
   sessionMentionAt,
@@ -473,6 +474,7 @@ import {
   Vibrate,
   Sun,
   Monitor,
+  Laptop,
   TerminalSquare,
   Trash2,
   TriangleAlert,
@@ -694,6 +696,7 @@ import {
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
+import { LinkedDevicesSettingsSection } from "./components/linked-devices-settings";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
 import {
@@ -15909,8 +15912,10 @@ function SkillSlashSuggest({
 /**
  * A name the `@` picker offers that is not a bot: it inserts plain `@name `
  * text. A thread's `@omg` is one (packages/protocol/src/threads.ts reads it).
+ * A linked device (`omg device`) is another: agents read `@name` as that
+ * device and reach it with omg_device_request.
  */
-type PlainMention = { plain: true; id: string; name: string; hint?: string; icon?: string | null };
+type PlainMention = { plain: true; id: string; name: string; hint?: string; icon?: string | null; device?: boolean };
 type MentionOption = PersistentBot | PlainMention;
 const isPlainMention = (option: MentionOption): option is PlainMention => "plain" in option;
 
@@ -15969,7 +15974,9 @@ function BotMentionSuggest({
               idx === selected ? "bg-accent text-accent-foreground" : "hover:bg-accent/70",
             )}
           >
-            {isPlainMention(bot) ? (
+            {isPlainMention(bot) && bot.device ? (
+              <Laptop aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+            ) : isPlainMention(bot) ? (
               <img aria-hidden alt="" src={bot.icon || agentIconSrc("omg")} className="size-4 shrink-0 rounded" />
             ) : (
               <BotMascot
@@ -16089,12 +16096,24 @@ function SkillTextarea({
   const [botMention, setBotMention] = useState<BotMentionState | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const botDirectory = useContext(BotDirectoryContext);
+  // Linked devices ride with the bots: a session composer offers both, a
+  // thread (where neither is a member) offers neither.
+  const linkedDevices = useLinkedDevices().devices;
   const mentionableBots = useMemo<MentionOption[]>(
     () => [
       ...(plainMentions ?? []).map((row) => ({ ...row, plain: true as const })),
+      ...(mentionBots
+        ? linkedDevices.map((device) => ({
+            plain: true as const,
+            device: true,
+            id: `device:${device.id}`,
+            name: device.id,
+            hint: deviceMentionHint(device),
+          }))
+        : []),
       ...(mentionBots ? Array.from(botDirectory.values()) : []),
     ],
-    [botDirectory, plainMentions, mentionBots],
+    [botDirectory, plainMentions, mentionBots, linkedDevices],
   );
   // Owned here rather than in the popover: the arrow keys land on the
   // textarea, so the keyboard handler needs the list it is walking.
@@ -30161,6 +30180,8 @@ function SettingsView({
       </section>
 
       <RemoteAccessSettingsSection />
+
+      <LinkedDevicesSettingsSection />
 
       {/* Tool access and agent limits are for people tuning the box. A host
           mounts this page as its own "Advanced" page, so it shows them open;

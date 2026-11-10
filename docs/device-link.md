@@ -1,6 +1,6 @@
 # Device link
 
-Status: phase 2 (core) implemented in `src/devices/` (2026-11-10).
+Status: phase 2 (core) and phase 3 (Settings, `@device` in the composer) implemented in `src/devices/` and `web/src/` (2026-11-10).
 
 A device link lets an agent on this computer ask a linked device, such as a
 test Mac, to do one action. The user approves the action on that device. The
@@ -90,7 +90,9 @@ These rules come from the first user's answers and from IR-2026-11-01.
 - `omg_list_devices` lists devices, their actions and recent requests.
 - `omg_pair_device(name)` makes a pairing code. Only the person at the device
   can use it.
-- `@device` in the web composer is phase 3.
+- In the web composer, `@` offers linked devices next to bots. Picking one
+  inserts plain `@name` text. Settings lists devices, makes pairing codes and
+  unlinks a device (phase 3). Approval stays on the device.
 
 ## Code
 

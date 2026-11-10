@@ -1860,7 +1860,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "List Linked Devices",
       description:
-        "List machines linked with `omg device`, the actions each one offers (with its approval level: in-grant, once-per-grant or each) and recent requests. A device is reachable only while its owner runs `omg device run` on it.",
+        "List machines linked with `omg device`, the actions each one offers (with its approval level: in-grant, once-per-grant or each) and recent requests. A device is reachable only while its owner runs `omg device run` on it. When a message says `@name` and a linked device has that name, it means that device.",
       inputSchema: {},
     },
     async () => result(await api("/api/devices")),
@@ -1914,15 +1914,14 @@ export function buildOmgMcpServer(): McpServer {
       },
     },
     async ({ name }) => {
-      const p = await api<{ code: string; name: string; expiresAt: number }>("/api/devices/pairing", {
+      const p = await api<{ code: string; name: string; expiresAt: number; server: string | null }>("/api/devices/pairing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name }),
       });
-      const serverUrl = (process.env.OMG_PUBLIC_URL || process.env.LFG_PUBLIC_URL || "").replace(/\/+$/, "");
       return result({
         ...p,
-        runOnDevice: `omg device link --server ${serverUrl || "https://<this computer's tailnet name>"} --code ${p.code}`,
+        runOnDevice: `omg device link --server ${p.server || "https://<this computer's tailnet name>"} --code ${p.code}`,
         note: "The device needs its action config in ~/.omg-device/config.json first. Then `omg device run` starts a grant.",
       });
     },

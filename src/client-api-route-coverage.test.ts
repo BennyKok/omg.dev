@@ -29,9 +29,10 @@ import { dirname, join } from "node:path";
 
 const SRC = dirname(new URL(import.meta.url).pathname);
 const WEB_SRC = join(SRC, "..", "web", "src");
-// serve.ts mounts the terminal routes from src/term/routes.ts, so both files
-// are the server side of the contract.
-const SERVE = [join(SRC, "commands", "serve.ts"), join(SRC, "term", "routes.ts")]
+// serve.ts mounts the terminal routes from src/term/routes.ts and the linked
+// device routes from src/devices/http.ts, so all three files are the server
+// side of the contract.
+const SERVE = [join(SRC, "commands", "serve.ts"), join(SRC, "term", "routes.ts"), join(SRC, "devices", "http.ts")]
   .map((file) => readFileSync(file, "utf8"))
   .join("\n");
 

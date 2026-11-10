@@ -205,7 +205,9 @@ export async function handleDevicesApi(
     const b = (await req.json().catch(() => null)) as { name?: unknown } | null;
     try {
       const p = await store.createPairing(typeof b?.name === "string" ? b.name.trim() : "");
-      return json({ code: p.code, name: p.name, expiresAt: p.expiresAt });
+      // The address the device should call: this box's tailnet HTTPS name.
+      const server = (process.env.OMG_PUBLIC_URL || process.env.LFG_PUBLIC_URL || "").trim().replace(/\/+$/, "") || null;
+      return json({ code: p.code, name: p.name, expiresAt: p.expiresAt, server });
     } catch (e) {
       return err(400, e instanceof Error ? e.message : String(e));
     }

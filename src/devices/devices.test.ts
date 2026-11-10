@@ -174,6 +174,24 @@ describe("round trip", () => {
     expect((await local("POST", "/api/devices/pairing", { name: "Bad Name" })).status).toBe(400);
   });
 
+  test("a pairing code carries the address the device should call", async () => {
+    const saved = { omg: process.env.OMG_PUBLIC_URL, lfg: process.env.LFG_PUBLIC_URL };
+    try {
+      delete process.env.OMG_PUBLIC_URL;
+      process.env.LFG_PUBLIC_URL = "https://box.example.ts.net/";
+      const set = await local("POST", "/api/devices/pairing", { name: "addr-test" });
+      expect(set.body.server).toBe("https://box.example.ts.net");
+      delete process.env.LFG_PUBLIC_URL;
+      const unset = await local("POST", "/api/devices/pairing", { name: "addr-test" });
+      expect(unset.body.server).toBeNull();
+    } finally {
+      for (const [k, v] of [["OMG_PUBLIC_URL", saved.omg], ["LFG_PUBLIC_URL", saved.lfg]] as const) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
   test("link: the code works once and the server keeps only the public key", async () => {
     await mkdir(process.env.OMG_DEVICE_HOME!, { recursive: true });
     await writeFile(join(process.env.OMG_DEVICE_HOME!, "config.json"), JSON.stringify(config));

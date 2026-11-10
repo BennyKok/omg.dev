@@ -506,12 +506,12 @@ async function local<T>(path: string, init?: RequestInit): Promise<T> {
 async function cmdPair(args: string[]) {
   const name = args[0];
   if (!name) throw new Error("usage: omg device pair <name>   (for example: omg device pair test-mac)");
-  const p = await local<{ code: string; name: string; expiresAt: number }>("/api/devices/pairing", {
+  const p = await local<{ code: string; name: string; expiresAt: number; server: string | null }>("/api/devices/pairing", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ name }),
   });
-  const server = (process.env.OMG_PUBLIC_URL || process.env.LFG_PUBLIC_URL || "https://<this computer's tailnet name>").replace(/\/+$/, "");
+  const server = p.server || "https://<this computer's tailnet name>";
   console.log(`Pairing code for "${p.name}", valid until ${new Date(p.expiresAt).toLocaleTimeString()}, one use:`);
   console.log(`\n  omg device link --server ${server} --code ${p.code}\n`);
   console.log("Run that on the device, after you write its action config.");
