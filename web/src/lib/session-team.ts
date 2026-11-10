@@ -85,7 +85,8 @@ function toolLabel(text: string): string {
 
 /** What the session did or said last, as one plain line. */
 export function teamActivity(row: TeamSessionRow): string {
-  if (row.endedAt) return row.plan?.headline || "Closed";
+  // The check mark already says it is closed; only its own last word is news.
+  if (row.endedAt) return row.plan?.headline || "";
   if (row.status === "blocked") return row.statusDetail || "Blocked";
   const last = row.last;
   const text = (last?.text ?? "").trim();
@@ -131,7 +132,13 @@ export function buildTeam(rows: readonly TeamSessionRow[], sid: string | null | 
         seen.add(k.sessionId!);
         return true;
       })
-      .sort((a, b) => (a.startedAt ?? 0) - (b.startedAt ?? 0))
+      // Open members in the order they started, then finished ones, the most
+      // recently closed first.
+      .sort((a, b) =>
+        a.endedAt || b.endedAt
+          ? (a.endedAt ? 1 : 0) - (b.endedAt ? 1 : 0) || (b.endedAt ?? 0) - (a.endedAt ?? 0)
+          : (a.startedAt ?? 0) - (b.startedAt ?? 0),
+      )
       .map((k) => ({
         id: k.sessionId!,
         nativeId: k.nativeSessionId && k.nativeSessionId !== k.sessionId ? k.nativeSessionId : null,

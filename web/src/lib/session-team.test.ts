@@ -76,7 +76,18 @@ describe("closed members", () => {
     ];
     const team = buildTeam(rows, "lead");
     expect(team[0]).toMatchObject({ id: "c", state: "done", activity: "Moved 9 of 9", lastActivityAt: 50 });
-    expect(team[0].children[0]).toMatchObject({ id: "g", state: "done", activity: "Closed" });
+    expect(team[0].children[0]).toMatchObject({ id: "g", state: "done", activity: "" });
+  });
+
+  test("open members come first, then finished ones, most recently closed first", () => {
+    const rows = [
+      row("lead", null),
+      row("old", "lead", { startedAt: 1, endedAt: 10 }),
+      row("live2", "lead", { startedAt: 5 }),
+      row("new", "lead", { startedAt: 2, endedAt: 30 }),
+      row("live1", "lead", { startedAt: 3 }),
+    ];
+    expect(buildTeam(rows, "lead").map((m) => m.id)).toEqual(["live1", "live2", "new", "old"]);
   });
 
   test("endedRows maps the server's members to list rows", () => {
