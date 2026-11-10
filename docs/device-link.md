@@ -25,7 +25,7 @@ The first user is the erase Mac tester (session `3ebc3cee`,
  │ result → agent as untrusted  │◄────────────│    [Deny]                    │
  │ data; files to device output │             │ 6. run as an argument list   │
  └──────────────────────────────┘             └──────────────────────────────┘
-          tailnet gate (src/tailnet-gate.ts) only lets signed device calls in
+          only signed device calls reach the device handler
 ```
 
 ## Rules
@@ -36,9 +36,9 @@ These rules come from the first user's answers and from IR-2026-11-01.
 
 - The device connects out. It never listens. A strict macOS firewall (stealth
   mode, block all) does not need a change.
-- Device calls reach `omg serve` only through the tailnet listener. The tailnet
-  gate stays the single owner of tailnet entry. It lets only `/api/devices/*`
-  through, and only with a valid device signature.
+- Device calls use only `/api/devices/link/*`. Each one must carry a valid
+  device signature, except pairing, which needs a one-use code. No other API
+  route opens to the tailnet listener.
 - Pairing makes an Ed25519 key pair on the device. The server stores only the
   public key. Every poll and every result is signed. The server also checks
   that the Tailscale address matches the paired device.
@@ -137,28 +137,21 @@ These rules come from the first user's answers and from IR-2026-11-01.
 4. To unlink: `omg device remove test-mac` on the omg computer, and
    `omg device unlink` on the device.
 
-The device must reach `/api/devices/link/*` on the `LFG_TAILNET_PORT`
-listener. With `tailscale serve` pointed at that port, nothing else is needed.
-A box that puts its own proxy in front (Caddy with an identity gate) needs a
-route for `/api/devices/link/*` to that port. Behind such a proxy the server
-sees `127.0.0.1`, so the address pin is off and the signature is the check.
+`omg serve` answers `/api/devices/link/*` on the main port and on the
+`LFG_TAILNET_PORT` listener. Either can sit behind `tailscale serve`. On a box
+that puts an identity proxy in front of the main port (this server: Caddy with
+`tailscale whois`, service `lfg`), the device's tailnet user must pass that
+proxy too, which adds a second check before the signature. Behind such a proxy
+the server sees `127.0.0.1`, so the address pin is off.
 
-## Known risk
+## Known limits
 
-`sync` and `build` run code as the device user. The strongest setup runs
-`omg device` as a separate macOS user. Actions that need the main user's data
-(`subs`, which reads real mail) then need a second, explicit setup, and each
-request asks for approval.
-
-## Phases
-
-1. **Now (in the erase repository, not here):** `erase_tester.py` fetches jobs
-   from a small queue on this computer and opens no port. It keeps its action
-   list, its 2 hour exit and `requests.log`. Session `3ebc3cee` owns this.
-2. **Core:** pairing, `src/devices/` store and queue, the tailnet gate path,
-   `omg device` with a config registry and terminal approval, and the two agent
-   tools.
-3. **Next:** file results, `@device` mentions in the web composer, and a
-   device list in Settings.
-4. **Later:** approval from a phone with a key held on the phone, and results
-   as event-hook events.
+- The agent that calls `omg_pair_device` sees the pairing code. Anyone who
+  uses it first, within 10 minutes, links as that name. The real device then
+  fails with "already linked", which shows the problem. Pair from the CLI when
+  that matters.
+- `once-per-grant` approves the action with any arguments for the rest of the
+  grant. The prompt says so.
+- The server forgets pairing codes and replay nonces on restart. A captured
+  call could be replayed for up to 2 minutes after a restart, but only by
+  someone who can already read the tailnet traffic.

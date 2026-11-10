@@ -161,7 +161,7 @@ export async function createPairing(name: string): Promise<Pairing> {
   if (!NAME_RE.test(name)) throw new Error("name: lowercase letters, digits and dashes, at most 40");
   if (await getDevice(name)) throw new Error(`a device named "${name}" is already linked. Remove it first.`);
   pruneCodes();
-  // 10 characters from a 32-letter alphabet: 50 bits, one use, 10 minutes.
+  // 10 characters from a 31-letter alphabet (no 0, O, 1, I, L): about 49 bits, one use, 10 minutes.
   const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
   const bytes = randomBytes(10);
   let code = "";
@@ -261,13 +261,24 @@ async function readRequests(): Promise<DeviceRequest[]> {
   return Array.isArray(rows) ? (rows as DeviceRequest[]) : [];
 }
 
+/** How long a request the device has may stay silent before it counts as lost (crash, Ctrl-C, lost reply). */
+export const STALE_MS: Partial<Record<RequestStatus, number>> = {
+  delivered: 5 * 60_000,
+  "waiting-approval": 10 * 60_000, // the device's prompt gives up after 2 minutes
+  running: 4 * 60 * 60_000, // the longest grant
+};
+
 function expire(rows: DeviceRequest[], now: number): boolean {
   let changed = false;
   for (const r of rows) {
-    // Only a request nobody picked up expires here. Once the device has it, the
-    // device owns the outcome and reports it.
     if (r.status === "queued" && r.expiresAt <= now) {
       Object.assign(r, { status: "expired", reason: "the device did not fetch it in time", updatedAt: now });
+      changed = true;
+      continue;
+    }
+    const stale = STALE_MS[r.status];
+    if (stale !== undefined && now - r.updatedAt > stale) {
+      Object.assign(r, { status: "expired", reason: `the device stopped reporting while ${r.status}`, updatedAt: now });
       changed = true;
     }
   }
@@ -285,12 +296,14 @@ export async function listRequests(filter: { deviceId?: string; limit?: number }
 export async function getRequest(id: string): Promise<DeviceRequest | null> {
   const rows = await readRequests();
   const r = rows.find((x) => x.id === id) ?? null;
-  if (r && r.status === "queued" && r.expiresAt <= Date.now()) {
+  if (r && !FINAL_STATUSES.has(r.status)) {
+    let changed = false;
     await serial(async () => {
       const all = await readRequests();
-      if (expire(all, Date.now())) await writeJson(requestsPath(), all);
+      changed = expire(all, Date.now());
+      if (changed) await writeJson(requestsPath(), all);
     });
-    return getRequest(id);
+    if (changed) return (await readRequests()).find((x) => x.id === id) ?? null;
   }
   return r;
 }

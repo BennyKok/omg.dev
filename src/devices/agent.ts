@@ -17,11 +17,13 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
 import {
+  ACTION_RE,
   APPROVALS,
   checkArgs,
+  REQUEST_ID_RE,
   FILE_NAME_RE,
   LINK_PREFIX,
   MAX_FILE_BYTES,
@@ -198,7 +200,8 @@ async function call<T>(c: DeviceConfig, method: "POST" | "PUT", path: string, bo
     ...signRequest(c.deviceId!, key, method, path, body),
     "content-type": typeof body === "string" ? "application/json" : "application/octet-stream",
   };
-  const res = await fetch(`${serverUrl(c)}${path}`, { method, headers, body, signal });
+  // No redirects: a redirect could carry the signed call and files to another origin, or to plain http.
+  const res = await fetch(`${serverUrl(c)}${path}`, { method, headers, body, signal, redirect: "error" });
   const data = (await res.json().catch(() => ({}))) as { error?: string };
   if (res.status === 401) throw new UnlinkedError(data.error || "the server no longer accepts this device");
   if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
@@ -223,6 +226,13 @@ function terminalAsk(): Ask {
         process.stdout.write("\n(no answer in 2 minutes: denied)\n");
         resolve(null);
       }, APPROVAL_WAIT_MS);
+      // readline swallows Ctrl-C while it waits. Pass it on, so Ctrl-C at a
+      // prompt ends the grant like it does everywhere else.
+      rl.on("SIGINT", () => {
+        clearTimeout(timer);
+        rl.close();
+        process.emit("SIGINT");
+      });
       rl.question(question, (answer) => {
         clearTimeout(timer);
         rl.close();
@@ -241,22 +251,40 @@ export function runArgv(argv: string[], opts: { cwd?: string; timeoutSec: number
     const keep = (chunk: Buffer) => {
       tail = (tail + chunk.toString("utf8")).slice(-MAX_LOG_TAIL);
     };
-    const child = spawn(argv[0], argv.slice(1), { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"], shell: false });
+    // Its own process group, so a timeout stops everything the action started,
+    // not only the first process.
+    const child = spawn(argv[0], argv.slice(1), { cwd: opts.cwd, env: opts.env, stdio: ["ignore", "pipe", "pipe"], shell: false, detached: true });
     let timedOut = false;
+    let settled = false;
+    const killGroup = (sig: NodeJS.Signals) => {
+      try {
+        if (child.pid) process.kill(-child.pid, sig);
+      } catch {
+        // Already gone.
+      }
+    };
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      killGroup("SIGKILL"); // nothing the action started outlives it
+      resolve({ exitCode: timedOut ? 124 : (code ?? 1), logTail: tail, timedOut });
+    };
     const timer = setTimeout(() => {
       timedOut = true;
-      child.kill("SIGTERM");
-      setTimeout(() => child.kill("SIGKILL"), 5000).unref();
+      killGroup("SIGTERM");
+      setTimeout(() => finish(null), 5000).unref();
     }, opts.timeoutSec * 1000);
     child.stdout.on("data", keep);
     child.stderr.on("data", keep);
     child.on("error", (e) => {
       keep(Buffer.from(`\n${e.message}\n`));
+      finish(127);
     });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      resolve({ exitCode: timedOut ? 124 : (code ?? 1), logTail: tail, timedOut });
-    });
+    // "exit", then a short wait for the pipes: a grandchild that keeps them
+    // open must not hold the device forever.
+    child.on("close", (code) => finish(code));
+    child.on("exit", (code) => setTimeout(() => finish(code), 2000).unref());
   });
 }
 
@@ -274,15 +302,29 @@ export function collectFiles(dir: string): string[] {
   return out;
 }
 
+/** Server data shown in this terminal: no control characters, so it cannot hide or fake the prompt. */
+export function printable(s: string): string {
+  return s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, "?");
+}
+
 export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireRequest, ask: Ask): Promise<void> {
-  grant.touch();
+  // Everything below prints server data in the approval prompt and uses the id
+  // as a folder name. A server that sends anything else gets no answer at all.
+  if (typeof r?.id !== "string" || !REQUEST_ID_RE.test(r.id) || typeof r.action !== "string" || !ACTION_RE.test(r.action)) {
+    audit({ decision: "ignored", reason: "malformed request from the server" });
+    console.log("\n→ ignored a malformed request from the server");
+    return;
+  }
+  if (r.requestedBy !== undefined && (typeof r.requestedBy !== "string" || !/^[A-Za-z0-9_-]{1,64}$/.test(r.requestedBy))) r.requestedBy = undefined;
   const deny = async (reason: string) => {
     audit({ request: r.id, action: r.action, decision: "denied", reason });
-    console.log(`  denied: ${reason}`);
+    console.log(`  denied: ${printable(reason)}`);
     await update(c, { id: r.id, status: "denied", reason });
   };
   const action = Object.hasOwn(c.actions, r.action) ? c.actions[r.action] : undefined;
-  console.log(`\n→ ${r.action} ${JSON.stringify(r.args)}${r.requestedBy ? ` (from session ${r.requestedBy.slice(0, 8)})` : ""}`);
+  console.log(printable(`\n→ ${r.action} ${JSON.stringify(r.args)}${r.requestedBy ? ` (from session ${r.requestedBy.slice(0, 8)})` : ""}`));
+  const ended = grant.over();
+  if (ended) return deny(`no active grant: ${ended}`);
   if (!action) return deny(`"${r.action}" is not in this device's config`);
   if (Date.now() > r.expiresAt) return deny("the request expired before it reached this device");
   const checked = checkArgs(r.args, action.args ?? {});
@@ -298,16 +340,23 @@ export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireReques
 
   if (grant.needsPrompt(r.action, action.approval)) {
     await update(c, { id: r.id, status: "waiting-approval" });
-    const scope = action.approval === "once-per-grant" ? " (yes covers the rest of this grant)" : "";
-    console.log(`  will run: ${argv.map((a) => JSON.stringify(a)).join(" ")}`);
+    const scope = action.approval === "once-per-grant" ? " (yes allows it with any arguments for the rest of this grant)" : "";
+    console.log(printable(`  will run: ${argv.map((a) => JSON.stringify(a)).join(" ")}`));
     const answer = await ask(`  Allow ${r.action}${scope}? [y/N] `);
     if (answer !== "y" && answer !== "yes") return deny(answer === null ? "no answer" : "the person at the device said no");
+    // The grant may have ended while the person read the prompt.
+    const endedWhileAsking = grant.over();
+    if (endedWhileAsking) return deny(`no active grant: ${endedWhileAsking}`);
     grant.remember(r.action, action.approval);
     audit({ request: r.id, action: r.action, decision: "approved", argv });
   } else {
     audit({ request: r.id, action: r.action, decision: "allowed by grant", argv });
   }
 
+  // Only an approved or allowed run counts as activity, so a server cannot keep an idle grant alive.
+  grant.touch();
+  // REQUEST_ID_RE already rules out "..", this keeps the delete inside out/ even if that rule ever changes.
+  if (!resolve(out).startsWith(resolve(outRoot()) + sep)) return deny("bad output folder");
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true, mode: 0o700 });
   await update(c, { id: r.id, status: "running" });
@@ -348,6 +397,7 @@ async function cmdLink(args: string[]) {
   const keys = newKeyPair();
   const res = await fetch(`${origin}${LINK_PREFIX}pair`, {
     method: "POST",
+    redirect: "error",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ code, publicKey: keys.publicKey, actions: actionInfos(c) }),
   });

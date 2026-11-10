@@ -7451,10 +7451,13 @@ a{color:#60a5fa}
       }
 
       // ---- linked devices (src/devices): agents ask, the device approves ----
-      // Device calls themselves never arrive here; only the tailnet listener
-      // routes /api/devices/link/*. This is the local side: list, pair, request.
+      // /api/devices/link/* are the device's own calls. Each is signed (pairing
+      // needs a one-use code), so they are served here too: a box that puts an
+      // identity proxy in front of this port (Caddy + tailscale whois) keeps
+      // that proxy in front of devices as well. The rest is the local side.
       if (path.startsWith("/api/devices")) {
-        const { handleDevicesApi } = await import("../devices/http.ts");
+        const { handleDevicesApi, handleDeviceLink, isDeviceLinkPath } = await import("../devices/http.ts");
+        if (isDeviceLinkPath(path)) return handleDeviceLink(req);
         const handled = await handleDevicesApi(req, path, url, {
           isBot: async () => !!(await callerBotId(req)),
           callerSessionId: req.headers.get("x-omg-caller-session-id")?.trim() || undefined,

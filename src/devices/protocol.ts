@@ -52,6 +52,8 @@ export type WireUpdate = {
 
 export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const ACTION_RE = /^[a-z][a-z0-9_]{0,39}$/;
+/** Server-made request ids. The device uses one as a folder name, so it checks this before anything else. */
+export const REQUEST_ID_RE = /^dr_[a-z0-9]{1,40}$/;
 export const FILE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
 export function sha256Hex(body: Uint8Array | string): string {
@@ -140,7 +142,7 @@ export function checkArgs(args: unknown, specs: Record<string, ArgSpec>): { ok: 
   if (typeof input !== "object" || Array.isArray(input)) return { ok: false, error: "args must be an object" };
   const out: Record<string, string> = {};
   for (const key of Object.keys(input)) {
-    if (!(key in specs)) return { ok: false, error: `unknown argument "${key}"` };
+    if (!(key in specs)) return { ok: false, error: `unknown argument ${JSON.stringify(key.slice(0, 40))}` };
   }
   for (const [name, spec] of Object.entries(specs)) {
     const value = (input as Record<string, unknown>)[name];
