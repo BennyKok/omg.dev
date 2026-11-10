@@ -106,7 +106,10 @@ export function TeamNeedsSection({
 }
 
 const compact = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-const fmt = (n: number, unit?: string) => `${compact.format(n)}${unit ? (unit === "%" ? "%" : ` ${unit}`) : ""}`;
+const exact = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
+// Small numbers in full (4,656, not 4.7K); large ones compact.
+const fmt = (n: number, unit?: string) =>
+  `${Math.abs(n) < 10_000 ? exact.format(n) : compact.format(n)}${unit ? (unit === "%" ? "%" : ` ${unit}`) : ""}`;
 
 const TONE: Record<string, string> = {
   good: "text-emerald-600 dark:text-emerald-400",
@@ -122,8 +125,11 @@ export function PanelChartView({ chart }: { chart: OmgPanelChart }) {
   const points = chart.points;
   const last = points[points.length - 1];
   const values = points.map((p) => p.value);
-  const lo = Math.min(0, ...values);
-  const hi = Math.max(...values);
+  // Bars compare sizes, so they start at zero. A line shows change, so it
+  // spans its own range: 4,600 to 4,656 must not draw flat.
+  const zeroBased = chart.kind === "bar";
+  const lo = zeroBased ? Math.min(0, ...values) : Math.min(...values);
+  const hi = zeroBased ? Math.max(0, ...values) : Math.max(...values);
   const span = hi - lo || 1;
   const summary = `${chart.title ? `${chart.title}: ` : ""}${points.length} points, latest ${last.label ? `${last.label} ` : ""}${fmt(last.value, chart.unit)}`;
 
@@ -152,7 +158,7 @@ export function PanelChartView({ chart }: { chart: OmgPanelChart }) {
   const W = 300;
   const H = 72;
   const x = (i: number) => (points.length === 1 ? W / 2 : (i / (points.length - 1)) * W);
-  const y = (v: number) => H - ((v - lo) / span) * (H - 4) - 2;
+  const y = (v: number) => (hi === lo ? H / 2 : H - ((v - lo) / span) * (H - 8) - 4);
   let shape: React.ReactNode;
   if (chart.kind === "bar") {
     const w = W / points.length;

@@ -274,7 +274,10 @@ describe("status", () => {
     const chart = ui.query('[data-testid="panel-chart"]')!;
     expect(chart.getAttribute("data-kind")).toBe("line");
     expect(chart.querySelector("svg")!.getAttribute("aria-label")).toBe("Tables done: 3 points, latest 11:00 12");
-    expect(chart.querySelector("polyline")).not.toBeNull();
+    // A line spans its own range: the lowest point sits at the bottom, the highest at the top.
+    const ys = chart.querySelector("polyline")!.getAttribute("points")!.split(" ").map((p) => Number(p.split(",")[1]));
+    expect(ys[0]).toBeGreaterThan(60);
+    expect(ys[2]).toBeLessThan(10);
     expect(section.textContent).toContain("orders");
     // The status leads; the to-do list follows it.
     const items = ui.queryAll('[data-testid="plan-item"]');
@@ -287,7 +290,7 @@ describe("status", () => {
     const chart = ui.query('[data-testid="panel-chart"]')!;
     expect(chart.getAttribute("data-kind")).toBe("bar");
     expect(chart.textContent).toContain("users300 rows");
-    expect(chart.textContent).toContain("orders1.5K rows");
+    expect(chart.textContent).toContain("orders1,500 rows");
     // A status alone is enough: no "No to-do list yet".
     expect(ui.text()).not.toContain("No to-do list yet");
   });
