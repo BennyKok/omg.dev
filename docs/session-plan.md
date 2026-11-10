@@ -71,6 +71,25 @@ live-ws + /api/sessions: readSessionView() = plan file + status file
   text).
 - The headline is also in the session list summary, so a parent's Team view
   shows each child's own headline instead of its last tool call.
+- Visuals (`media`, up to 4): an image, a video, a 3D model (`.glb`), or an
+  HTML view. Each becomes a panel artifact (`src/artifacts.ts`,
+  `surface: "panel"`): served at `/api/artifacts/<id>` like any artifact, but
+  never a chat message or a gallery tile. A status can only point at
+  artifacts the write itself created. An HTML view keeps a stable id
+  (`panel-<session>-<n>`, reserved for the panel) and updates in place; media a
+  new status drops, and all of it on clear, is deleted. The browser draws them
+  with the chat's artifact components; a model loads three.js on demand.
+
+## Finished members
+
+Closing a session removes its registry row, so the live list loses it. The
+close path stamps the parent on the session's resume-catalog row
+(`parent_session_id`, migration `010_parent_session.sql`). `GET
+/api/sessions/<id>/ended-team` (`src/session-team-history.ts`) walks the tree
+through live and closed children and returns the closed ones; the app polls it
+every 30 s while the session is open. Closed members fold under "N done" while
+any member is open, and show with "all done" when every one is finished.
+Sessions closed before the column existed have no parent link.
 
 ## Needs you
 

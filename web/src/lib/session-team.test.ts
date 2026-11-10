@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildTeam, flattenTeam, teamActivity, teamTitle, type TeamSessionRow } from "./session-team";
+import { buildTeam, endedRows, flattenTeam, teamActivity, teamTitle, type TeamSessionRow } from "./session-team";
 
 const row = (id: string, parent: string | null, extra: Partial<TeamSessionRow> = {}): TeamSessionRow => ({
   sessionId: id,
@@ -64,5 +64,24 @@ describe("what a member shows", () => {
     expect(last({ role: "assistant", kind: "tool_use", text: "mcp__omg__omg_send_session_message: {}" })).toBe("Using omg_send_session_message");
     expect(last({ role: "assistant", kind: "thinking", text: "(thinking)" })).toBe("Thinking");
     expect(last(undefined)).toBe("");
+  });
+});
+
+describe("closed members", () => {
+  test("a closed row is done, shows its own headline, and nests like a live one", () => {
+    const rows = [
+      row("lead", null),
+      row("c", "lead", { endedAt: 50, lastActivityAt: 40, plan: { done: 0, total: 0, running: [], finished: 0, headline: "Moved 9 of 9" } }),
+      row("g", "c", { endedAt: 60 }),
+    ];
+    const team = buildTeam(rows, "lead");
+    expect(team[0]).toMatchObject({ id: "c", state: "done", activity: "Moved 9 of 9", lastActivityAt: 50 });
+    expect(team[0].children[0]).toMatchObject({ id: "g", state: "done", activity: "Closed" });
+  });
+
+  test("endedRows maps the server's members to list rows", () => {
+    expect(
+      endedRows([{ sessionId: "c", parentSessionId: "lead", title: "Mover", agent: "codex-aisdk", endedAt: 9, lastActivityAt: 8 }]),
+    ).toEqual([{ sessionId: "c", parentSessionId: "lead", agent: "codex-aisdk", title: "Mover", startedAt: 8, lastActivityAt: 8, endedAt: 9 }]);
   });
 });

@@ -385,3 +385,52 @@ describe("needs you", () => {
     expect(ui.queryAll('[data-testid="team-member"]')).toHaveLength(2);
   });
 });
+
+describe("finished members", () => {
+  const live: TeamMember = { id: "c1", nativeId: null, title: "Live mover", agent: "Codex", state: "working", activity: "Copying", lastActivityAt: null, plan: null, children: [] };
+  const done = (id: string): TeamMember => ({ id, nativeId: null, title: `Done ${id}`, agent: "Codex", state: "done", activity: "Moved 9 of 9", lastActivityAt: null, plan: null, children: [] });
+
+  test("fold under 'N done' while any member is open", async () => {
+    ui.render(<SessionPlanView plan={null} team={[live, done("d1"), done("d2")]} send={async () => {}} />);
+    expect(ui.queryAll('[data-testid="team-member"]').map((m) => m.getAttribute("data-id"))).toEqual(["c1"]);
+    expect(ui.text()).toContain("Team · 3 · 1 working");
+    await click(button("2 done"));
+    expect(ui.queryAll('[data-testid="team-member"]').map((m) => m.getAttribute("data-state"))).toEqual(["working", "done", "done"]);
+    expect(ui.text()).toContain("Moved 9 of 9");
+  });
+
+  test("show, with 'all done', when every member is finished", () => {
+    ui.render(<SessionPlanView plan={null} team={[done("d1"), done("d2")]} send={async () => {}} />);
+    expect(ui.queryAll('[data-testid="team-member"]')).toHaveLength(2);
+    expect(ui.text()).toContain("Team · 2 · all done");
+    expect(button("2 done")).toBeNull();
+  });
+});
+
+describe("status media", () => {
+  const originalFetch = globalThis.fetch;
+  beforeEach(() => {
+    globalThis.fetch = (async () => new Response("", { status: 404 })) as unknown as typeof fetch;
+    configureOmgTransport(createSameOriginTransport());
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test("each visual renders in place, in order, with its caption", async () => {
+    const media = [
+      { kind: "image" as const, artifactId: "a1", url: "/api/artifacts/a1", caption: "Front render", width: 800, height: 600, version: 1 },
+      { kind: "video" as const, artifactId: "a2", url: "/api/artifacts/a2", version: 1 },
+      { kind: "html" as const, artifactId: "panel-x-2", url: "/api/artifacts/panel-x-2", caption: "Migration graph", version: 3 },
+      { kind: "model" as const, artifactId: "a4", url: "/api/artifacts/a4", caption: "Chair asset", version: 1 },
+    ];
+    ui.render(<SessionPlanView plan={{ source: "omg", updatedAt: 1, items: [], agents: [], status: { updatedAt: Date.now(), headline: "Assets", media } }} send={async () => {}} />);
+    await ui.flushAsync();
+    const figures = ui.queryAll('[data-testid="panel-media"]');
+    expect(figures.map((f) => f.getAttribute("data-kind"))).toEqual(["image", "video", "html", "model"]);
+    expect(figures[0].textContent).toContain("Front render");
+    expect(figures[3].textContent).toContain("Chair asset");
+    // The model waits for its viewer; the pane does not break meanwhile.
+    expect(figures[3].textContent).toMatch(/3D model/);
+  });
+});

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
+import { act } from "react";
 import { classifySystemMessage } from "../lib/system-message";
+import { registerSessionRefHandlers } from "../lib/session-ref-link";
 
 const { SystemMessageLine } = await import("./system-message-line");
 
@@ -52,5 +54,24 @@ describe("SystemMessageLine", () => {
     await ui.flushAsync(() => open.click());
     expect(open.getAttribute("aria-expanded")).toBe("true");
     expect(ui.text()).toContain("Exact shipping tip is 0964f06ea.");
+  });
+
+  test("a child's report opens the child session", async () => {
+    const opened: string[] = [];
+    const child = "d60f4291-1111-2222-3333-444444444444";
+    registerSessionRefHandlers({ navigate: (id) => opened.push(id), peekSessions: () => [{ sessionId: child }] });
+    try {
+      const raw = "[Background task Pause the computer · d60f4291]\n\nPaused at 15:00Z.";
+      ui.render(<SystemMessageLine system={classifySystemMessage(raw)!} raw={raw} />);
+      const open = ui.queryAll("button").find((b) => b.getAttribute("aria-label")?.startsWith("Open the session that reported"));
+      expect(open).toBeDefined();
+      await act(async () => {
+        open!.click();
+      });
+      await ui.flushAsync();
+      expect(opened).toEqual([child]);
+    } finally {
+      registerSessionRefHandlers(null);
+    }
   });
 });

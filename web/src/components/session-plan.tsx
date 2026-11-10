@@ -418,6 +418,7 @@ function AgentRow({ agent, now }: { agent: OmgPlanAgent; now: number }) {
 }
 
 function TeamStateIcon({ state }: { state: TeamMember["state"] }) {
+  if (state === "done") return <CircleCheck className="size-4 text-emerald-600 dark:text-emerald-400" aria-hidden />;
   if (state === "working") return <LoaderCircle className="size-4 animate-spin text-sky-600 dark:text-sky-400" aria-hidden />;
   if (state === "blocked") return <CircleAlert className="size-4 text-amber-600 dark:text-amber-400" aria-hidden />;
   return (
@@ -427,7 +428,7 @@ function TeamStateIcon({ state }: { state: TeamMember["state"] }) {
   );
 }
 
-const TEAM_WORD: Record<TeamMember["state"], string> = { working: "Working", blocked: "Blocked", idle: "Idle" };
+const TEAM_WORD: Record<TeamMember["state"], string> = { working: "Working", blocked: "Blocked", idle: "Idle", done: "Done" };
 
 /**
  * One child session: its state, title, latest activity and, when its agent
@@ -451,7 +452,7 @@ function TeamRow({ member, now, onOpen }: { member: TeamMember; now: number; onO
           <TeamStateIcon state={member.state} />
         </span>
         <span className="min-w-0 flex-1 leading-5">
-          <span className={`block truncate text-[13px] ${member.state === "idle" ? "text-muted-foreground" : "text-foreground"}`}>
+          <span className={`block truncate text-[13px] ${member.state === "idle" || member.state === "done" ? "text-muted-foreground" : "text-foreground"}`}>
             {member.title}
           </span>
           {line || plan?.total ? (
@@ -501,20 +502,52 @@ function TeamRow({ member, now, onOpen }: { member: TeamMember; now: number; onO
 
 const openTeamMember = (id: string) => void openSessionRef(`omg:session_${id}`);
 
-/** The child sessions this session started, and theirs, as a tree. */
+/** The tree without closed members, except those that still have live ones under them. */
+function withoutDone(team: readonly TeamMember[]): TeamMember[] {
+  const out: TeamMember[] = [];
+  for (const m of team) {
+    const children = withoutDone(m.children);
+    if (m.state === "done" && !children.length) continue;
+    out.push(children === m.children ? m : { ...m, children });
+  }
+  return out;
+}
+
+/**
+ * The child sessions this session started, and theirs, as a tree. Closed ones
+ * fold under "N done" while any member is still open; when all are done, they
+ * show, because "everything is finished" is then the answer.
+ */
 function TeamSection({ team, now, onOpen }: { team: readonly TeamMember[]; now: number; onOpen: (id: string) => void }) {
+  const [showDone, setShowDone] = useState(false);
   const all = flattenTeam(team);
   const working = all.filter((m) => m.state === "working").length;
   const blocked = all.filter((m) => m.state === "blocked").length;
+  const done = all.filter((m) => m.state === "done").length;
+  const allDone = done === all.length;
+  const shown = showDone || allDone ? team : withoutDone(team);
   return (
     <section aria-label="Team" data-testid="plan-team" className="mx-4 mt-3 border-t border-border/60 pt-2 first:mt-0 first:border-t-0 first:pt-3">
-      <h3 className="pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Team · {all.length}
-        {working ? ` · ${working} working` : ""}
-        {blocked ? ` · ${blocked} blocked` : ""}
+      <h3 className="-mx-4 flex items-center px-4 pb-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <span className="flex-1">
+          Team · {all.length}
+          {working ? ` · ${working} working` : ""}
+          {blocked ? ` · ${blocked} blocked` : ""}
+          {allDone ? " · all done" : ""}
+        </span>
+        {done && !allDone ? (
+          <button
+            type="button"
+            onClick={() => setShowDone((v) => !v)}
+            aria-expanded={showDone}
+            className="-mr-1.5 rounded-md px-1.5 py-0.5 text-[11px] font-medium normal-case tracking-normal text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            {showDone ? "Hide done" : `${done} done`}
+          </button>
+        ) : null}
       </h3>
       <ul className="-mx-2.5">
-        {team.map((member) => (
+        {shown.map((member) => (
           <TeamRow key={member.id} member={member} now={now} onOpen={onOpen} />
         ))}
       </ul>

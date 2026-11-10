@@ -99,7 +99,7 @@ describe("the panel route", () => {
     expect(bad.status).toBe(400);
     expect(((await bad.json()) as { error: string }).error).toContain("headline");
     expect((await put("{nope")).status).toBe(400);
-    expect((await put({ headline: "x", text: "y".repeat(70_000) })).status).toBe(413);
+    expect((await put({ headline: "x", text: "y".repeat(1_100_000) })).status).toBe(413);
     expect(readPanelStatus(SID)?.headline).toBe("Switching");
   });
 
@@ -137,5 +137,69 @@ describe("readers", () => {
     mkdirSync(join(home, "session-panels"), { recursive: true });
     writeFileSync(join(home, "session-panels", `${sid}.json`), "{not json");
     expect(readPanelStatus(sid)).toBeNull();
+  });
+});
+
+describe("media", () => {
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  );
+  const sid = "44444444-2222-3333-4444-555555555555";
+  const putMedia = (media: unknown) => put({ headline: "Rendering", media }, sid, sid);
+
+  test("a file and an HTML view become panel artifacts, never chat messages", async () => {
+    const { writeFileSync } = await import("node:fs");
+    const { getImageArtifact, listImageArtifacts } = await import("./artifacts.ts");
+    const png = join(home, "render.png");
+    const glb = join(home, "asset.glb");
+    writeFileSync(png, PNG);
+    writeFileSync(glb, Buffer.from("glTF fake"));
+    const res = await putMedia([{ path: png, caption: "Front" }, { html: "<p>diagram</p>" }, { path: glb }]);
+    expect(res.status).toBe(200);
+    const media = readPanelStatus(sid)!.media!;
+    expect(media.map((m) => m.kind)).toEqual(["image", "html", "model"]);
+    expect(media[0]).toMatchObject({ caption: "Front", width: 1, height: 1 });
+    for (const m of media) {
+      expect(m.url).toBe(`/api/artifacts/${m.artifactId}`);
+      expect(getImageArtifact(m.artifactId)?.surface).toBe("panel");
+    }
+    expect(media[1].artifactId).toBe(`panel-${sid.replace(/-/g, "")}-1`);
+    expect(listImageArtifacts(sid)).toEqual([]);
+
+    // Re-publishing the view updates it in place; the image it dropped is deleted.
+    await putMedia([{ path: glb }, { html: "<p>diagram v2</p>" }]);
+    const next = readPanelStatus(sid)!.media!;
+    expect(next[1].artifactId).toBe(media[1].artifactId);
+    expect(next[1].version).toBeGreaterThan(media[1].version);
+    expect(getImageArtifact(media[0].artifactId)).toBeNull();
+
+    // Clearing removes the rest.
+    await handlePanelRequest(new Request("http://x", { method: "DELETE" }), sid, sid);
+    for (const m of next) expect(getImageArtifact(m.artifactId)).toBeNull();
+  });
+
+  test("bad media is a 400 with the reason", async () => {
+    const reason = async (media: unknown) => ((await (await putMedia(media)).json()) as { error: string }).error;
+    expect(await reason([{ path: "/etc/passwd" }])).toContain("media 1:");
+    expect(await reason([{ path: "/x.png", html: "<p/>" }])).toContain("exactly one of path or html");
+    expect(await reason([{}, {}, {}, {}, {}])).toContain("at most 4");
+    expect(await reason([{ path: "relative.png" }])).toContain("absolute");
+  });
+
+  test("a panel id is reserved, and a stored status can only point at artifacts", async () => {
+    const { publishHtmlArtifact } = await import("./artifacts.ts");
+    expect(() => publishHtmlArtifact({ sessionId: sid, html: "<p/>", id: "panel-steal-0" })).toThrow("reserved");
+    const s = normalizePanelStatus({
+      headline: "x",
+      media: [
+        { kind: "image", artifactId: "abc123", url: "https://evil.example/x.png", version: 1 },
+        { kind: "image", artifactId: "abc123", url: "/api/artifacts/other", version: 1 },
+        { kind: "image", artifactId: "abc123", url: "/api/artifacts/abc123", version: 1 },
+      ],
+    })!;
+    expect(s.media).toEqual([{ kind: "image", artifactId: "abc123", url: "/api/artifacts/abc123", version: 1 }]);
+    // A writer cannot hand in stored media.
+    expect(normalizePanelStatus({ headline: "x", media: s.media }, true)!.media).toBeUndefined();
   });
 });

@@ -9,6 +9,7 @@
  */
 import { useState } from "react";
 import {
+  ArrowUpRight,
   ChevronRight,
   CircleHelp,
   Clock3,
@@ -22,6 +23,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { openSessionRef } from "../lib/session-ref-link";
 import {
   systemMessageHasPreview,
   systemMessagePreview,
@@ -87,6 +89,18 @@ export function SystemMessageLine({
         ) : null}
       </button>
       {divider ? <span aria-hidden="true" className="h-px min-w-6 flex-1 bg-border" /> : null}
+      {/* A report names the session that sent it: one tap goes there. */}
+      {system.kind === "background-task" && system.id ? (
+        <button
+          type="button"
+          onClick={() => void openSessionRef(`omg:session_${system.id}`)}
+          aria-label={`Open the session that reported, ${system.id}`}
+          title="Open the session that reported"
+          className="-ml-3 flex size-6 shrink-0 items-center justify-center self-start rounded-full text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ArrowUpRight className="size-3" aria-hidden="true" />
+        </button>
+      ) : null}
       </div>
       {open ? (
         <pre className="mt-0.5 max-h-72 w-[min(42rem,92%)] overflow-auto whitespace-pre-wrap rounded-xl border border-border/70 bg-muted/30 p-3 text-left font-mono text-[11px] leading-relaxed text-muted-foreground">

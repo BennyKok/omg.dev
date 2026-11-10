@@ -27,6 +27,7 @@ export type {
   OmgPlanAgent,
   OmgPlanItem,
   OmgPanelChart,
+  OmgPanelMedia,
   OmgPanelStat,
   OmgPanelStatus,
   OmgSessionPlan,

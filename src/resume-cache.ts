@@ -35,6 +35,9 @@ export type ResumableCacheRow = ResumableSession & {
   // Only the close path knows it, so the scan leaves this undefined and the
   // upsert preserves whatever is already stored.
   archivedAt?: number | null;
+  // The session that started this one. Only the close path knows it, and the
+  // upsert keeps it once stamped, like archivedAt.
+  parentSessionId?: string | null;
 };
 
 export type ResumableBackend =
@@ -233,6 +236,9 @@ function init(): Database {
   if (version < 9) {
     d.exec(readFileSync(new URL("./migrations/resume-cache/009_builder_preset.sql", import.meta.url), "utf8"));
   }
+  if (version < 10) {
+    d.exec(readFileSync(new URL("./migrations/resume-cache/010_parent_session.sql", import.meta.url), "utf8"));
+  }
   initialized = true;
   return d;
 }
@@ -292,8 +298,8 @@ export function upsertResumableRows(rows: ResumableCacheRow[]): void {
     INSERT INTO resumable_sessions
       (session_id, cwd, project, title, last_user_text, last_activity_at, agent, path, mtime_ms,
        backend, resume_handle, model, thinking_level, service_tier, fast_mode,
-       assigned_user, managed, resumable, scheduled, archived_at, builder_preset)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       assigned_user, managed, resumable, scheduled, archived_at, builder_preset, parent_session_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       cwd = excluded.cwd,
       project = excluded.project,
@@ -324,7 +330,8 @@ export function upsertResumableRows(rows: ResumableCacheRow[]): void {
       -- The scan cannot see a close event, so it always passes NULL here.
       -- COALESCE keeps a close time that was already stamped instead of
       -- letting the next refresh erase it.
-      archived_at = COALESCE(excluded.archived_at, resumable_sessions.archived_at)
+      archived_at = COALESCE(excluded.archived_at, resumable_sessions.archived_at),
+      parent_session_id = COALESCE(excluded.parent_session_id, resumable_sessions.parent_session_id)
   `);
   d.transaction((batch: ResumableCacheRow[]) => {
     for (const r of batch) {
@@ -350,6 +357,7 @@ export function upsertResumableRows(rows: ResumableCacheRow[]): void {
         r.scheduled ? 1 : 0,
         r.archivedAt ?? null,
         r.builderPreset ?? null,
+        r.parentSessionId ?? null,
       );
     }
   })(rows);
@@ -682,6 +690,54 @@ export function queryHistoricalCache(opts: HistoricalQuery = {}): HistoricalQuer
     total,
     truncated: total > rows.length,
   };
+}
+
+export type EndedChildRow = {
+  sessionId: string;
+  parentSessionId: string;
+  title: string;
+  lastUserText: string | null;
+  agent: string;
+  backend: string | null;
+  lastActivityAt: number | null;
+  archivedAt: number;
+};
+
+/**
+ * Closed sessions whose parent is one of `parentIds`, newest close first. A
+ * parent's Team view reads this for the children that have left the live list.
+ */
+export function listEndedChildren(parentIds: readonly string[], limit = 200): EndedChildRow[] {
+  const ids = [...new Set(parentIds.filter(Boolean))].slice(0, 500);
+  if (!ids.length) return [];
+  const rows = init()
+    .query<{
+      session_id: string;
+      parent_session_id: string;
+      title: string;
+      last_user_text: string | null;
+      agent: string;
+      backend: string | null;
+      last_activity_at: number | null;
+      archived_at: number;
+    }, (string | number)[]>(`
+      SELECT session_id, parent_session_id, title, last_user_text, agent, backend, last_activity_at, archived_at
+      FROM resumable_sessions
+      WHERE parent_session_id IN (${ids.map(() => "?").join(", ")}) AND archived_at IS NOT NULL
+      ORDER BY archived_at DESC
+      LIMIT ?
+    `)
+    .all(...ids, Math.max(1, Math.min(500, limit)));
+  return rows.map((r) => ({
+    sessionId: r.session_id,
+    parentSessionId: r.parent_session_id,
+    title: r.title,
+    lastUserText: r.last_user_text,
+    agent: r.agent,
+    backend: r.backend,
+    lastActivityAt: r.last_activity_at,
+    archivedAt: r.archived_at,
+  }));
 }
 
 export function resetResumeCacheConnectionForTests(): void {

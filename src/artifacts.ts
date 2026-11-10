@@ -154,6 +154,10 @@ export type ImageArtifact = {
   // Server-side script refresh configuration. This lives with the stable
   // artifact record so schedules and their status survive server restarts.
   refresh?: ArtifactRefreshConfig;
+  // "panel": media of an agent's side-panel status (src/session-panel.ts).
+  // Served like any artifact, but never a transcript message or a gallery
+  // tile, and deleted when the status stops using it.
+  surface?: "panel";
 };
 
 export type ImageArtifactMessage = SessionMsg & {
@@ -266,6 +270,7 @@ function createMediaArtifact(
     path: string;
     caption?: string;
     alt?: string;
+    surface?: "panel";
   },
   media: StoredMediaKind,
   dimensions?: { width: number; height: number },
@@ -298,6 +303,7 @@ function createMediaArtifact(
       artifact.size === st.size &&
       artifact.caption === caption &&
       artifact.alt === alt &&
+      artifact.surface === input.surface &&
       now - artifact.createdAt >= 0 &&
       now - artifact.createdAt <= RETRY_DEDUPE_MS
     )
@@ -337,6 +343,7 @@ function createMediaArtifact(
     height: dimensions?.height,
     caption,
     alt,
+    ...(input.surface ? { surface: input.surface } : {}),
   };
   const index = readIndexForUpdate();
   index[id] = artifact;
@@ -349,6 +356,7 @@ export async function createImageArtifact(input: {
   path: string;
   caption?: string;
   alt?: string;
+  surface?: "panel";
 }): Promise<ImageArtifact> {
   // Read dimensions once while publishing so every later transcript/API read
   // can reserve the final aspect ratio without decoding the image again.
@@ -370,6 +378,7 @@ export async function createVideoArtifact(input: {
   path: string;
   caption?: string;
   alt?: string;
+  surface?: "panel";
 }): Promise<ImageArtifact> {
   // Dimensions are read once at publish, like images, so every transcript can
   // reserve the player's box before a single byte of video arrives. Without
@@ -397,6 +406,7 @@ export function createFileArtifact(input: {
   path: string;
   caption?: string;
   alt?: string;
+  surface?: "panel";
 }): ImageArtifact {
   return createMediaArtifact(input, "file");
 }
@@ -416,6 +426,7 @@ export function publishHtmlArtifact(input: {
   // Defaults to true. Script refreshes pass false because new data is not a
   // new authored artifact revision.
   bumpVersion?: boolean;
+  surface?: "panel";
 }): ImageArtifact {
   const sessionId = input.sessionId.trim();
   if (!UUID.test(sessionId)) throw new Error("sessionId must be a UUID");
@@ -437,6 +448,14 @@ export function publishHtmlArtifact(input: {
   // ids remain kind-safe, so HTML can never replace an image or video.
   if (existing && (existing.media ?? "image") !== "html") {
     throw new Error("artifact id belongs to a different media kind");
+  }
+  // Panel ids belong to one session's status. Nothing else may take one over,
+  // and the panel may not take over another session's card.
+  if (requestedId?.startsWith("panel-") && input.surface !== "panel") {
+    throw new Error("artifact ids starting with panel- are reserved for the side panel");
+  }
+  if (input.surface === "panel" && existing && existing.sessionId !== sessionId) {
+    throw new Error("panel artifact belongs to another session");
   }
 
   const id = requestedId ?? `${Date.now().toString(36)}-${randomBytes(6).toString("hex")}`;
@@ -471,6 +490,7 @@ export function publishHtmlArtifact(input: {
     version,
     updatedAt: now,
     refresh: input.refresh === undefined ? existing?.refresh : input.refresh ?? undefined,
+    ...(input.surface ? { surface: input.surface } : {}),
   };
   index[id] = artifact;
   writeIndex(index);
@@ -551,7 +571,7 @@ export function listAllArtifacts(): ImageArtifact[] {
 
 export function listImageArtifacts(sessionId: string): ImageArtifact[] {
   return Object.values(readIndex())
-    .filter((artifact) => artifact.sessionId === sessionId)
+    .filter((artifact) => artifact.sessionId === sessionId && !artifact.surface)
     .sort((a, b) => a.createdAt - b.createdAt);
 }
 

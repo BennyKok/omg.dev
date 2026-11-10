@@ -6,20 +6,45 @@
 // owner, the agent's harness; live-ws reads both and sends them in one `plan`
 // frame, so the browser keeps one cache and one subscription.
 //
-// The status is data, never markup: a headline, markdown text, a few numbers,
-// and one chart as plain numbers. The browser renders all of it with its own
-// components, so it always matches the app's design and carries no script.
+// The status is data: a headline, markdown text, a few numbers, one chart as
+// plain numbers, and up to 4 visuals. The browser draws all of it with its own
+// components, so it matches the app's design. A visual is a panel artifact
+// (src/artifacts.ts, surface "panel"): an image, a video, a 3D model (glb), or
+// an HTML view rendered sandboxed with no network. Panel artifacts never post
+// to the chat, and the ones a new status stops using are deleted.
 //
 // The shapes mirror OmgPanelStatus in packages/protocol; the server does not
 // import that package, so they are restated here.
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
+import {
+  createFileArtifact,
+  createImageArtifact,
+  createVideoArtifact,
+  deleteArtifact,
+  getImageArtifact,
+  publishHtmlArtifact,
+  type ImageArtifact,
+} from "./artifacts.ts";
 import { PATHS } from "./config.ts";
 
 export type PanelTone = "good" | "warn" | "bad";
 export type PanelStat = { label: string; value: string; tone?: PanelTone };
 export type PanelChartPoint = { label: string; value: number };
 export type PanelChart = { title?: string; kind: "line" | "bar"; unit?: string; points: PanelChartPoint[] };
+export type PanelMediaKind = "image" | "video" | "model" | "html";
+/** One picture, video, 3D model or HTML view, stored as a panel artifact. */
+export type PanelMedia = {
+  kind: PanelMediaKind;
+  artifactId: string;
+  /** `/api/artifacts/<id>`: the only URL a status can carry. */
+  url: string;
+  caption?: string;
+  width?: number;
+  height?: number;
+  /** Changes when the bytes change, for caches. */
+  version: number;
+};
 export type PanelStatus = {
   updatedAt: number;
   /** One line: where the work stands. Also shown on the parent's Team row. */
@@ -28,6 +53,7 @@ export type PanelStatus = {
   text?: string;
   stats?: PanelStat[];
   chart?: PanelChart;
+  media?: PanelMedia[];
 };
 
 export const PANEL_LIMITS = {
@@ -40,7 +66,40 @@ export const PANEL_LIMITS = {
   chartUnit: 16,
   points: 120,
   pointLabel: 24,
+  media: 4,
+  mediaCaption: 200,
+  html: 512 * 1024,
+  modelBytes: 50 * 1024 * 1024,
 } as const;
+
+const ARTIFACT_URL = /^\/api\/artifacts\/([a-z0-9-]{3,64})$/;
+const MEDIA_KINDS = new Set<PanelMediaKind>(["image", "video", "model", "html"]);
+
+/** Stored media from untrusted JSON: only artifact URLs, bounded. */
+function normalizeStoredMedia(raw: unknown): PanelMedia[] {
+  if (!Array.isArray(raw)) return [];
+  const out: PanelMedia[] = [];
+  for (const m of raw.slice(0, PANEL_LIMITS.media)) {
+    const o = (m && typeof m === "object" ? m : {}) as Record<string, unknown>;
+    const url = typeof o.url === "string" ? o.url : "";
+    const id = url.match(ARTIFACT_URL)?.[1];
+    if (!id || o.artifactId !== id || !MEDIA_KINDS.has(o.kind as PanelMediaKind)) continue;
+    const item: PanelMedia = {
+      kind: o.kind as PanelMediaKind,
+      artifactId: id,
+      url,
+      version: typeof o.version === "number" && Number.isFinite(o.version) ? o.version : 0,
+    };
+    const caption = line(o.caption, PANEL_LIMITS.mediaCaption);
+    if (caption) item.caption = caption;
+    if (typeof o.width === "number" && o.width > 0 && typeof o.height === "number" && o.height > 0) {
+      item.width = o.width;
+      item.height = o.height;
+    }
+    out.push(item);
+  }
+  return out;
+}
 
 const TONES = new Set<PanelTone>(["good", "warn", "bad"]);
 
@@ -128,7 +187,96 @@ export function normalizePanelStatus(raw: unknown, strict = false): PanelStatus 
       status.chart = chart;
     }
   }
+  // Media in a request is input for writePanelStatus, never a stored shape: a
+  // writer cannot point the panel at an artifact it did not just create.
+  if (!strict) {
+    const media = normalizeStoredMedia(r.media);
+    if (media.length) status.media = media;
+  }
   return status;
+}
+
+const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif"]);
+const VIDEO_EXT = new Set([".mp4", ".m4v", ".webm", ".mov", ".ogv"]);
+const MODEL_EXT = new Set([".glb"]);
+
+type MediaInput = { path?: unknown; html?: unknown; caption?: unknown };
+
+function mediaInputs(raw: unknown): MediaInput[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new PanelInputError("media must be a list");
+  if (raw.length > PANEL_LIMITS.media) throw new PanelInputError(`at most ${PANEL_LIMITS.media} media items`);
+  return raw.map((m) => {
+    const o = (m && typeof m === "object" ? m : {}) as MediaInput;
+    const hasPath = typeof o.path === "string" && !!o.path.trim();
+    const hasHtml = typeof o.html === "string" && !!o.html.trim();
+    if (hasPath === hasHtml) throw new PanelInputError("each media item needs exactly one of path or html");
+    if (hasHtml && Buffer.byteLength(o.html as string, "utf8") > PANEL_LIMITS.html) {
+      throw new PanelInputError("panel html is larger than 512 KB");
+    }
+    return o;
+  });
+}
+
+/** The panel's stable id for its i-th HTML view, so a re-publish updates it in place. */
+const htmlId = (sessionId: string, i: number) => `panel-${sessionId.replace(/[^a-z0-9]/gi, "").toLowerCase().slice(0, 32)}-${i}`;
+
+async function storeMedia(sessionId: string, inputs: MediaInput[]): Promise<PanelMedia[]> {
+  const out: PanelMedia[] = [];
+  for (const [i, m] of inputs.entries()) {
+    const caption = line(m.caption, PANEL_LIMITS.mediaCaption) || undefined;
+    let artifact: ImageArtifact;
+    let kind: PanelMediaKind;
+    try {
+      if (typeof m.html === "string" && m.html.trim()) {
+        kind = "html";
+        artifact = publishHtmlArtifact({ sessionId, html: m.html, id: htmlId(sessionId, i), caption, surface: "panel" });
+      } else {
+        const path = String(m.path).trim();
+        const ext = extname(path).toLowerCase();
+        if (IMAGE_EXT.has(ext)) {
+          kind = "image";
+          artifact = await createImageArtifact({ sessionId, path, caption, surface: "panel" });
+        } else if (VIDEO_EXT.has(ext)) {
+          kind = "video";
+          artifact = await createVideoArtifact({ sessionId, path, caption, surface: "panel" });
+        } else if (MODEL_EXT.has(ext)) {
+          kind = "model";
+          const st = statSync(path);
+          if (st.size > PANEL_LIMITS.modelBytes) throw new Error("3D model is larger than 50 MB");
+          artifact = createFileArtifact({ sessionId, path, caption, surface: "panel" });
+        } else {
+          throw new Error("media path must be an image (png, jpg, webp, gif), a video (mp4, webm, mov), or a 3D model (glb)");
+        }
+      }
+    } catch (e) {
+      throw new PanelInputError(`media ${i + 1}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    out.push({
+      kind,
+      artifactId: artifact.id,
+      url: `/api/artifacts/${artifact.id}`,
+      version: artifact.updatedAt ?? artifact.createdAt,
+      ...(caption ? { caption } : {}),
+      ...(artifact.width && artifact.height ? { width: artifact.width, height: artifact.height } : {}),
+    });
+  }
+  return out;
+}
+
+/** Delete panel artifacts the status no longer uses. */
+function dropMedia(sessionId: string, before: readonly PanelMedia[] | undefined, keep: readonly PanelMedia[] = []): void {
+  const kept = new Set(keep.map((m) => m.artifactId));
+  for (const m of before ?? []) {
+    if (kept.has(m.artifactId)) continue;
+    // Only the panel's own media: never a transcript artifact.
+    if (getImageArtifact(m.artifactId)?.surface !== "panel") continue;
+    try {
+      deleteArtifact({ id: m.artifactId, sessionId });
+    } catch {
+      // Already gone, or never ours: nothing to clean.
+    }
+  }
 }
 
 const panelsDir = () => join(PATHS.data, "session-panels");
@@ -169,10 +317,14 @@ export function readPanelStatus(sessionId: string): PanelStatus | null {
  * Replace the session's status with validated input. Atomic: a reader never
  * sees half a file. Throws PanelInputError for input the agent should fix.
  */
-export function writePanelStatus(sessionId: string, raw: unknown): PanelStatus {
+export async function writePanelStatus(sessionId: string, raw: unknown): Promise<PanelStatus> {
   const path = panelFile(sessionId);
   if (!path) throw new PanelInputError("bad session id");
   const status = normalizePanelStatus({ ...(raw as object), updatedAt: Date.now() }, true)!;
+  const inputs = mediaInputs((raw as { media?: unknown } | null)?.media);
+  const before = readPanelStatus(sessionId)?.media;
+  if (inputs.length) status.media = await storeMedia(sessionId, inputs);
+  dropMedia(sessionId, before, status.media);
   mkdirSync(panelsDir(), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(status));
@@ -185,6 +337,7 @@ export function writePanelStatus(sessionId: string, raw: unknown): PanelStatus {
 export function clearPanelStatus(sessionId: string): boolean {
   const path = panelFile(sessionId);
   if (!path) return false;
+  dropMedia(sessionId, readPanelStatus(sessionId)?.media);
   cache.delete(path);
   try {
     statSync(path);
@@ -195,7 +348,8 @@ export function clearPanelStatus(sessionId: string): boolean {
   return true;
 }
 
-const MAX_BODY = 64 * 1024;
+// Room for one or two HTML views; every field is still bounded on its own.
+const MAX_BODY = 1024 * 1024;
 
 /**
  * PUT (replace) or DELETE (clear) a session's status over HTTP.
@@ -219,7 +373,7 @@ export async function handlePanelRequest(req: Request, sessionId: string, caller
     return Response.json({ error: "request body must be JSON" }, { status: 400 });
   }
   try {
-    return Response.json({ ok: true, status: writePanelStatus(sessionId, body) });
+    return Response.json({ ok: true, status: await writePanelStatus(sessionId, body) });
   } catch (e) {
     if (e instanceof PanelInputError) return Response.json({ error: e.message }, { status: 400 });
     throw e;

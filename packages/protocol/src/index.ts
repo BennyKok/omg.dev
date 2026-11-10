@@ -227,6 +227,20 @@ export interface OmgPanelStatus {
   text?: string;
   stats?: OmgPanelStat[];
   chart?: OmgPanelChart;
+  media?: OmgPanelMedia[];
+}
+
+/** One visual in an agent's status, served as an artifact. */
+export interface OmgPanelMedia {
+  kind: "image" | "video" | "model" | "html";
+  artifactId: string;
+  /** `/api/artifacts/<id>`. */
+  url: string;
+  caption?: string;
+  width?: number;
+  height?: number;
+  /** Changes when the bytes change. */
+  version: number;
 }
 
 export type OmgLiveChannelKind =

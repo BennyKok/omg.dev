@@ -1,6 +1,7 @@
 import { cleanupSessionMcpConfigs } from "../private-mcp-config.ts";
 import { readSessionView, summarizeSessionPlan, type SessionPlanSummary } from "../session-plan.ts";
 import { handlePanelRequest } from "../session-panel.ts";
+import { endedTeam } from "../session-team-history.ts";
 import { existingNoProjectWorkspace, NO_PROJECT, noProjectWorkspacePath, prepareNoProjectWorkspace } from "../no-project-chat.ts";
 import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app-builder.ts";
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
@@ -1883,6 +1884,9 @@ function persistManagedResume(session: Session): void {
     // point: mtimeMs is the last turn, which can be hours or days older, and
     // sorting the picker on it buried a session the moment it was archived.
     archivedAt: Date.now(),
+    // The registry row goes with the close; this keeps the parent's Team view
+    // able to list this session as finished.
+    parentSessionId: session.parentSessionId || session.parentNativeSessionId || null,
   };
   const rows: Parameters<typeof upsertResumableRows>[0] = [{
     ...base,
@@ -10208,7 +10212,7 @@ a{color:#60a5fa}
             if (session.nativeSessionId) managedBySession.set(session.nativeSessionId, session);
           }
           const all = listAllArtifacts().filter(
-            (artifact) => !kindFilter || (artifact.media ?? "image") === kindFilter,
+            (artifact) => !artifact.surface && (!kindFilter || (artifact.media ?? "image") === kindFilter),
           );
           // listAllArtifacts is oldest-first; page newest-first with an offset
           // so the gallery can load incrementally instead of all up front.
@@ -10379,6 +10383,17 @@ a{color:#60a5fa}
             });
           }
           return new Response(file, { headers: baseHeaders });
+        }
+      }
+
+      // The closed members of a session's team (src/session-team-history.ts).
+      {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/ended-team$/);
+        if (m && req.method === "GET") {
+          const live = await listSessionsCached().catch(() => [] as Session[]);
+          const self = live.find((row) => row.sessionId === m[1] || row.nativeSessionId === m[1]) ?? findManagedById(m[1]);
+          const roots = [m[1], self?.sessionId, self?.nativeSessionId].filter((id): id is string => !!id);
+          return json({ members: endedTeam(roots, live) });
         }
       }
 

@@ -1040,7 +1040,7 @@ export function buildOmgMcpServer(): McpServer {
     {
       title: "Show Your Status In The Side Panel",
       description:
-        "Keep a short, current status for the person in your session's side panel, next to the chat, and on your row in a parent session's team list. Use it for long-running work, so the person sees where it stands without reading the transcript: a headline, a few lines of markdown, key numbers, and one chart (progress over time, rows per table). Each call replaces the whole status. Update it when something meaningful changes, not every step. Call with clear: true when the work is done. It is data, not HTML: omg.dev renders it in its own design. Questions for the person go through omg_input, not here.",
+        "Keep a short, current status for the person in your session's side panel, next to the chat, and on your row in a parent session's team list. Use it for long-running work, so the person sees where it stands without reading the transcript: a headline, a few lines of markdown, key numbers, one chart (progress over time, rows per table), and up to 4 visuals (an image, a video, a 3D model, or an HTML view). Each call replaces the whole status. Update it when something meaningful changes, not every step. Call with clear: true when the work is done. omg.dev draws the status in its own design; an HTML view runs sandboxed with no network. Visuals stay in the panel and do not post to the chat. Questions for the person go through omg_input, not here.",
       inputSchema: {
         headline: z
           .string()
@@ -1071,10 +1071,21 @@ export function buildOmgMcpServer(): McpServer {
           })
           .optional()
           .describe("One chart from plain numbers. Send the full series each time; the last 120 points are kept."),
+        media: z
+          .array(
+            z.object({
+              path: z.string().optional().describe("Absolute path to an image (png, jpg, webp, gif), a video (mp4, webm, mov), or a 3D model (glb) on this machine."),
+              html: z.string().max(512 * 1024).optional().describe("A self-contained HTML view instead of a file: inline CSS, JS and data only, no network. Use the --omg-artifact-* CSS variables so it matches the app in light and dark."),
+              caption: z.string().max(200).optional(),
+            }),
+          )
+          .max(4)
+          .optional()
+          .describe("Up to 4 visuals shown under the status: a render, a screenshot, a 3D model of an asset, a diagram as HTML. Each item has exactly one of path or html. Send the full list each time; items you leave out are removed."),
         clear: z.boolean().optional().describe("Remove the status from the panel."),
       },
     },
-    async ({ headline, text, stats, chart, clear }) => {
+    async ({ headline, text, stats, chart, media, clear }) => {
       const sid = await ownedSessionId();
       const path = `/api/sessions/${encodeURIComponent(sid)}/panel`;
       if (clear) {
@@ -1085,7 +1096,7 @@ export function buildOmgMcpServer(): McpServer {
       const data = await api<{ status?: unknown }>(path, {
         method: "PUT",
         headers: { "Content-Type": "application/json", "X-OMG-Session-ID": sid },
-        body: JSON.stringify({ headline, text, stats, chart }),
+        body: JSON.stringify({ headline, text, stats, chart, media }),
       });
       return result({ shown: true, sessionId: shortSid(sid), status: data.status });
     },

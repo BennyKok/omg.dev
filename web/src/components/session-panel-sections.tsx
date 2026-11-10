@@ -7,10 +7,12 @@
 // - Status: what the agent set with omg_panel (src/session-panel.ts). It is
 //   data, never markup: a headline, markdown, key numbers and one chart drawn
 //   here from plain numbers, so it always matches the app.
-import { useMemo } from "react";
-import type { OmgPanelChart, OmgPanelStatus } from "@omg-dev/protocol";
+import { Suspense, lazy, useMemo } from "react";
+import type { OmgPanelChart, OmgPanelMedia, OmgPanelStatus } from "@omg-dev/protocol";
 import { CircleAlert } from "lucide-react";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { AuthenticatedArtifactImage, AuthenticatedArtifactVideo } from "@/components/authenticated-artifact";
+import { NativeArtifactEmbed } from "@/components/native-artifact";
 import { stripMd, useOptionalAsk, type Question } from "@/components/ask-center";
 import { flattenTeam, type TeamMember } from "@/lib/session-team";
 
@@ -193,6 +195,44 @@ export function PanelChartView({ chart }: { chart: OmgPanelChart }) {
   );
 }
 
+// three.js is a chunk of its own, loaded only when a status has a model.
+const PanelModelView = lazy(() => import("./panel-model-view"));
+
+/** One visual: drawn by the same components as the chat's artifacts. */
+export function PanelMediaView({ media }: { media: OmgPanelMedia }) {
+  const label = media.caption || (media.kind === "model" ? "3D model" : media.kind === "video" ? "Video" : media.kind === "html" ? "View" : "Image");
+  let body: React.ReactNode;
+  if (media.kind === "image") {
+    body = <AuthenticatedArtifactImage path={media.url} alt={label} width={media.width} height={media.height} zoomable className="rounded-lg" />;
+  } else if (media.kind === "video") {
+    body = <AuthenticatedArtifactVideo path={media.url} label={label} width={media.width} height={media.height} className="rounded-lg" />;
+  } else if (media.kind === "html") {
+    body = (
+      <div className="overflow-hidden rounded-lg border border-border/60">
+        <NativeArtifactEmbed path={media.url} cacheKey={media.version} title={label} maxHeight={360} />
+      </div>
+    );
+  } else {
+    body = (
+      <Suspense
+        fallback={
+          <div className="flex h-60 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-[11px] text-muted-foreground">
+            Loading 3D model…
+          </div>
+        }
+      >
+        <PanelModelView url={media.url} label={label} />
+      </Suspense>
+    );
+  }
+  return (
+    <figure data-testid="panel-media" data-kind={media.kind} className="mt-3 min-w-0">
+      {body}
+      {media.caption ? <figcaption className="pt-1 text-[11px] leading-4 text-muted-foreground">{media.caption}</figcaption> : null}
+    </figure>
+  );
+}
+
 /** What the agent set with omg_panel. */
 export function PanelStatusSection({ status, ago }: { status: OmgPanelStatus; ago: string }) {
   return (
@@ -213,6 +253,7 @@ export function PanelStatusSection({ status, ago }: { status: OmgPanelStatus; ag
         </dl>
       ) : null}
       {status.chart?.points.length ? <PanelChartView chart={status.chart} /> : null}
+      {status.media?.map((m) => <PanelMediaView key={m.artifactId} media={m} />)}
       {status.text ? (
         <MessageResponse
           className={

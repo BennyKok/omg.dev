@@ -6,7 +6,8 @@
 // and, when its agent keeps one, a short plan summary (see sessionListRow in
 // src/commands/serve.ts). App publishes the list here; the plan pane reads the
 // tree under one session. No second fetch and no per-child subscription.
-import { useSyncExternalStore } from "react";
+import { useEffect, useSyncExternalStore } from "react";
+import { omgFetch } from "@/lib/omg-client";
 
 export type TeamPlanSummary = {
   done: number;
@@ -35,9 +36,11 @@ export type TeamSessionRow = {
   lastActivityAt?: number | null;
   last?: { role?: string; kind?: string; text?: string; ts?: number };
   plan?: TeamPlanSummary;
+  /** Closed: from /api/sessions/<id>/ended-team, not the live list. */
+  endedAt?: number;
 };
 
-export type TeamState = "working" | "blocked" | "idle";
+export type TeamState = "working" | "blocked" | "idle" | "done";
 
 export type TeamMember = {
   id: string;
@@ -82,6 +85,7 @@ function toolLabel(text: string): string {
 
 /** What the session did or said last, as one plain line. */
 export function teamActivity(row: TeamSessionRow): string {
+  if (row.endedAt) return row.plan?.headline || "Closed";
   if (row.status === "blocked") return row.statusDetail || "Blocked";
   const last = row.last;
   const text = (last?.text ?? "").trim();
@@ -100,6 +104,7 @@ export function teamActivity(row: TeamSessionRow): string {
 }
 
 export function teamState(row: TeamSessionRow): TeamState {
+  if (row.endedAt) return "done";
   if (row.status === "blocked") return "blocked";
   return row.busy ? "working" : "idle";
 }
@@ -134,7 +139,7 @@ export function buildTeam(rows: readonly TeamSessionRow[], sid: string | null | 
         agent: agentName(k),
         state: teamState(k),
         activity: teamActivity(k),
-        lastActivityAt: k.lastActivityAt ?? k.last?.ts ?? null,
+        lastActivityAt: k.endedAt ?? k.lastActivityAt ?? k.last?.ts ?? null,
         plan: k.plan ?? null,
         children: childrenOf(k, depth + 1),
       }));
@@ -164,11 +169,96 @@ function subscribe(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-const teamCache = new WeakMap<readonly TeamSessionRow[], Map<string, TeamMember[]>>();
+// Closed members per session, fetched while a view of that session is open.
+// The live list has only running sessions; the server keeps the rest.
+type EndedMember = {
+  sessionId: string;
+  parentSessionId: string;
+  title: string;
+  agent: string;
+  endedAt: number;
+  lastActivityAt: number | null;
+  plan?: TeamPlanSummary;
+};
+const ENDED_POLL_MS = 30_000;
+const ended = new Map<string, readonly TeamSessionRow[]>();
+const endedWatchers = new Map<string, { count: number; timer: ReturnType<typeof setInterval> | null }>();
+
+/** Rows for closed members, in the live list's shape. */
+export function endedRows(members: readonly EndedMember[]): TeamSessionRow[] {
+  return members.map((m) => ({
+    sessionId: m.sessionId,
+    parentSessionId: m.parentSessionId,
+    agent: m.agent,
+    title: m.title,
+    startedAt: m.lastActivityAt ?? m.endedAt,
+    lastActivityAt: m.lastActivityAt,
+    endedAt: m.endedAt,
+    ...(m.plan ? { plan: m.plan } : {}),
+  }));
+}
+
+export function publishEndedTeam(sid: string, members: readonly EndedMember[]): void {
+  const prev = ended.get(sid);
+  const next = endedRows(members);
+  if (prev && JSON.stringify(prev) === JSON.stringify(next)) return;
+  ended.set(sid, next);
+  listeners.forEach((l) => l());
+}
+
+async function fetchEnded(sid: string): Promise<void> {
+  try {
+    const res = await omgFetch(`/api/sessions/${encodeURIComponent(sid)}/ended-team`, { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { members?: EndedMember[] };
+    publishEndedTeam(sid, Array.isArray(data.members) ? data.members : []);
+  } catch {
+    // The next tick retries; the live team still shows.
+  }
+}
+
+function watchEnded(sid: string): () => void {
+  let w = endedWatchers.get(sid);
+  if (!w) {
+    w = { count: 0, timer: null };
+    endedWatchers.set(sid, w);
+    void fetchEnded(sid);
+    w.timer = setInterval(() => void fetchEnded(sid), ENDED_POLL_MS);
+  }
+  w.count++;
+  return () => {
+    const cur = endedWatchers.get(sid);
+    if (!cur || --cur.count > 0) return;
+    if (cur.timer) clearInterval(cur.timer);
+    endedWatchers.delete(sid);
+  };
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const teamCache = new WeakMap<readonly TeamSessionRow[], Map<string, { ended: readonly TeamSessionRow[] | undefined; team: TeamMember[] }>>();
 const EMPTY: TeamMember[] = [];
 
-/** The live team under `sid`. Same array until the session list changes. */
+/** Live rows plus closed ones; a closed row that is live again (resumed) yields to the live one. */
+function withEnded(live: readonly TeamSessionRow[], closed: readonly TeamSessionRow[] | undefined): readonly TeamSessionRow[] {
+  if (!closed?.length) return live;
+  const ids = new Set<string>();
+  for (const r of live) {
+    if (r.sessionId) ids.add(r.sessionId);
+    if (r.nativeSessionId) ids.add(r.nativeSessionId);
+  }
+  return [...live, ...closed.filter((r) => !ids.has(r.sessionId!))];
+}
+
+/**
+ * The team under `sid`: live members from the session list, closed ones from
+ * the server. Same array until either changes.
+ */
 export function useSessionTeam(sid: string | null | undefined): TeamMember[] {
+  useEffect(() => {
+    if (!sid || !UUID.test(sid)) return;
+    return watchEnded(sid);
+  }, [sid]);
   return useSyncExternalStore(
     subscribe,
     () => {
@@ -178,13 +268,14 @@ export function useSessionTeam(sid: string | null | undefined): TeamMember[] {
         bySid = new Map();
         teamCache.set(rows, bySid);
       }
-      let team = bySid.get(sid);
-      if (!team) {
-        team = buildTeam(rows, sid);
-        if (!team.length) team = EMPTY;
-        bySid.set(sid, team);
+      const closed = ended.get(sid);
+      let hit = bySid.get(sid);
+      if (!hit || hit.ended !== closed) {
+        const team = buildTeam(withEnded(rows, closed), sid);
+        hit = { ended: closed, team: team.length ? team : EMPTY };
+        bySid.set(sid, hit);
       }
-      return team;
+      return hit.team;
     },
     () => EMPTY,
   );
