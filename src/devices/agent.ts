@@ -322,7 +322,7 @@ export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireReques
     await update(c, { id: r.id, status: "denied", reason });
   };
   const action = Object.hasOwn(c.actions, r.action) ? c.actions[r.action] : undefined;
-  console.log(printable(`\n→ ${r.action} ${JSON.stringify(r.args)}${r.requestedBy ? ` (from session ${r.requestedBy.slice(0, 8)})` : ""}`));
+  console.log(`\n${printable(`→ ${r.action} ${JSON.stringify(r.args)}${r.requestedBy ? ` (from session ${r.requestedBy.slice(0, 8)})` : ""}`)}`);
   const ended = grant.over();
   if (ended) return deny(`no active grant: ${ended}`);
   if (!action) return deny(`"${r.action}" is not in this device's config`);
