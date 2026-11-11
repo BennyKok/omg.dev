@@ -30226,12 +30226,7 @@ function ViewSettingsSection({
   const rows: { key: keyof ViewPrefs & `show${string}`; label: string; hint: string }[] = [
     { key: "showSessionDetails", label: "Session details in lists", hint: "The agent mark and last message on each session row. Off shows one short line per session." },
     { key: "showThreads", label: "Threads", hint: "Show your threads above the sessions." },
-    { key: "showSidebarAgentIcons", label: "Agent icons in the sidebar", hint: "The harness mark and assignee face on each session row." },
     { key: "showSidebarFavicons", label: "Project favicons in the sidebar", hint: "The project logo on each session row. Off shows the agent mark instead." },
-    { key: "showSessionAgentIcons", label: "Agent icons in chat", hint: "The harness mark in a session's header. Off shows nothing there." },
-    { key: "showSessionDiffBar", label: "Worktree diff badge in chat", hint: "The floating changes bar above the composer." },
-    { key: "showComposerAgents", label: "Agent picker in the composer", hint: "Off: every new session uses the default agent." },
-    { key: "showComposerModels", label: "Model picker in the composer", hint: "Off: every new session uses the default model." },
     ...(hideBots ? [] : [{ key: "showBots" as const, label: "Bots", hint: "The Bots surface and its switch." }]),
     { key: "showSchedules", label: "Schedules", hint: "The Schedules surface and its switch." },
   ];

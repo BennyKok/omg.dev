@@ -276,17 +276,21 @@ function sanitize(
     ? input.lastModel.trim().slice(0, DEFAULT_MODEL_MAX_LENGTH)
     : "";
   // Missing means on: a box that predates these keys must not lose UI.
-  const showSidebarAgentIcons = input?.showSidebarAgentIcons !== false;
   const showSidebarFavicons = input?.showSidebarFavicons !== false;
-  const showSessionAgentIcons = input?.showSessionAgentIcons !== false;
-  const showComposerModels = input?.showComposerModels !== false;
-  const showComposerAgents = input?.showComposerAgents !== false;
+  // Always on for the box (2026-11-11 Settings cleanup). Settings no longer
+  // offers these five switches, and a stored `false` from before would be a
+  // switch nobody can see, so it is ignored. A role can still hide each one
+  // for its viewers (src/policy/roles.ts, applyRoleViews in the web app).
+  const showSidebarAgentIcons = true;
+  const showSessionAgentIcons = true;
+  const showComposerModels = true;
+  const showComposerAgents = true;
   // A hosted omg.dev Computer does not offer Bots, whatever a past save wrote
   // (every save writes every key, so a stored `true` is usually just the old
   // default). Off here means the web app never loads /api/bots on it.
   const showBots = !hosted && input?.showBots !== false;
   const showSchedules = input?.showSchedules !== false;
-  const showSessionDiffBar = input?.showSessionDiffBar !== false;
+  const showSessionDiffBar = true;
   // Off unless the owner turns it on under Settings > Advanced. A new user
   // does not see Fast mode. A box that has saved settings before keeps the
   // value it saved, because every save writes this key.
