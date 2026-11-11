@@ -4,6 +4,7 @@ import { ChevronLeft } from "lucide-react";
 /** Settings pages that open in the desktop stage. Terminal and Computer are not here: they fill the screen. */
 export const SETTINGS_STAGE_SUBPAGES: ReadonlySet<string> = new Set([
   "storage",
+  "devices",
   "instructions",
   "connectors",
   "more",

@@ -696,7 +696,7 @@ import {
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
-import { LinkedDevicesSettingsSection } from "./components/linked-devices-settings";
+import { LinkedDevicesPage, LinkedDevicesRow } from "./components/linked-devices-settings";
 import { SETTINGS_STAGE_SUBPAGES, SettingsStageSubpage } from "./components/settings-stage-subpage";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
@@ -8971,6 +8971,9 @@ export function App() {
       onOpenReport={setOpenReport}
       settings={settings}
       onSettingsChange={updateSettings}
+      // The desktop stage has no header bar, so Schedules carries its own
+      // way back, like the other pages Settings opens.
+      onBack={isWide ? () => setTab("settings") : undefined}
     />
   );
   // The editor is the page while it is open, so the desktop workspace steps
@@ -9048,6 +9051,7 @@ export function App() {
       onOpenCodingAgents={() => setTab("coding-agents")}
       onOpenAuto={() => setTab("auto")}
       onOpenStorage={() => setTab("storage")}
+      onOpenDevices={() => setTab("devices")}
       onOpenMore={() => setTab("more")}
       onOpenCustomInstructions={() => setTab("instructions")}
       onOpenConnectors={() => setTab("connectors")}
@@ -9068,6 +9072,7 @@ export function App() {
         </Suspense>
       );
     if (page === "storage") return <StoragePage />;
+    if (page === "devices") return <LinkedDevicesPage />;
     if (page === "instructions")
       return (
         <CustomInstructionsPage
@@ -28315,8 +28320,6 @@ function useSessionUsage(active: boolean, intervalMs = 15000): SessionUsage | nu
 const LIVE_AGENT_LIMIT_OPTIONS = [0, 4, 8, 10, 12, 16, 24, 32];
 
 // No 0/unlimited option here on purpose — see GlobalSettings.maxBotSchedules.
-const BOT_SCHEDULE_LIMIT_OPTIONS = [1, 2, 3, 5, 8, 10, 15, 20];
-const BOT_COMPACTION_THRESHOLD_OPTIONS = [60, 70, 75, 78, 80, 85, 90, 95];
 
 function AgentConcurrencySettingsSection({
   settings,
@@ -28326,8 +28329,6 @@ function AgentConcurrencySettingsSection({
   onChange: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
-  const [savingBotCap, setSavingBotCap] = useState(false);
-  const [savingCompaction, setSavingCompaction] = useState(false);
   const stats = useServerStats(true);
 
   async function saveLimit(maxLiveAgents: number) {
@@ -28344,35 +28345,6 @@ function AgentConcurrencySettingsSection({
       toast.error(e instanceof Error ? e.message : "Could not update agent limit");
     } finally {
       setSaving(false);
-    }
-  }
-
-  async function saveBotCap(maxBotSchedules: number) {
-    if (maxBotSchedules === settings.maxBotSchedules || savingBotCap) return;
-    setSavingBotCap(true);
-    try {
-      await onChange({ maxBotSchedules });
-      toast.success(`Per-bot schedule limit set to ${maxBotSchedules}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not update the bot schedule limit");
-    } finally {
-      setSavingBotCap(false);
-    }
-  }
-
-  async function saveBotCompaction(patch: Partial<Pick<
-    GlobalSettings,
-    "botAutoCompactionEnabled" | "botCompactionThresholdPercent"
-  >>) {
-    if (savingCompaction) return;
-    setSavingCompaction(true);
-    try {
-      await onChange(patch);
-      toast.success("Bot context refresh settings updated");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not update bot context refresh settings");
-    } finally {
-      setSavingCompaction(false);
     }
   }
 
@@ -28412,55 +28384,6 @@ function AgentConcurrencySettingsSection({
               </option>
             ))}
           </SettingsSelect>
-        }
-      />
-      {/* Per-bot cap on self-scheduled routines (omg_schedule_routine). A
-          separate knob from live-agent capacity above: this bounds how many
-          concerns any one bot is tracking at once, not concurrency. */}
-      <SettingsRow
-        icon={<SettingsIcon><CalendarClock /></SettingsIcon>}
-        title="Bot schedule limit"
-        description="Max routines a bot can schedule on itself"
-        trailing={
-          <SettingsSelect
-            value={settings.maxBotSchedules}
-            onChange={(value) => void saveBotCap(Number(value))}
-            disabled={savingBotCap}
-            aria-label="Maximum schedules per bot"
-          >
-            {BOT_SCHEDULE_LIMIT_OPTIONS.map((count) => (
-              <option key={count} value={count}>{count}</option>
-            ))}
-          </SettingsSelect>
-        }
-      />
-      <SettingsRow
-        icon={<SettingsIcon><RotateCcw /></SettingsIcon>}
-        title="Refresh full bot contexts"
-        description={
-          settings.botAutoCompactionEnabled
-            ? `At ${settings.botCompactionThresholdPercent}% measured context use`
-            : "Off — bots keep one runtime until manually refreshed"
-        }
-        trailing={
-          <>
-            <SettingsSelect
-              value={settings.botCompactionThresholdPercent}
-              onChange={(value) => void saveBotCompaction({ botCompactionThresholdPercent: Number(value) })}
-              disabled={savingCompaction || !settings.botAutoCompactionEnabled}
-              aria-label="Bot context refresh threshold"
-            >
-              {BOT_COMPACTION_THRESHOLD_OPTIONS.map((percent) => (
-                <option key={percent} value={percent}>{percent}%</option>
-              ))}
-            </SettingsSelect>
-            <Switch
-              checked={settings.botAutoCompactionEnabled}
-              onCheckedChange={(next) => void saveBotCompaction({ botAutoCompactionEnabled: next })}
-              disabled={savingCompaction}
-              aria-label="Automatically refresh full bot contexts"
-            />
-          </>
         }
       />
     </SettingsGroup>
@@ -29993,6 +29916,7 @@ function SettingsView({
   onOpenCodingAgents,
   onOpenAuto,
   onOpenStorage,
+  onOpenDevices,
   onOpenMore,
   onOpenCustomInstructions,
   onOpenConnectors,
@@ -30005,6 +29929,7 @@ function SettingsView({
   onOpenCodingAgents: () => void;
   onOpenAuto: () => void;
   onOpenStorage: () => void;
+  onOpenDevices: () => void;
   onOpenMore: () => void;
   onOpenCustomInstructions: () => void;
   onOpenConnectors: () => void;
@@ -30063,6 +29988,7 @@ function SettingsView({
               description={diskLine}
               descriptionClassName="truncate tabular-nums"
             />
+            <LinkedDevicesRow onOpen={onOpenDevices} />
           </>
         )}
         {/* One row for what used to be three (Frontend, Computer, Updates):
@@ -30080,8 +30006,6 @@ function SettingsView({
       </SettingsGroup>
 
       <RemoteAccessSettingsSection />
-
-      <LinkedDevicesSettingsSection />
 
       {/* More — the long tail lives on its own page so this one stays
           scannable. Hidden on a host-mounted surface: everything behind it
@@ -31853,6 +31777,7 @@ function AutoManageView({
   onOpenReport,
   settings,
   onSettingsChange,
+  onBack,
 }: {
   autoAgents: AutoAgent[];
   /** Only for the per-row "N open" badge now — the triage banner is gone. */
@@ -31869,6 +31794,8 @@ function AutoManageView({
   onOpenReport: (agentId: string) => void;
   settings?: GlobalSettings;
   onSettingsChange?: (patch: Partial<GlobalSettings>) => Promise<void>;
+  /** Desktop stage only: Back to Settings. The phone header has its own control. */
+  onBack?: () => void;
 }) {
   const directory = useContext(BotDirectoryContext);
   // One pass over findings, not one filter per row. The old per-row
@@ -31930,7 +31857,18 @@ function AutoManageView({
             twice — and it costs a row of the list on the smallest screen.
             From md there is no switch bar and the Pages menu does not list
             this page, so the heading is the only thing that names it. */}
-        <div className="hidden min-w-0 md:block">
+        <div className="hidden min-w-0 items-center gap-2 md:flex">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back to Settings"
+              className="flex h-8 shrink-0 items-center gap-0.5 rounded-full pr-1 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ChevronLeft className="size-4" />
+              Settings
+            </button>
+          ) : null}
           <h1 className="text-lg font-semibold leading-tight">Schedules</h1>
         </div>
         {/* ml-auto, not justify-between: with the heading hidden this is the

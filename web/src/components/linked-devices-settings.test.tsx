@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 
-const { LinkedDevicesSettingsSection } = await import("./linked-devices-settings");
+const { LinkedDevicesPage, LinkedDevicesRow } = await import("./linked-devices-settings");
 const { refreshLinkedDevices } = await import("../lib/linked-devices");
 
 let ui: Mounted;
@@ -53,24 +53,23 @@ afterEach(() => {
   window.confirm = originalConfirm;
 });
 
-describe("LinkedDevicesSettingsSection", () => {
+describe("LinkedDevicesPage", () => {
   test("lists each device with its actions and approval levels", async () => {
     serve();
     await refreshLinkedDevices();
-    ui.render(<LinkedDevicesSettingsSection />);
+    ui.render(<LinkedDevicesPage />);
     await ui.flushAsync();
 
     expect(ui.text()).toContain("Linked devices");
     expect(ui.text()).toContain("@test-mac");
     expect(ui.text()).toContain("Connected now");
-    expect(ui.text()).toContain("snap (runs during a grant)");
-    expect(ui.text()).toContain("subs (asks every time)");
+    expect(ui.text()).toContain("Connected now · 2 actions");
   });
 
   test("pairing shows the one-use command with this box's address", async () => {
     serve();
     await refreshLinkedDevices();
-    ui.render(<LinkedDevicesSettingsSection />);
+    ui.render(<LinkedDevicesPage />);
     await ui.flushAsync();
 
     const input = (ui.query('input[aria-label="Device name"]') as HTMLInputElement);
@@ -93,7 +92,7 @@ describe("LinkedDevicesSettingsSection", () => {
   test("unlink asks first and does nothing when the person cancels", async () => {
     serve();
     await refreshLinkedDevices();
-    ui.render(<LinkedDevicesSettingsSection />);
+    ui.render(<LinkedDevicesPage />);
     await ui.flushAsync();
 
     window.confirm = () => false;
@@ -106,10 +105,33 @@ describe("LinkedDevicesSettingsSection", () => {
     expect(ui.query('[data-linked-device="test-mac"]')).toBeNull();
   });
 
+  test("says so when the server has no device routes", async () => {
+    serve({ listStatus: 404 });
+    await refreshLinkedDevices();
+    ui.render(<LinkedDevicesPage />);
+    await ui.flushAsync();
+    expect(ui.text()).toContain("This server cannot link devices.");
+    expect(ui.query('input[aria-label="Device name"]')).toBeNull();
+  });
+});
+
+describe("LinkedDevicesRow", () => {
+  test("names the linked devices and opens the page", async () => {
+    serve();
+    await refreshLinkedDevices();
+    let opened = 0;
+    ui.render(<LinkedDevicesRow onOpen={() => opened++} />);
+    await ui.flushAsync();
+    expect(ui.text()).toContain("Linked devices");
+    expect(ui.text()).toContain("@test-mac");
+    await ui.flushAsync(() => (ui.query("button") as HTMLButtonElement).click());
+    expect(opened).toBe(1);
+  });
+
   test("hidden when the server has no device routes", async () => {
     serve({ listStatus: 404 });
     await refreshLinkedDevices();
-    ui.render(<LinkedDevicesSettingsSection />);
+    ui.render(<LinkedDevicesRow onOpen={() => {}} />);
     await ui.flushAsync();
     expect(ui.text()).not.toContain("Linked devices");
   });
