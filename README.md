@@ -65,7 +65,15 @@ Or **System Settings → Privacy & Security → Open Anyway**.
 
 - Several coding-agent sessions in parallel.
 - Transcripts and follow-ups in the web UI.
-- Chat, Bots, Schedules, and Notifications in one place.
+- For Claude and Codex, the agent's plan beside the chat: its to-do steps,
+  its sub-agents, and the child sessions it started.
+- Chat, Bots, Schedules, Inbox, and Artifacts in one place.
+- A shared Computer: a desktop with a real browser that you and your agents
+  both use. On Linux and macOS.
+- Linked devices: an agent can ask another computer to run an action, and you
+  approve it on that computer. Type `@` and the device name in a chat.
+- Event hooks: watch a script or a GitHub repository, and start an agent or
+  send a notification when something new appears.
 - Managed sessions keep running when the UI disconnects.
 - Your existing agent subscriptions or API keys.
 
