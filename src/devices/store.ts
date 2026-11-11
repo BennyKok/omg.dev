@@ -286,7 +286,11 @@ function expire(rows: DeviceRequest[], now: number): boolean {
 }
 
 export async function listRequests(filter: { deviceId?: string; limit?: number } = {}): Promise<DeviceRequest[]> {
-  const rows = await readRequests();
+  const rows = await serial(async () => {
+    const rows = await readRequests();
+    if (expire(rows, Date.now())) await writeJson(requestsPath(), rows);
+    return rows;
+  });
   return rows
     .filter((r) => !filter.deviceId || r.deviceId === filter.deviceId)
     .slice(-(filter.limit ?? 20))

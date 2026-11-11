@@ -1,11 +1,12 @@
 # Device link
 
-Status: phase 2 (core) and phase 3 (Settings, `@device` in the composer) implemented in `src/devices/` and `web/src/` (2026-11-10).
+Status: core, controller Settings, and local receiver UI implemented in `src/devices/` and `web/src/` (2026-11-11).
 
 A device link lets an agent on this computer ask a linked device, such as a
 test Mac, to do one action. The user approves the action on that device. The
-device opens no port. It fetches requests over Tailscale and posts back the
-results.
+device fetches requests over Tailscale and posts back the results. The CLI
+opens no port. An instance running `omg serve` can use its existing localhost
+UI to connect and approve. It adds no listener for incoming device commands.
 
 The first user is the erase Mac tester (session `3ebc3cee`,
 `erase-mac/tools/mac-tester/erase_tester.py`). Its requirements are below.
@@ -58,7 +59,7 @@ These rules come from the first user's answers and from IR-2026-11-01.
 
 ### Approval
 
-- Every grant has a hard expiry, 1 to 2 hours at most, and an idle timeout,
+- Every grant has a hard expiry, 4 hours at most, and an idle timeout,
   15 minutes by default.
 - Each action has an approval level in the device config:
   - `in-grant`: allowed while a grant is active (for example `snap`,
@@ -70,6 +71,13 @@ These rules come from the first user's answers and from IR-2026-11-01.
 - The device asks for approval. The server never approves for the device. A
   phone cannot approve for another device until approvals are signed on the
   phone itself (a later phase).
+- Receiver controls require a direct localhost UI request. They reject remote
+  peers, forwarded requests, bot callers, and cross-origin mutations. The
+  tailnet listener never exposes these routes. A controller cannot approve its
+  own request through the signed link API.
+- Stop ends pending approvals and kills the running action's process group.
+  Grants do not resume after a restart. The CLI and UI share one receiver
+  runtime and an exclusive lock in the device home.
 
 ### Results and files
 
@@ -91,8 +99,8 @@ These rules come from the first user's answers and from IR-2026-11-01.
 - `omg_pair_device(name)` makes a pairing code. Only the person at the device
   can use it.
 - In the web composer, `@` offers linked devices next to bots. Picking one
-  inserts plain `@name` text. Settings lists devices, makes pairing codes and
-  unlinks a device (phase 3). Approval stays on the device.
+  inserts plain `@name` text. Settings has two views: Send requests (controller)
+  and Receive requests (controlled instance). Approval stays on the device.
 
 ## Code
 
@@ -101,6 +109,10 @@ These rules come from the first user's answers and from IR-2026-11-01.
 - `http.ts`: `handleDeviceLink` (device calls, tailnet listener only) and
   `handleDevicesApi` (local API for agents and the UI).
 - `agent.ts`: `omg device ...`, the device side and the pairing commands.
+- `runtime.ts`: shared receiver lifecycle, pending approvals, and a bounded
+  reader for the existing device audit log.
+- `local-http.ts`: localhost-only receiver controls on the existing server.
+- `lock.ts`: prevents a CLI and UI receiver from running at the same time.
 
 ## Device config
 
@@ -132,6 +144,26 @@ These rules come from the first user's answers and from IR-2026-11-01.
 
 ## Setup
 
+With omg.dev running on both computers:
+
+1. On the controller, open Settings → Linked devices → Send requests. Enter
+   a device name and select Pair.
+2. On the receiving computer, open its own localhost UI. Select Linked devices
+   → Receive requests. Enter the controller's Tailscale HTTPS address and code.
+3. Review the action permissions. The installed `~/.omg-device/config.json`
+   is still required. Pairing does not start access or install actions.
+4. Select an access duration and Start access. Pending requests show the exact
+   argument list. Select Allow once, Allow until access ends, or Deny as offered
+   by that action's rule. No answer within two minutes means deny.
+5. Use Stop access to stop the grant, or Disconnect controller to remove the
+   local key. Both views show request activity. Output appears as plain text.
+
+The roles describe each link. The same instance can send requests to devices
+and receive requests from its one paired controller. The receiver UI is not
+available through a remote browser or a forwarding development proxy.
+
+The CLI remains available:
+
 1. On the omg computer: `omg device pair test-mac`.
 2. On the device: write the config, then run the printed
    `omg device link --server ... --code ...`.
@@ -148,6 +180,12 @@ the server sees `127.0.0.1`, so the address pin is off.
 
 ## Known limits
 
+- After an unclean process exit, `~/.omg-device/run.lock` may remain. Verify
+  that its PID is no longer running before removing the lock. Access never
+  restarts automatically.
+- Local activity shows the latest 50 records from a bounded tail of the audit
+  log. Controller activity shows its latest 20 requests. Command output is
+  available when the action finishes; it is not a live terminal stream.
 - The agent that calls `omg_pair_device` sees the pairing code. Anyone who
   uses it first, within 10 minutes, links as that name. The real device then
   fails with "already linked", which shows the problem. Pair from the CLI when

@@ -184,7 +184,7 @@ export async function handleDevicesApi(
   req: Request,
   path: string,
   url: URL,
-  ctx: { isBot: () => Promise<boolean>; callerSessionId?: string },
+  ctx: { isBot: () => Promise<boolean>; callerSessionId?: string; peerAddress?: string },
 ): Promise<Response | null> {
   if (!path.startsWith("/api/devices")) return null;
   // Device calls have their own handler (handleDeviceLink); never treat one as a local call.
@@ -192,6 +192,11 @@ export async function handleDevicesApi(
   // A device can run code on another machine, and its output may hold private
   // data. A bot gets no part of that, not even the list.
   if (await ctx.isBot()) return err(403, "a bot cannot use linked devices");
+
+  if (path === "/api/devices/_local" || path.startsWith("/api/devices/_local/")) {
+    const { handleLocalDeviceApi } = await import("./local-http.ts");
+    return handleLocalDeviceApi(req, ctx.peerAddress);
+  }
 
   if (path === "/api/devices" && req.method === "GET") {
     const devices = await store.listDevices();

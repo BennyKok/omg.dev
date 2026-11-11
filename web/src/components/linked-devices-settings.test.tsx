@@ -28,7 +28,7 @@ function serve(routes: { listStatus?: number } = {}) {
     calls.push({ url, method, body: typeof init?.body === "string" ? init.body : undefined });
     if (url === "/api/devices" && method === "GET") {
       if (routes.listStatus) return Response.json({ error: "no" }, { status: routes.listStatus });
-      return Response.json({ devices, requests: [] });
+      return Response.json({ devices, requests: [{ id: "dr_ui", device: "test-mac", action: "subs", status: "waiting-approval", args: { mode: "check" }, createdAt: 1, updatedAt: 1 }] });
     }
     if (url === "/api/devices/pairing" && method === "POST") {
       return Response.json({ code: "ABCDE-FGHJK", name: "lab-pc", expiresAt: Date.now() + 600_000, server: "https://box.example.ts.net" });
@@ -64,6 +64,12 @@ describe("LinkedDevicesPage", () => {
     expect(ui.text()).toContain("@test-mac");
     expect(ui.text()).toContain("Connected now");
     expect(ui.text()).toContain("Connected now · 2 actions");
+    expect(ui.text()).toContain("Allowed during access");
+    expect(ui.text()).toContain("Ask every time");
+    expect(ui.text()).toContain("Waiting for approval on the device");
+    expect(ui.query("details[open]")?.textContent).toContain("check");
+    expect(ui.text()).toContain("Send requests");
+    expect(ui.text()).toContain("Receive requests");
   });
 
   test("pairing shows the one-use command with this box's address", async () => {

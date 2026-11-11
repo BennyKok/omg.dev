@@ -1,4 +1,5 @@
 import { cleanupSessionMcpConfigs } from "../private-mcp-config.ts";
+import { deviceRuntime } from "../devices/runtime.ts";
 import { readSessionView, summarizeSessionPlan, type SessionPlanSummary } from "../session-plan.ts";
 import { handlePanelRequest } from "../session-panel.ts";
 import { endedTeam } from "../session-team-history.ts";
@@ -7460,6 +7461,7 @@ a{color:#60a5fa}
         if (isDeviceLinkPath(path)) return handleDeviceLink(req);
         const handled = await handleDevicesApi(req, path, url, {
           isBot: async () => !!(await callerBotId(req)),
+          peerAddress: server.requestIP(req)?.address,
           callerSessionId: req.headers.get("x-omg-caller-session-id")?.trim() || undefined,
         });
         if (handled) return handled;
@@ -12432,6 +12434,7 @@ a{color:#60a5fa}
   // descendants. Tear all of them down before the server exits on either
   // interactive or service-manager shutdown.
   const stopRefreshOnExit = () => {
+    deviceRuntime.shutdown();
     stopArtifactRefresh();
   };
   process.once("exit", stopRefreshOnExit);
@@ -12511,6 +12514,11 @@ a{color:#60a5fa}
       hostname: "127.0.0.1",
       maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
       async fetch(req) {
+        // Approval authority stays at the receiving computer, even for an
+        // authenticated owner using the tailnet UI.
+        if (/^\/api\/devices\/_local(?:\/|$)/.test(new URL(req.url).pathname)) {
+          return new Response("Open the UI on the receiving computer.", { status: 403 });
+        }
         // Linked devices sign every call (src/devices). They are the one
         // tailnet caller that does not need a person's sign-in.
         if (new URL(req.url).pathname.startsWith("/api/devices/link/")) {

@@ -27,6 +27,10 @@ export type DeviceRequestRow = {
   reason?: string;
   createdAt: number;
   updatedAt: number;
+  args?: Record<string, string>;
+  exitCode?: number;
+  untrustedOutput?: string;
+  files?: Array<{ name: string; bytes: number }>;
 };
 
 type Snapshot = { devices: LinkedDevice[]; requests: DeviceRequestRow[]; loaded: boolean; unavailable: boolean };
@@ -68,12 +72,61 @@ function subscribe(fn: () => void) {
 }
 
 /** The cached device list. Mounting a user refreshes it when stale. */
-export function useLinkedDevices(): Snapshot {
+export function useLinkedDevices(live = false): Snapshot {
   const value = useSyncExternalStore(subscribe, () => snapshot, () => EMPTY);
   useEffect(() => {
     if (Date.now() - fetchedAt > STALE_MS) void refreshLinkedDevices();
   }, []);
+  useEffect(() => {
+    if (!live) return;
+    void refreshLinkedDevices();
+    const refresh = () => { if (document.visibilityState !== "hidden") void refreshLinkedDevices(); };
+    const timer = window.setInterval(refresh, 3000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [live]);
   return value;
+}
+
+export const approvalLabels: Record<DeviceApproval, string> = {
+  "in-grant": "Allowed during access",
+  "once-per-grant": "Ask on first use",
+  each: "Ask every time",
+};
+
+export type ReceiverState = {
+  deviceId: string | null;
+  server: string | null;
+  active: boolean;
+  otherProcess?: boolean;
+  endsAt: number | null;
+  idleMinutes: number | null;
+  actions: LinkedDevice["actions"];
+  error: string | null;
+  pending: {
+    token: string;
+    request: { id: string; action: string; args: Record<string, string>; requestedBy?: string };
+    argv: string[];
+    approval: DeviceApproval;
+    expiresAt: number;
+  } | null;
+  activity: Array<{
+    at: number;
+    kind: string;
+    reason?: string;
+    request?: { id: string; action: string; args: Record<string, string> };
+    update?: { reason?: string; exitCode?: number; logTail?: string };
+  }>;
+};
+
+export async function receiverRequest(action?: string, body: Record<string, unknown> = {}, signal?: AbortSignal): Promise<ReceiverState> {
+  const res = await fetch(`/api/devices/_local${action ? `/${action}` : ""}`, {
+    method: action ? "POST" : "GET", credentials: "same-origin", signal,
+    ...(action ? { headers: { "content-type": "application/json", "x-omg-device-ui": "1" }, body: JSON.stringify(body) } : {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || `Device access failed (${res.status})`);
+  return data as ReceiverState;
 }
 
 /** The picker's hint line: what the device can do. */

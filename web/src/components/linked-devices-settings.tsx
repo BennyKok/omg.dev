@@ -10,11 +10,13 @@ import {
   type PairingCode,
 } from "../lib/linked-devices";
 import { SettingsGroup, SettingsIcon, SettingsRow } from "./settings-ui";
+import { DeviceActivity, DevicePermissions } from "./device-activity";
+import { DeviceReceiverSettings } from "./device-receiver-settings";
 
 /** Same rule as src/devices/protocol.ts NAME_RE; the server checks it again. */
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
-/** "11 actions": the full list, with approval levels, is in omg_list_devices. */
+/** Summary above the per-action permission list. */
 function actionsLine(device: LinkedDevice): string {
   const n = device.actions.length;
   return n ? `${n} action${n === 1 ? "" : "s"}` : "No actions yet";
@@ -67,7 +69,8 @@ export function LinkedDevicesRow({ onOpen }: { onOpen: () => void }) {
  * a request: that happens on the device itself (docs/device-link.md).
  */
 export function LinkedDevicesPage() {
-  const { devices, loaded, unavailable } = useLinkedDevices();
+  const { devices, requests, loaded, unavailable } = useLinkedDevices(true);
+  const [role, setRole] = useState<"controller" | "receiver">("controller");
   const [name, setName] = useState("");
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -108,10 +111,16 @@ export function LinkedDevicesPage() {
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
       <div className="px-1">
         <h1 className="text-lg font-semibold leading-tight">Linked devices</h1>
-        <p className="text-sm text-muted-foreground">You approve each action on the device.</p>
+        <p className="text-sm text-muted-foreground">Connect two omg.dev instances. The receiving computer controls its permissions.</p>
       </div>
 
-      {loaded && unavailable ? (
+      <div className="grid grid-cols-2 gap-2" aria-label="Connection role">
+        {([['controller', 'Send requests', 'Controller'], ['receiver', 'Receive requests', 'Controlled instance']] as const).map(([value, label, hint]) => <button key={value} type="button" aria-pressed={role === value} onClick={() => setRole(value)} className={`rounded-xl border px-4 py-3 text-left ${role === value ? "border-foreground bg-muted" : "border-border text-muted-foreground"}`}>
+          <span className="block text-sm font-medium">{label}</span><span className="text-xs text-muted-foreground">{hint}</span>
+        </button>)}
+      </div>
+
+      {role === "receiver" ? <DeviceReceiverSettings /> : loaded && unavailable ? (
         <p className="px-1 text-sm text-muted-foreground">This server cannot link devices.</p>
       ) : (
         <>
@@ -136,10 +145,15 @@ export function LinkedDevicesPage() {
                       </button>
                     }
                   />
+                  <DevicePermissions actions={device.actions} />
                 </div>
               ))}
             </SettingsGroup>
           ) : null}
+
+          <SettingsGroup label="Request activity" footer="Permissions are approved on the receiving computer. This view updates while open.">
+            <DeviceActivity requests={requests} />
+          </SettingsGroup>
 
           <SettingsGroup label="Pair a device">
             <div className="space-y-3 px-4 py-2.5">
@@ -171,8 +185,11 @@ export function LinkedDevicesPage() {
               {pairing ? (
                 <div data-pairing-code className="space-y-1">
                   <p className="text-xs text-muted-foreground">
-                    Run on the device. Works once, until {new Date(pairing.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+                    On the other instance, open Linked devices → Receive requests. This code works once, until {new Date(pairing.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
                   </p>
+                  <p className="break-all text-sm">Controller: {pairing.server || "Use this computer’s Tailscale HTTPS address."}</p>
+                  <p className="text-sm">Pairing code: <code className="font-semibold">{pairing.code}</code></p>
+                  <p className="pt-2 text-xs text-muted-foreground">Or connect from its terminal:</p>
                   <div className="flex items-center gap-2 rounded-xl border border-border bg-background/50 py-1 pl-3 pr-1">
                     <code className="min-w-0 flex-1 break-all text-xs">{linkCommand(pairing)}</code>
                     <CopyCommand value={linkCommand(pairing)} />

@@ -11,7 +11,7 @@
 //   device approves actions here, in this terminal.
 // - It sends back files only from the request's own output folder.
 //
-// Imports stay to node built-ins and ./protocol.ts so this file works on a
+// Imports stay to node built-ins and the device modules so this file works on a
 // device that has only the omg CLI.
 
 import { spawn } from "node:child_process";
@@ -19,6 +19,7 @@ import { appendFileSync, chmodSync, existsSync, lstatSync, mkdirSync, readdirSyn
 import { homedir } from "node:os";
 import { isAbsolute, join, resolve, sep } from "node:path";
 import { createInterface } from "node:readline";
+import { lockDevice } from "./lock.ts";
 import {
   ACTION_RE,
   APPROVALS,
@@ -67,7 +68,7 @@ const BASE_ENV = ["PATH", "HOME", "LANG", "USER", "TMPDIR"];
 export const deviceHome = () => process.env.OMG_DEVICE_HOME || join(homedir(), ".omg-device");
 const configPath = () => join(deviceHome(), "config.json");
 const keyPath = () => join(deviceHome(), "key.pem");
-const logPath = () => join(deviceHome(), "log.jsonl");
+export const deviceLogPath = () => join(deviceHome(), "log.jsonl");
 const outRoot = () => join(deviceHome(), "out");
 
 // ---- config ---------------------------------------------------------------------
@@ -139,9 +140,9 @@ export function buildArgv(action: ActionConfig, args: Record<string, string>, ou
   return out;
 }
 
-function audit(entry: Record<string, unknown>) {
+export function audit(entry: Record<string, unknown>) {
   try {
-    appendFileSync(logPath(), JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n", { mode: 0o600 });
+    appendFileSync(deviceLogPath(), JSON.stringify({ at: new Date().toISOString(), ...entry }) + "\n", { mode: 0o600 });
   } catch {
     // Logging must not stop the kill switch or a deny.
   }
@@ -194,49 +195,59 @@ export function checkServerUrl(raw: string): string {
   return u.origin;
 }
 
-async function call<T>(c: DeviceConfig, method: "POST" | "PUT", path: string, body: Uint8Array | string, signal?: AbortSignal): Promise<T> {
+export async function call<T>(c: DeviceConfig, method: "POST" | "PUT", path: string, body: Uint8Array | string, signal?: AbortSignal): Promise<T> {
   const key = readFileSync(keyPath(), "utf8");
   const headers = {
     ...signRequest(c.deviceId!, key, method, path, body),
     "content-type": typeof body === "string" ? "application/json" : "application/octet-stream",
   };
   // No redirects: a redirect could carry the signed call and files to another origin, or to plain http.
-  const res = await fetch(`${serverUrl(c)}${path}`, { method, headers, body, signal, redirect: "error" });
-  const data = (await res.json().catch(() => ({}))) as { error?: string };
+  const timeout = AbortSignal.timeout(35_000);
+  const res = await fetch(`${serverUrl(c)}${path}`, { method, headers, body, signal: signal ? AbortSignal.any([signal, timeout]) : timeout, redirect: "error" });
+  const data = ((await res.json().catch(() => ({}))) ?? {}) as { error?: string };
   if (res.status === 401) throw new UnlinkedError(data.error || "the server no longer accepts this device");
   if (!res.ok) throw new Error(data.error || `${res.status} ${res.statusText}`);
   return data as T;
 }
 
-class UnlinkedError extends Error {}
+export class UnlinkedError extends Error {}
 
 const update = (c: DeviceConfig, u: WireUpdate) => call(c, "POST", `${LINK_PREFIX}update`, JSON.stringify(u));
 
 // ---- approval prompt -------------------------------------------------------------
 
-type Ask = (question: string) => Promise<string | null>;
+export type ApprovalPrompt = { request: WireRequest; argv: string[]; approval: Approval; expiresAt: number };
+export type Ask = (question: string, prompt: ApprovalPrompt, signal?: AbortSignal) => Promise<string | null>;
+export type RunObserver = {
+  signal?: AbortSignal;
+  onUpdate?: (request: WireRequest, update: WireUpdate) => void;
+};
 
 function terminalAsk(): Ask {
-  return (question) =>
+  return (question, _prompt, signal) =>
     new Promise((resolve) => {
-      if (!process.stdin.isTTY) return resolve(null);
+      if (!process.stdin.isTTY || signal?.aborted) return resolve(null);
       const rl = createInterface({ input: process.stdin, output: process.stdout });
-      const timer = setTimeout(() => {
+      const finish = (answer: string | null) => {
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", cancel);
         rl.close();
+        resolve(answer);
+      };
+      const cancel = () => finish(null);
+      const timer = setTimeout(() => {
         process.stdout.write("\n(no answer in 2 minutes: denied)\n");
-        resolve(null);
+        finish(null);
       }, APPROVAL_WAIT_MS);
+      signal?.addEventListener("abort", cancel, { once: true });
       // readline swallows Ctrl-C while it waits. Pass it on, so Ctrl-C at a
       // prompt ends the grant like it does everywhere else.
       rl.on("SIGINT", () => {
-        clearTimeout(timer);
-        rl.close();
+        finish(null);
         process.emit("SIGINT");
       });
       rl.question(question, (answer) => {
-        clearTimeout(timer);
-        rl.close();
-        resolve(answer.trim().toLowerCase());
+        finish(answer.trim().toLowerCase());
       });
     });
 }
@@ -245,7 +256,8 @@ function terminalAsk(): Ask {
 
 export type RunResult = { exitCode: number; logTail: string; timedOut: boolean };
 
-export function runArgv(argv: string[], opts: { cwd?: string; timeoutSec: number; env: Record<string, string> }): Promise<RunResult> {
+export function runArgv(argv: string[], opts: { cwd?: string; timeoutSec: number; env: Record<string, string>; signal?: AbortSignal }): Promise<RunResult> {
+  if (opts.signal?.aborted) return Promise.resolve({ exitCode: 130, logTail: "Stopped", timedOut: false });
   return new Promise((resolve) => {
     let tail = "";
     const keep = (chunk: Buffer) => {
@@ -267,6 +279,7 @@ export function runArgv(argv: string[], opts: { cwd?: string; timeoutSec: number
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      opts.signal?.removeEventListener("abort", abort);
       killGroup("SIGKILL"); // nothing the action started outlives it
       resolve({ exitCode: timedOut ? 124 : (code ?? 1), logTail: tail, timedOut });
     };
@@ -275,6 +288,12 @@ export function runArgv(argv: string[], opts: { cwd?: string; timeoutSec: number
       killGroup("SIGTERM");
       setTimeout(() => finish(null), 5000).unref();
     }, opts.timeoutSec * 1000);
+    const abort = () => {
+      killGroup("SIGKILL");
+      finish(130);
+    };
+    opts.signal?.addEventListener("abort", abort, { once: true });
+    if (opts.signal?.aborted) abort();
     child.stdout.on("data", keep);
     child.stderr.on("data", keep);
     child.on("error", (e) => {
@@ -307,7 +326,11 @@ export function printable(s: string): string {
   return s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, "?");
 }
 
-export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireRequest, ask: Ask): Promise<void> {
+export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireRequest, ask: Ask, observer: RunObserver = {}): Promise<void> {
+  const report = async (u: WireUpdate) => {
+    observer.onUpdate?.(r, u);
+    await update(c, u);
+  };
   // Everything below prints server data in the approval prompt and uses the id
   // as a folder name. A server that sends anything else gets no answer at all.
   if (typeof r?.id !== "string" || !REQUEST_ID_RE.test(r.id) || typeof r.action !== "string" || !ACTION_RE.test(r.action)) {
@@ -319,13 +342,15 @@ export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireReques
   const deny = async (reason: string) => {
     audit({ request: r.id, action: r.action, decision: "denied", reason });
     console.log(`  denied: ${printable(reason)}`);
-    await update(c, { id: r.id, status: "denied", reason });
+    await report({ id: r.id, status: "denied", reason });
   };
   const action = Object.hasOwn(c.actions, r.action) ? c.actions[r.action] : undefined;
   console.log(`\n${printable(`→ ${r.action} ${JSON.stringify(r.args)}${r.requestedBy ? ` (from session ${r.requestedBy.slice(0, 8)})` : ""}`)}`);
   const ended = grant.over();
+  if (observer.signal?.aborted) return deny("access stopped on this device");
   if (ended) return deny(`no active grant: ${ended}`);
   if (!action) return deny(`"${r.action}" is not in this device's config`);
+  if (!Number.isFinite(r.expiresAt)) return deny("invalid request expiry");
   if (Date.now() > r.expiresAt) return deny("the request expired before it reached this device");
   const checked = checkArgs(r.args, action.args ?? {});
   if (!checked.ok) return deny(checked.error);
@@ -339,34 +364,41 @@ export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireReques
   }
 
   if (grant.needsPrompt(r.action, action.approval)) {
-    await update(c, { id: r.id, status: "waiting-approval" });
+    await report({ id: r.id, status: "waiting-approval" });
     const scope = action.approval === "once-per-grant" ? " (yes allows it with any arguments for the rest of this grant)" : "";
     console.log(printable(`  will run: ${argv.map((a) => JSON.stringify(a)).join(" ")}`));
-    const answer = await ask(`  Allow ${r.action}${scope}? [y/N] `);
+    const answer = await ask(`  Allow ${r.action}${scope}? [y/N] `, {
+      request: r, argv, approval: action.approval,
+      expiresAt: Math.min(r.expiresAt, grant.endsAt, Date.now() + APPROVAL_WAIT_MS),
+    });
     if (answer !== "y" && answer !== "yes") return deny(answer === null ? "no answer" : "the person at the device said no");
     // The grant may have ended while the person read the prompt.
     const endedWhileAsking = grant.over();
     if (endedWhileAsking) return deny(`no active grant: ${endedWhileAsking}`);
+    if (Date.now() >= r.expiresAt || observer.signal?.aborted) return deny("request expired or access stopped before approval");
     grant.remember(r.action, action.approval);
     audit({ request: r.id, action: r.action, decision: "approved", argv });
   } else {
     audit({ request: r.id, action: r.action, decision: "allowed by grant", argv });
   }
 
+  if (observer.signal?.aborted) return deny("access stopped on this device");
+  if (Date.now() >= r.expiresAt) return deny("the request expired before approval");
   // Only an approved or allowed run counts as activity, so a server cannot keep an idle grant alive.
   grant.touch();
   // REQUEST_ID_RE already rules out "..", this keeps the delete inside out/ even if that rule ever changes.
   if (!resolve(out).startsWith(resolve(outRoot()) + sep)) return deny("bad output folder");
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true, mode: 0o700 });
-  await update(c, { id: r.id, status: "running" });
+  await report({ id: r.id, status: "running" });
   const env: Record<string, string> = {};
   for (const k of [...BASE_ENV, ...(action.env ?? [])]) if (process.env[k] !== undefined) env[k] = process.env[k]!;
   env.OMG_DEVICE_OUT = out;
-  const result = await runArgv(argv, { cwd: action.cwd, timeoutSec: action.timeoutSec ?? DEFAULT_TIMEOUT_SEC, env });
+  const result = await runArgv(argv, { cwd: action.cwd, timeoutSec: action.timeoutSec ?? DEFAULT_TIMEOUT_SEC, env, signal: observer.signal });
 
   const sent: string[] = [];
   for (const name of collectFiles(out)) {
+    if (observer.signal?.aborted) break;
     try {
       await call(c, "PUT", `${LINK_PREFIX}file/${r.id}/${encodeURIComponent(name)}`, new Uint8Array(readFileSync(join(out, name))));
       sent.push(name);
@@ -377,7 +409,7 @@ export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireReques
   const status = result.exitCode === 0 ? "done" : "failed";
   audit({ request: r.id, action: r.action, status, exitCode: result.exitCode, files: sent });
   console.log(`  ${status} (exit ${result.exitCode}${result.timedOut ? ", timed out" : ""}${sent.length ? `, ${sent.length} file(s)` : ""})`);
-  await update(c, { id: r.id, status, exitCode: result.exitCode, logTail: result.logTail, reason: result.timedOut ? "timed out" : undefined });
+  await report({ id: r.id, status, exitCode: result.exitCode, logTail: result.logTail, reason: observer.signal?.aborted ? "access stopped on this device" : result.timedOut ? "timed out" : undefined });
 }
 
 // ---- commands -------------------------------------------------------------------------
@@ -391,72 +423,56 @@ async function cmdLink(args: string[]) {
   const server = flag(args, "server");
   const code = flag(args, "code");
   if (!server || !code) throw new Error("usage: omg device link --server https://<omg host> --code <CODE>");
-  const c = loadConfig();
-  if (c.deviceId) throw new Error(`Already linked as "${c.deviceId}". Run \`omg device unlink\` first.`);
-  const origin = checkServerUrl(server);
-  const keys = newKeyPair();
-  const res = await fetch(`${origin}${LINK_PREFIX}pair`, {
-    method: "POST",
-    redirect: "error",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ code, publicKey: keys.publicKey, actions: actionInfos(c) }),
-  });
-  const data = (await res.json().catch(() => ({}))) as { deviceId?: string; tailnetIp?: string | null; error?: string };
-  if (!res.ok || !data.deviceId) throw new Error(data.error || `pairing failed: ${res.status}`);
-  mkdirSync(deviceHome(), { recursive: true, mode: 0o700 });
-  writeFileSync(keyPath(), keys.privateKey, { mode: 0o600 });
-  chmodSync(keyPath(), 0o600);
-  saveConfig({ ...c, server: origin, deviceId: data.deviceId });
-  audit({ kind: "linked", server: origin, deviceId: data.deviceId });
-  console.log(`Linked as "${data.deviceId}" to ${origin}${data.tailnetIp ? ` (address ${data.tailnetIp})` : ""}.`);
-  console.log(`Actions come only from ${configPath()}. Start a grant with: omg device run`);
+  await linkDevice(server, code);
+}
+
+export async function linkDevice(server: string, code: string) {
+  const unlock = lockDevice(deviceHome());
+  try {
+    const c = loadConfig();
+    if (c.deviceId) throw new Error(`Already linked as "${c.deviceId}". Run \`omg device unlink\` first.`);
+    const origin = checkServerUrl(server);
+    const keys = newKeyPair();
+    const res = await fetch(`${origin}${LINK_PREFIX}pair`, {
+      method: "POST",
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code, publicKey: keys.publicKey, actions: actionInfos(c) }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { deviceId?: string; tailnetIp?: string | null; error?: string };
+    if (!res.ok || !data.deviceId) throw new Error(data.error || `pairing failed: ${res.status}`);
+    mkdirSync(deviceHome(), { recursive: true, mode: 0o700 });
+    writeFileSync(keyPath(), keys.privateKey, { mode: 0o600 });
+    chmodSync(keyPath(), 0o600);
+    saveConfig({ ...c, server: origin, deviceId: data.deviceId });
+    audit({ kind: "linked", server: origin, deviceId: data.deviceId });
+    console.log(`Linked as "${data.deviceId}" to ${origin}${data.tailnetIp ? ` (address ${data.tailnetIp})` : ""}.`);
+    console.log(`Actions come only from ${configPath()}. Start a grant with: omg device run`);
+  } finally {
+    unlock();
+  }
 }
 
 async function cmdRun(args: string[]) {
-  const c = loadConfig();
-  serverUrl(c);
-  const minutes = Number(flag(args, "minutes") ?? c.grant?.maxMinutes ?? 120);
-  const idle = Number(flag(args, "idle") ?? c.grant?.idleMinutes ?? 15);
-  if (!(minutes > 0 && minutes <= GRANT_MAX_MINUTES)) throw new Error(`--minutes: 1 to ${GRANT_MAX_MINUTES}`);
-  if (!(idle > 0)) throw new Error("--idle: more than 0");
-  if (Object.keys(c.actions).length === 0) throw new Error(`No actions in ${configPath()}. Add some first.`);
-  const grant = new Grant(minutes, idle);
-  const ask = terminalAsk();
-  const stop = new AbortController();
-  process.once("SIGINT", () => {
-    console.log("\nStopped. The grant is over.");
-    audit({ kind: "grant-stopped" });
-    stop.abort();
-    process.exit(130);
-  });
-  audit({ kind: "grant-started", minutes, idle });
-  console.log(`Grant for "${c.deviceId}" until ${new Date(grant.endsAt).toLocaleTimeString()}; ends after ${idle} idle minutes. Ctrl-C stops it.`);
-  for (const a of actionInfos(c)) console.log(`  ${a.name.padEnd(16)} ${a.approval}`);
-  if (!process.stdin.isTTY) console.log("No terminal attached: only in-grant actions can run.");
-  let failures = 0;
-  for (;;) {
-    const why = grant.over();
-    if (why) {
-      console.log(`Grant over: ${why}.`);
-      audit({ kind: "grant-ended", why });
-      return;
-    }
-    try {
-      const { request } = await call<{ request: WireRequest | null }>(c, "POST", `${LINK_PREFIX}poll`, JSON.stringify({ actions: actionInfos(c) }), stop.signal);
-      failures = 0;
-      if (request) await handleRequest(c, grant, request, ask);
-    } catch (e) {
-      if (e instanceof UnlinkedError) {
-        console.log(`The server refused this device: ${e.message}. Stopping.`);
-        audit({ kind: "refused-by-server" });
-        process.exitCode = 1;
-        return;
-      }
-      failures++;
-      const wait = Math.min(60, 2 ** Math.min(failures, 6));
-      console.log(`  server unreachable (${e instanceof Error ? e.message : e}); retrying in ${wait}s`);
-      await new Promise((r) => setTimeout(r, wait * 1000));
-    }
+  const { DeviceRuntime } = await import("./runtime.ts");
+  const runtime = new DeviceRuntime();
+  runtime.start({ minutes: flag(args, "minutes"), idle: flag(args, "idle") }, terminalAsk());
+  const stop = () => { void runtime.stop(); process.exitCode = 130; };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+  try {
+    const state = runtime.snapshot();
+    console.log(`Grant for "${state.deviceId}" until ${new Date(state.endsAt!).toLocaleTimeString()}; ends after ${state.idleMinutes} idle minutes. Ctrl-C stops it.`);
+    for (const a of state.actions) console.log(`  ${a.name.padEnd(16)} ${a.approval}`);
+    if (!process.stdin.isTTY) console.log("No terminal attached: only in-grant actions can run.");
+    await runtime.finished;
+    const error = runtime.snapshot().error;
+    console.log(error ? `Device access stopped: ${error}` : "Device access stopped.");
+    if (error && !process.exitCode) process.exitCode = 1;
+  } finally {
+    process.removeListener("SIGINT", stop);
+    process.removeListener("SIGTERM", stop);
   }
 }
 
@@ -485,13 +501,18 @@ function cmdCheck(args: string[]) {
   console.log(`approval: ${action.approval}`);
 }
 
-function cmdUnlink() {
-  const c = loadConfig();
-  rmSync(keyPath(), { force: true });
-  const { server: _s, deviceId: _d, ...rest } = c;
-  saveConfig(rest as DeviceConfig);
-  audit({ kind: "unlinked", deviceId: c.deviceId });
-  console.log(`Removed this device's key. Also remove "${c.deviceId ?? "it"}" on the server: omg device remove ${c.deviceId ?? "<name>"}`);
+export function unlinkDevice() {
+  const unlock = lockDevice(deviceHome());
+  try {
+    const c = loadConfig();
+    rmSync(keyPath(), { force: true });
+    const { server: _s, deviceId: _d, ...rest } = c;
+    saveConfig(rest as DeviceConfig);
+    audit({ kind: "unlinked", deviceId: c.deviceId });
+    console.log(`Removed this device's key. Also remove "${c.deviceId ?? "it"}" on the server: omg device remove ${c.deviceId ?? "<name>"}`);
+  } finally {
+    unlock();
+  }
 }
 
 // Server-side helpers: talk to the local omg serve, like the MCP tools do.
@@ -569,7 +590,7 @@ export async function cmdDevice(args: string[]) {
     case "status":
       return cmdStatus();
     case "unlink":
-      return cmdUnlink();
+      return unlinkDevice();
     default:
       console.log(DEVICE_HELP);
       if (verb && verb !== "help" && verb !== "--help") process.exitCode = 1;
