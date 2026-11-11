@@ -5,6 +5,7 @@ import { ChevronLeft } from "lucide-react";
 export const SETTINGS_STAGE_SUBPAGES: ReadonlySet<string> = new Set([
   "storage",
   "devices",
+  "remote-access",
   "instructions",
   "connectors",
   "more",

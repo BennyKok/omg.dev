@@ -695,7 +695,7 @@ import {
   CustomInstructionsPage,
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
-import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
+import { RemoteAccessPage, RemoteAccessRow } from "./components/remote-access-settings";
 import { LinkedDevicesPage, LinkedDevicesRow } from "./components/linked-devices-settings";
 import { SETTINGS_STAGE_SUBPAGES, SettingsStageSubpage } from "./components/settings-stage-subpage";
 import { ConnectionOverlay } from "./components/connection-overlay";
@@ -9052,6 +9052,7 @@ export function App() {
       onOpenAuto={() => setTab("auto")}
       onOpenStorage={() => setTab("storage")}
       onOpenDevices={() => setTab("devices")}
+      onOpenRemoteAccess={() => setTab("remote-access")}
       onOpenMore={() => setTab("more")}
       onOpenCustomInstructions={() => setTab("instructions")}
       onOpenConnectors={() => setTab("connectors")}
@@ -9073,6 +9074,7 @@ export function App() {
       );
     if (page === "storage") return <StoragePage />;
     if (page === "devices") return <LinkedDevicesPage />;
+    if (page === "remote-access") return <RemoteAccessPage />;
     if (page === "instructions")
       return (
         <CustomInstructionsPage
@@ -29917,6 +29919,7 @@ function SettingsView({
   onOpenAuto,
   onOpenStorage,
   onOpenDevices,
+  onOpenRemoteAccess,
   onOpenMore,
   onOpenCustomInstructions,
   onOpenConnectors,
@@ -29930,6 +29933,7 @@ function SettingsView({
   onOpenAuto: () => void;
   onOpenStorage: () => void;
   onOpenDevices: () => void;
+  onOpenRemoteAccess: () => void;
   onOpenMore: () => void;
   onOpenCustomInstructions: () => void;
   onOpenConnectors: () => void;
@@ -29989,6 +29993,7 @@ function SettingsView({
               descriptionClassName="truncate tabular-nums"
             />
             <LinkedDevicesRow onOpen={onOpenDevices} />
+            <RemoteAccessRow onOpen={onOpenRemoteAccess} />
           </>
         )}
         {/* One row for what used to be three (Frontend, Computer, Updates):
@@ -30004,8 +30009,6 @@ function SettingsView({
           versionNote={versionNote}
         />
       </SettingsGroup>
-
-      <RemoteAccessSettingsSection />
 
       {/* More — the long tail lives on its own page so this one stays
           scannable. Hidden on a host-mounted surface: everything behind it

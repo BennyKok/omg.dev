@@ -38,9 +38,14 @@ function CopyValue({ value, label }: { value: string; label: string }) {
   );
 }
 
-export function RemoteAccessSettingsSection() {
+/**
+ * The box's own answer to "how do I reach this from another device", from
+ * GET /api/server/access. Null until it loads, and null on an older server
+ * that has no such route: the row and page then stay hidden rather than show
+ * guessed network information.
+ */
+export function useServerAccess(): ServerAccessInfo | null {
   const [access, setAccess] = useState<ServerAccessInfo | null>(null);
-
   useEffect(() => {
     const controller = new AbortController();
     void fetch("/api/server/access", {
@@ -53,20 +58,59 @@ export function RemoteAccessSettingsSection() {
       })
       .then((payload) => setAccess(payload.access))
       .catch(() => {
-        // An older server can render this newer UI. Hide the section instead of
-        // presenting guessed network information or a permanent error row.
+        // An older server can render this newer UI. Stay hidden.
       });
     return () => controller.abort();
   }, []);
+  return access;
+}
 
-  if (!access || access.runtime === "desktop") return null;
+/** The desktop app owns a private runtime, so it offers no remote access. */
+function offersRemoteAccess(access: ServerAccessInfo | null): access is ServerAccessInfo {
+  return !!access && access.runtime !== "desktop";
+}
 
+/** The Settings row that opens the Remote access page. The caller owns the card. */
+export function RemoteAccessRow({ onOpen }: { onOpen: () => void }) {
+  const access = useServerAccess();
+  if (!offersRemoteAccess(access)) return null;
+  const { tailscale } = access;
+  return (
+    <SettingsRow
+      onClick={onOpen}
+      icon={<SettingsIcon><Globe2 /></SettingsIcon>}
+      title="Remote access"
+      description={
+        tailscale.serveEnabled && tailscale.serveUrl
+          ? tailscale.serveUrl.replace(/^https?:\/\//, "")
+          : "Local only"
+      }
+      descriptionClassName="truncate"
+    />
+  );
+}
+
+/** Settings > Remote access: the local address and private Tailscale access. */
+export function RemoteAccessPage() {
+  const access = useServerAccess();
+  return (
+    <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
+      <div className="px-1">
+        <h1 className="text-lg font-semibold leading-tight">Remote access</h1>
+        <p className="text-sm text-muted-foreground">Open omg.dev from your phone or another computer.</p>
+      </div>
+      {offersRemoteAccess(access) ? <RemoteAccessGroups access={access} /> : null}
+    </div>
+  );
+}
+
+function RemoteAccessGroups({ access }: { access: ServerAccessInfo }) {
   const { tailscale } = access;
   const suggestedUrl = tailscale.dnsName ? `https://${tailscale.dnsName}` : null;
 
   return (
     <SettingsGroup
-      label="Remote access"
+      label="Addresses"
       labelId="remote-access-heading"
       footer={
         <>
