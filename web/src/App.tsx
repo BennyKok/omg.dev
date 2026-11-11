@@ -690,7 +690,7 @@ import {
   useSessionQuestions,
 } from "./components/ask-center";
 import { SessionPromptPanel, type SessionPrompt } from "./components/question-card";
-import { GetAppsRailCard, PwaInstallSettingsSection } from "./components/pwa-install";
+import { GetAppsRailCard, PwaInstallSettingsRow } from "./components/pwa-install";
 import {
   CustomInstructionsPage,
   CustomInstructionsRow,
@@ -700,6 +700,13 @@ import { LinkedDevicesSettingsSection } from "./components/linked-devices-settin
 import { SETTINGS_STAGE_SUBPAGES, SettingsStageSubpage } from "./components/settings-stage-subpage";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
+import {
+  SettingsDisclosure,
+  SettingsGroup,
+  SettingsIcon,
+  SettingsRow,
+  SettingsSelect,
+} from "./components/settings-ui";
 import {
   UpdateNavButton,
   UpdateProvider,
@@ -28062,32 +28069,24 @@ function ProviderRow({
   disabled?: boolean;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-      <div className="flex items-center gap-3">
-        <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-          {icon}
-        </span>
-        <span className="text-sm font-medium">{label}</span>
-      </div>
-      <select
-        className="max-w-[55%] rounded-lg border border-border bg-background px-2 py-1 text-sm disabled:opacity-50"
-        value={value ?? ""}
-        disabled={disabled || !options}
-        onChange={(e) => onChange(e.target.value)}
-        aria-label={label}
-      >
-        {!options ? (
-          <option value="">Loading…</option>
-        ) : (
-          options.map((o) => (
-            <option key={o.id} value={o.id} disabled={!o.available}>
-              {o.label}
-              {o.available ? "" : " (no key)"}
-            </option>
-          ))
-        )}
-      </select>
-    </div>
+    <SettingsRow
+      icon={<SettingsIcon>{icon}</SettingsIcon>}
+      title={label}
+      trailing={
+        <SettingsSelect value={value ?? ""} disabled={disabled || !options} onChange={onChange} aria-label={label}>
+          {!options ? (
+            <option value="">Loading…</option>
+          ) : (
+            options.map((o) => (
+              <option key={o.id} value={o.id} disabled={!o.available}>
+                {o.label}
+                {o.available ? "" : " (no key)"}
+              </option>
+            ))
+          )}
+        </SettingsSelect>
+      }
+    />
   );
 }
 
@@ -28134,23 +28133,10 @@ function VoiceSettingsSection() {
   const needsSetup = !!cfg && !selectedInput?.available;
 
   return (
-    // No section header: the card holds exactly one row, and that row's own
-    // label ("Voice input") already said "Voice" — a group label above it
-    // was a second copy of the same word, not new information.
-    <section className="space-y-2">
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-        <BrowserTranscriptionSettings />
-        <ProviderRow
-          icon={<Mic className="size-4" />}
-          label="Voice input"
-          value={cfg?.settings.sttProvider}
-          options={cfg?.providers.stt}
-          onChange={(v) => void update({ sttProvider: v })}
-          disabled={!cfg || saving}
-        />
-      </div>
-      {needsSetup ? (
-        <div className="px-4 pt-1">
+    <SettingsGroup
+      label="Voice"
+      footer={
+        needsSetup ? (
           <Button
             type="button"
             variant="outline"
@@ -28159,9 +28145,19 @@ function VoiceSettingsSection() {
           >
             <KeyRound className="size-4" /> Set up voice API key
           </Button>
-        </div>
-      ) : null}
-    </section>
+        ) : null
+      }
+    >
+      <BrowserTranscriptionSettings />
+      <ProviderRow
+        icon={<Mic />}
+        label="Voice input"
+        value={cfg?.settings.sttProvider}
+        options={cfg?.providers.stt}
+        onChange={(v) => void update({ sttProvider: v })}
+        disabled={!cfg || saving}
+      />
+    </SettingsGroup>
   );
 }
 
@@ -28388,131 +28384,86 @@ function AgentConcurrencySettingsSection({
   const atCap = cap > 0 && live >= cap;
 
   return (
-    <section className="space-y-2">
-      {/* Not uppercased — see RailGroup: shouting a group label was the
-          loudest text on a settings page that should read quiet. */}
-      <h2 className="px-4 text-xs font-semibold text-muted-foreground">
-        Agent capacity
-      </h2>
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-        {/* Live counter */}
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-primary text-white">
-              <Bot className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Agent limit</div>
-              <div className={cn(
-                "text-xs tabular-nums",
-                atCap ? "font-medium text-warning" : "text-muted-foreground",
-              )}>
-                {atCap
-                  ? `Limit reached · ${live} running`
-                  : `${live} running · ${working} working`}
-              </div>
-            </div>
-          </div>
-          <label className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-3 py-1.5">
-            <select
-              value={cap}
-              onChange={(event) => void saveLimit(Number(event.target.value))}
-              disabled={saving}
-              aria-label="Maximum live agents"
-              className="appearance-none bg-transparent text-right text-xs font-medium outline-none"
+    <SettingsGroup
+      label="Agent capacity"
+      // Pause new agents and Archive idle agents were removed entirely (both
+      // the switches and the server-side gate/sweeper behind them) rather
+      // than just hidden — Benny's call, since a soft "off" switch nobody
+      // can see is worse than no switch. What is left to explain is just the
+      // limit above: it is a live-agent ceiling, not a full drain, and it is
+      // soft on purpose (see GlobalSettings.maxLiveAgents).
+      footer="Idle agents count toward the limit. New agents over the limit do not start."
+    >
+      <SettingsRow
+        icon={<SettingsIcon><Bot /></SettingsIcon>}
+        title="Agent limit"
+        description={atCap ? `Limit reached · ${live} running` : `${live} running · ${working} working`}
+        descriptionClassName={cn("tabular-nums", atCap && "font-medium text-warning")}
+        trailing={
+          <SettingsSelect
+            value={cap}
+            onChange={(value) => void saveLimit(Number(value))}
+            disabled={saving}
+            aria-label="Maximum live agents"
+          >
+            {LIVE_AGENT_LIMIT_OPTIONS.map((count) => (
+              <option key={count} value={count}>
+                {count === 0 ? "Unlimited" : count}
+              </option>
+            ))}
+          </SettingsSelect>
+        }
+      />
+      {/* Per-bot cap on self-scheduled routines (omg_schedule_routine). A
+          separate knob from live-agent capacity above: this bounds how many
+          concerns any one bot is tracking at once, not concurrency. */}
+      <SettingsRow
+        icon={<SettingsIcon><CalendarClock /></SettingsIcon>}
+        title="Bot schedule limit"
+        description="Max routines a bot can schedule on itself"
+        trailing={
+          <SettingsSelect
+            value={settings.maxBotSchedules}
+            onChange={(value) => void saveBotCap(Number(value))}
+            disabled={savingBotCap}
+            aria-label="Maximum schedules per bot"
+          >
+            {BOT_SCHEDULE_LIMIT_OPTIONS.map((count) => (
+              <option key={count} value={count}>{count}</option>
+            ))}
+          </SettingsSelect>
+        }
+      />
+      <SettingsRow
+        icon={<SettingsIcon><RotateCcw /></SettingsIcon>}
+        title="Refresh full bot contexts"
+        description={
+          settings.botAutoCompactionEnabled
+            ? `At ${settings.botCompactionThresholdPercent}% measured context use`
+            : "Off — bots keep one runtime until manually refreshed"
+        }
+        trailing={
+          <>
+            <SettingsSelect
+              value={settings.botCompactionThresholdPercent}
+              onChange={(value) => void saveBotCompaction({ botCompactionThresholdPercent: Number(value) })}
+              disabled={savingCompaction || !settings.botAutoCompactionEnabled}
+              aria-label="Bot context refresh threshold"
             >
-              {LIVE_AGENT_LIMIT_OPTIONS.map((count) => (
-                <option key={count} value={count}>
-                  {count === 0 ? "Unlimited" : count}
-                </option>
+              {BOT_COMPACTION_THRESHOLD_OPTIONS.map((percent) => (
+                <option key={percent} value={percent}>{percent}%</option>
               ))}
-            </select>
-            <ChevronDown className="size-3 text-muted-foreground/70" />
-          </label>
-        </div>
-        {/* Per-bot cap on self-scheduled routines (omg_schedule_routine). A
-            separate knob from live-agent capacity above: this bounds how many
-            concerns any one bot is tracking at once, not concurrency. */}
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground/70 text-white">
-              <CalendarClock className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Bot schedule limit</div>
-              <div className="text-xs text-muted-foreground">
-                Max routines a bot can schedule on itself
-              </div>
-            </div>
-          </div>
-          <label className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-3 py-1.5">
-            <select
-              value={settings.maxBotSchedules}
-              onChange={(event) => void saveBotCap(Number(event.target.value))}
-              disabled={savingBotCap}
-              aria-label="Maximum schedules per bot"
-              className="appearance-none bg-transparent text-right text-xs font-medium outline-none"
-            >
-              {BOT_SCHEDULE_LIMIT_OPTIONS.map((count) => (
-                <option key={count} value={count}>{count}</option>
-              ))}
-            </select>
-            <ChevronDown className="size-3 text-muted-foreground/70" />
-          </label>
-        </div>
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className={cn(
-              "flex size-7 shrink-0 items-center justify-center rounded-[7px] text-white transition-colors duration-200 ease-apple",
-              settings.botAutoCompactionEnabled ? "bg-primary" : "bg-foreground/70",
-            )}>
-              <RotateCcw className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <div className="text-sm font-medium">Refresh full bot contexts</div>
-              <div className="text-xs text-muted-foreground">
-                {settings.botAutoCompactionEnabled
-                  ? `At ${settings.botCompactionThresholdPercent}% measured context use`
-                  : "Off — bots keep one runtime until manually refreshed"}
-              </div>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <label className="flex items-center gap-1 rounded-full bg-muted px-3 py-1.5">
-              <select
-                value={settings.botCompactionThresholdPercent}
-                onChange={(event) => void saveBotCompaction({
-                  botCompactionThresholdPercent: Number(event.target.value),
-                })}
-                disabled={savingCompaction || !settings.botAutoCompactionEnabled}
-                aria-label="Bot context refresh threshold"
-                className="appearance-none bg-transparent text-right text-xs font-medium outline-none disabled:opacity-50"
-              >
-                {BOT_COMPACTION_THRESHOLD_OPTIONS.map((percent) => (
-                  <option key={percent} value={percent}>{percent}%</option>
-                ))}
-              </select>
-              <ChevronDown className="size-3 text-muted-foreground/70" />
-            </label>
+            </SettingsSelect>
             <Switch
               checked={settings.botAutoCompactionEnabled}
               onCheckedChange={(next) => void saveBotCompaction({ botAutoCompactionEnabled: next })}
               disabled={savingCompaction}
               aria-label="Automatically refresh full bot contexts"
             />
-          </div>
-        </div>
-      </div>
-      {/* Pause new agents and Archive idle agents were removed entirely (both
-          the switches and the server-side gate/sweeper behind them) rather
-          than just hidden — Benny's call, since a soft "off" switch nobody
-          can see is worse than no switch. What is left to explain is just the
-          limit above: it is a live-agent ceiling, not a full drain, and it is
-          soft on purpose (see GlobalSettings.maxLiveAgents). */}
-      <p className="px-4 text-xs text-muted-foreground">
-        Idle agents count toward the limit. New agents over the limit do not start.
-      </p>
-    </section>
+          </>
+        }
+      />
+    </SettingsGroup>
   );
 }
 
@@ -29969,17 +29920,14 @@ function VersionUpdatesRow({
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <CollapsibleTrigger
-        className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
+        className="flex min-h-12 w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
         aria-label="Version and updates"
         aria-expanded={open}
       >
         <div className="flex min-w-0 items-center gap-3">
-          <span className={cn(
-            "flex size-7 shrink-0 items-center justify-center rounded-[7px]",
-            mismatch ? "bg-warning text-white" : "bg-muted text-foreground/70",
-          )}>
-            {mismatch ? <TriangleAlert className="size-4" /> : <Layers className="size-4" />}
-          </span>
+          <SettingsIcon tone={mismatch ? "warning" : "default"}>
+            {mismatch ? <TriangleAlert /> : <Layers />}
+          </SettingsIcon>
           <div className="min-w-0">
             <div className="text-sm font-medium">Version</div>
             {subtitle ? (
@@ -29997,7 +29945,7 @@ function VersionUpdatesRow({
             {formatVersion(frontendVersion)}
           </span>
           <ChevronDown className={cn(
-            "size-3.5 text-muted-foreground/70 transition-transform duration-150",
+            "size-4 text-muted-foreground/60 transition-transform duration-150",
             open && "rotate-180",
           )} />
         </div>
@@ -30005,7 +29953,7 @@ function VersionUpdatesRow({
       <CollapsibleContent className="divide-y divide-border border-t border-border">
         <VersionRow
           icon={<Layers className="size-4" />}
-          iconClassName="bg-muted text-foreground/70"
+          iconClassName="bg-foreground text-background"
           label="Frontend"
           value={formatVersion(frontendVersion)}
           copyValue={frontendVersion ? `v${frontendVersion}` : null}
@@ -30034,36 +29982,8 @@ function AdvancedSettingsGroup({
   collapsible: boolean;
   children: ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
-  if (!collapsible) return <>{children}</>;
-  return (
-    <div className="space-y-8">
-      <section className="space-y-2">
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-          <button
-            type="button"
-            onClick={() => setOpen((v) => !v)}
-            aria-expanded={open}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground/70 text-white">
-                <SlidersHorizontal className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Advanced</span>
-            </div>
-            <ChevronDown
-              className={cn(
-                "size-4 text-muted-foreground/60 transition-transform duration-200 ease-ios",
-                open && "rotate-180",
-              )}
-            />
-          </button>
-        </div>
-      </section>
-      {open ? children : null}
-    </div>
-  );
+  if (!collapsible) return <div className="space-y-8">{children}</div>;
+  return <SettingsDisclosure label="Advanced">{children}</SettingsDisclosure>;
 }
 
 function SettingsView({
@@ -30112,6 +30032,8 @@ function SettingsView({
   const versionSkew = versionRelation(FRONTEND_VERSION, computerVersion);
   const versionNote = versionMismatchNote(versionSkew);
 
+  // One column on every screen (cbdc5d816). Every group goes through
+  // settings-ui, so labels, cards, rows and icons stay the same.
   return (
     <div className="mx-auto w-full max-w-xl space-y-8 pb-10" data-lfg-page-column>
       {bare ? <UserIconSettingsSection identityEmail={user} /> : <IdentitySettingsHeader user={user} />}
@@ -30119,138 +30041,91 @@ function SettingsView({
       {/* Computer — in standalone LFG this box IS the computer, so the row is
           static. When these sections are mounted by a host (omg) this is the
           slot that becomes a machine switcher. */}
-      <section className="space-y-2">
-        {/* Not uppercased — see RailGroup: group labels read quieter lowercase. */}
-        <h2 className="px-4 text-xs font-semibold text-muted-foreground">
-          Computer
-        </h2>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-          {/* A host lists these three pages in its own settings, so on a
-              host-mounted surface this group is the version row alone. */}
-          {bare ? null : (
+      <SettingsGroup label="Computer">
+        {/* A host lists these three pages in its own settings, so on a
+            host-mounted surface this group is the version row alone. */}
+        {bare ? null : (
           <>
-          <button
-            type="button"
-            onClick={onOpenCodingAgents}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-                <Bot className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Coding agents</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-          <button
-            type="button"
-            onClick={onOpenAuto}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <CalendarClock className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Schedules</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-          <button
-            type="button"
-            onClick={onOpenStorage}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex min-w-0 items-center gap-3">
-              <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background">
-                <HardDrive className="size-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-medium">Storage &amp; performance</span>
-                {diskLine ? (
-                  <span className="block truncate text-xs text-muted-foreground tabular-nums">{diskLine}</span>
-                ) : null}
-              </span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
+            <SettingsRow
+              onClick={onOpenCodingAgents}
+              icon={<SettingsIcon><Bot /></SettingsIcon>}
+              title="Coding agents"
+            />
+            <SettingsRow
+              onClick={onOpenAuto}
+              icon={<SettingsIcon><CalendarClock /></SettingsIcon>}
+              title="Schedules"
+            />
+            <SettingsRow
+              onClick={onOpenStorage}
+              icon={<SettingsIcon><HardDrive /></SettingsIcon>}
+              title="Storage & performance"
+              description={diskLine}
+              descriptionClassName="truncate tabular-nums"
+            />
           </>
-          )}
-          {/* One row for what used to be three (Frontend, Computer, Updates):
-              which UI build is rendering, what the selected Computer is
-              really executing, and whether either has an update. A skew
-              between the first two is still legible collapsed — see
-              VersionUpdatesRow's own comment. */}
-          {bare ? <DiskMeters stats={diskStats} /> : null}
-          <VersionUpdatesRow
-            frontendVersion={FRONTEND_VERSION}
-            computerVersion={computerVersion}
-            versionSkew={versionSkew}
-            versionNote={versionNote}
-          />
-        </div>
-      </section>
+        )}
+        {/* One row for what used to be three (Frontend, Computer, Updates):
+            which UI build is rendering, what the selected Computer is
+            really executing, and whether either has an update. A skew
+            between the first two is still legible collapsed — see
+            VersionUpdatesRow's own comment. */}
+        {bare ? <DiskMeters stats={diskStats} /> : null}
+        <VersionUpdatesRow
+          frontendVersion={FRONTEND_VERSION}
+          computerVersion={computerVersion}
+          versionSkew={versionSkew}
+          versionNote={versionNote}
+        />
+      </SettingsGroup>
 
       <RemoteAccessSettingsSection />
 
       <LinkedDevicesSettingsSection />
 
+      {/* More — the long tail lives on its own page so this one stays
+          scannable. Hidden on a host-mounted surface: everything behind it
+          (push, appearance, sound, haptics, install) describes the DEVICE,
+          and the host already owns those for its own app. Showing ours put
+          a second set of switches next to the host's, and ours were the
+          ones that could not work — the push toggle would have had to
+          borrow a service worker from an origin we do not own. `bare` is
+          true only for OmgSettingsSurface, which is exactly the
+          host-mounted case. */}
+      <SettingsGroup label="Preferences">
+        <CustomInstructionsRow
+          value={settings.customInstructions}
+          onOpen={onOpenCustomInstructions}
+        />
+        {bare ? null : (
+          <SettingsRow
+            onClick={onOpenMore}
+            icon={<SettingsIcon><Ellipsis /></SettingsIcon>}
+            title="More"
+            description="Tools, appearance, notifications, voice, help"
+          />
+        )}
+      </SettingsGroup>
+
       {/* Tool access and agent limits are for people tuning the box. A host
           mounts this page as its own "Advanced" page, so it shows them open;
-          standalone keeps them one tap away so the page stays short. */}
+          standalone keeps them one click away so the page stays short. It is
+          last, so opening it pushes nothing else down. */}
       <AdvancedSettingsGroup collapsible={!bare}>
-        <section className="space-y-2">
-          <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-            <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
-          </div>
-        </section>
+        <SettingsGroup label="Tool access">
+          <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
+        </SettingsGroup>
 
         <AgentConcurrencySettingsSection
           settings={settings}
           onChange={onSettingsChange}
         />
 
-        <FastModeSettingsSection settings={settings} onChange={onSettingsChange} />
-
-        <SnapshotWorkspacesSettingsSection settings={settings} onChange={onSettingsChange} />
+        <SettingsGroup label="Sessions">
+          <FastModeSettingsSection settings={settings} onChange={onSettingsChange} />
+          <SnapshotWorkspacesSettingsSection settings={settings} onChange={onSettingsChange} />
+        </SettingsGroup>
       </AdvancedSettingsGroup>
-
-      <CustomInstructionsRow
-        value={settings.customInstructions}
-        onOpen={onOpenCustomInstructions}
-      />
-
-      {/* More — the long tail lives on its own page so this one stays scannable.
-          Hidden on a host-mounted surface: everything behind it (push,
-          appearance, sound, haptics, install) describes the DEVICE, and the
-          host already owns those for its own app. Showing ours put a second
-          set of switches next to the host's, and ours were the ones that could
-          not work — the push toggle would have had to borrow a service worker
-          from an origin we do not own. `bare` is true only for
-          OmgSettingsSurface, which is exactly the host-mounted case. */}
-      {bare ? null : (
-      <section className="space-y-2">
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-          <button
-            type="button"
-            onClick={onOpenMore}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-muted text-foreground/70">
-                <Ellipsis className="size-4" />
-              </span>
-              <span>
-                <span className="block text-sm font-medium">More</span>
-                <span className="block text-xs text-muted-foreground">
-                  Tools, appearance, notifications, voice, help
-                </span>
-              </span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-        </div>
-      </section>
-      )}
     </div>
   );
 }
@@ -30300,168 +30175,66 @@ function MoreView({
         <h1 className="text-lg font-semibold leading-tight">More</h1>
       </div>
 
-      {/* On this computer — not uppercased, see RailGroup. */}
-      <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold text-muted-foreground">
-          On this computer
-        </h2>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-          <button
-            type="button"
-            onClick={onOpenUsage}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <Activity className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Provider limits</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-          <button
-            type="button"
-            onClick={onOpenTerminal}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-                <TerminalSquare className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Open terminal</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-          {/* The Computer sits next to the Terminal on purpose: both are ways
-              into this box itself rather than into a session. */}
-          <button
-            type="button"
-            onClick={onOpenComputer}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-                <Monitor className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Open computer</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-        </div>
-      </section>
+      <SettingsGroup label="On this computer">
+        <SettingsRow onClick={onOpenUsage} icon={<SettingsIcon><Activity /></SettingsIcon>} title="Provider limits" />
+        <SettingsRow onClick={onOpenTerminal} icon={<SettingsIcon><TerminalSquare /></SettingsIcon>} title="Open terminal" />
+        {/* The Computer sits next to the Terminal on purpose: both are ways
+            into this box itself rather than into a session. */}
+        <SettingsRow onClick={onOpenComputer} icon={<SettingsIcon><Monitor /></SettingsIcon>} title="Open computer" />
+      </SettingsGroup>
 
       <ViewSettingsSection settings={settings} onChange={onSettingsChange} hideBots={managedComputer} />
 
       <VoiceSettingsSection />
 
-      {/* Extension tabs — each opens as its own page. Not uppercased, see RailGroup. */}
+      {/* Extension tabs — each opens as its own page. */}
       {extTabs.length ? (
-        <section className="space-y-2">
-          <h2 className="px-4 text-xs font-semibold text-muted-foreground">
-            Extensions
-          </h2>
-          <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-            {extTabs.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => onOpenExt(t.id)}
-                className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-                    {t.icon ?? <Flag className="size-4" />}
-                  </span>
-                  <span className="text-sm font-medium">{t.label}</span>
-                </div>
-                <ChevronRight className="size-4 text-muted-foreground/60" />
-              </button>
-            ))}
-          </div>
-        </section>
+        <SettingsGroup label="Extensions">
+          {extTabs.map((t) => (
+            <SettingsRow
+              key={t.id}
+              onClick={() => onOpenExt(t.id)}
+              icon={<SettingsIcon>{t.icon ?? <Flag />}</SettingsIcon>}
+              title={t.label}
+            />
+          ))}
+        </SettingsGroup>
       ) : null}
 
-      <PwaInstallSettingsSection />
-
-      {/* This device — browser-local, never synced to the server. Not
-          uppercased, see RailGroup. */}
-      <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold text-muted-foreground">
-          This device
-        </h2>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                {dark ? <Moon className="size-4" /> : <Sun className="size-4" />}
-              </span>
-              <span className="text-sm font-medium">Dark mode</span>
-            </div>
-            <Switch
-              checked={dark}
-              onCheckedChange={toggleTheme}
-              aria-label="Toggle dark mode"
-            />
-          </div>
-          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-destructive text-white">
-                <Bell className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Push notifications</span>
-            </div>
-            <PushBell user={user} />
-          </div>
-          <div className="flex items-center justify-between gap-4 px-4 py-2.5">
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <Volume2 className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Sound effects</span>
-            </div>
+      {/* This device — browser-local, never synced to the server. */}
+      <SettingsGroup label="This device">
+        <PwaInstallSettingsRow />
+        <SettingsRow
+          icon={<SettingsIcon>{dark ? <Moon /> : <Sun />}</SettingsIcon>}
+          title="Dark mode"
+          trailing={<Switch checked={dark} onCheckedChange={toggleTheme} aria-label="Toggle dark mode" />}
+        />
+        <SettingsRow
+          icon={<SettingsIcon><Bell /></SettingsIcon>}
+          title="Push notifications"
+          trailing={<PushBell user={user} />}
+        />
+        <SettingsRow
+          icon={<SettingsIcon><Volume2 /></SettingsIcon>}
+          title="Sound effects"
+          trailing={
             <Switch
               checked={uiFeedback.sound}
               onCheckedChange={(v) => setUiFeedbackPrefs({ sound: v })}
               aria-label="Toggle UI sound effects"
             />
-          </div>
-        </div>
-      </section>
+          }
+        />
+      </SettingsGroup>
 
-      {/* Help — not uppercased, see RailGroup. */}
-      <section className="space-y-2">
-        <h2 className="px-4 text-xs font-semibold text-muted-foreground">
-          Help
-        </h2>
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-          <button
-            type="button"
-            onClick={onOpenChangelog}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-foreground text-background">
-                <ScrollText className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Changelog</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-          <button
-            type="button"
-            onClick={() => void onRedoOnboarding()}
-            className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <RotateCcw className="size-4" />
-              </span>
-              <span className="text-sm font-medium">Setup guide</span>
-            </div>
-            <ChevronRight className="size-4 text-muted-foreground/60" />
-          </button>
-        </div>
-      </section>
+      <SettingsGroup label="Help">
+        <SettingsRow onClick={onOpenChangelog} icon={<SettingsIcon><ScrollText /></SettingsIcon>} title="Changelog" />
+        <SettingsRow
+          onClick={() => void onRedoOnboarding()}
+          icon={<SettingsIcon><RotateCcw /></SettingsIcon>}
+          title="Setup guide"
+        />
+      </SettingsGroup>
 
       {/* Not a card and not a setting: a footnote you glance at when something
           feels slow. It used to be a full card at the top of Settings, which

@@ -12,6 +12,7 @@ import { usePwaInstall, type PwaInstallMode } from "@/lib/pwa-install";
 import { cn } from "@/lib/utils";
 import { toast } from "@/lib/notify";
 import { OmgBrandMark } from "@/components/omg-brand-mark";
+import { SettingsIcon, SettingsRow } from "@/components/settings-ui";
 
 export function InstallInstructions({ mode, open, onOpenChange }: {
   mode: PwaInstallMode;
@@ -84,7 +85,8 @@ function useInstallAction(mode: PwaInstallMode, install: () => Promise<boolean>)
   return { act, busy, instructionsOpen, setInstructionsOpen };
 }
 
-export function PwaInstallSettingsSection() {
+/** A Settings row under "This device"; the caller owns the card. */
+export function PwaInstallSettingsRow() {
   const { installed, mode, install } = usePwaInstall();
   const action = useInstallAction(mode, install);
 
@@ -92,31 +94,14 @@ export function PwaInstallSettingsSection() {
 
   return (
     <>
-      {/* No section header: this is the only row in it, and "App" said
-          nothing "Install omg" below didn't already say. */}
-      <section className="space-y-2">
-        <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-          <button
-            type="button"
-            onClick={() => void action.act()}
-            disabled={action.busy}
-            className={cn(
-              "flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]",
-              action.busy && "opacity-50",
-            )}
-          >
-            <div className="flex items-center gap-3">
-              <span className="flex size-7 items-center justify-center rounded-[7px] bg-primary text-white">
-                <Download className="size-4" />
-              </span>
-              <span>
-                <span className="block text-sm font-medium">Install omg</span>
-                <span className="block text-xs text-muted-foreground">Open it from your desktop or Home Screen</span>
-              </span>
-            </div>
-          </button>
-        </div>
-      </section>
+      <SettingsRow
+        onClick={() => void action.act()}
+        className={cn(action.busy && "pointer-events-none opacity-50")}
+        aria-disabled={action.busy}
+        icon={<SettingsIcon><Download /></SettingsIcon>}
+        title="Install omg"
+        description="Open it from your desktop or Home Screen"
+      />
       <InstallInstructions mode={mode} open={action.instructionsOpen} onOpenChange={action.setInstructionsOpen} />
     </>
   );

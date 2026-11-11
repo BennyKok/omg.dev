@@ -9,7 +9,7 @@ function Prototype() {
   const [text, setText] = useState("");
   return <main className="mx-auto max-w-xl space-y-6 px-5 py-12">
     <div><p className="text-xs text-muted-foreground">omg.dev · Prototype</p><h1 className="mt-2 text-2xl font-semibold">Browser dictation</h1><p className="mt-2 text-sm text-muted-foreground">Start with cloud. Move to on-device transcription when Whistle is ready.</p></div>
-    <section className="rounded-2xl border border-border bg-card"><BrowserTranscriptionSettings /></section>
+    <section className="divide-y divide-border rounded-2xl border border-border bg-card"><BrowserTranscriptionSettings /></section>
     <section className="space-y-3 rounded-2xl border border-border bg-card p-4">
       <label htmlFor="prototype-transcript" className="text-sm font-medium">Your message</label>
       <textarea id="prototype-transcript" className="min-h-40 w-full rounded-lg border border-border bg-background p-3 text-sm" placeholder="Tap the mic and speak…" value={text} onChange={(event) => setText(event.target.value)} />

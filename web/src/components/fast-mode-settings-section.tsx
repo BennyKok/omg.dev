@@ -1,10 +1,12 @@
+import { Zap } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { SettingsIcon, SettingsRow } from "@/components/settings-ui";
 import type { GlobalSettings } from "@/lib/global-settings";
 
 /**
  * Settings > Advanced. Fast mode is off by default, so a new user never sees
  * it. On shows the Fast mode switch in the composer's model picker for the
- * models that support it.
+ * models that support it. Renders one row; the caller owns the card.
  */
 export function FastModeSettingsSection({
   settings,
@@ -14,22 +16,17 @@ export function FastModeSettingsSection({
   onChange: (patch: Partial<GlobalSettings>) => Promise<void>;
 }) {
   return (
-    <section className="space-y-2">
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-          <div className="min-w-0">
-            <div className="text-sm font-medium">Fast mode</div>
-            <div className="text-xs text-muted-foreground">
-              Show the Fast mode switch in the model picker. Only some models support it.
-            </div>
-          </div>
-          <Switch
-            aria-label="Show Fast mode in the composer"
-            checked={settings.showComposerFastMode}
-            onCheckedChange={(checked) => void onChange({ showComposerFastMode: checked })}
-          />
-        </div>
-      </div>
-    </section>
+    <SettingsRow
+      icon={<SettingsIcon><Zap /></SettingsIcon>}
+      title="Fast mode"
+      description="Show the Fast mode switch in the model picker. Only some models support it."
+      trailing={
+        <Switch
+          aria-label="Show Fast mode in the composer"
+          checked={settings.showComposerFastMode}
+          onCheckedChange={(checked) => void onChange({ showComposerFastMode: checked })}
+        />
+      }
+    />
   );
 }

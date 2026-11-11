@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Check, Copy, ExternalLink, Globe2, ShieldCheck, TerminalSquare } from "lucide-react";
+import { SettingsGroup, SettingsIcon, SettingsRow } from "./settings-ui";
 
 export type ServerAccessInfo = {
   runtime: "desktop" | "self-hosted";
@@ -64,50 +65,60 @@ export function RemoteAccessSettingsSection() {
   const suggestedUrl = tailscale.dnsName ? `https://${tailscale.dnsName}` : null;
 
   return (
-    <section className="space-y-2" aria-labelledby="remote-access-heading">
-      <h2 id="remote-access-heading" className="px-4 text-xs font-semibold text-muted-foreground">
-        Remote access
-      </h2>
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-foreground text-background">
-            <Globe2 className="size-4" />
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-medium">Local server</span>
-            <code className="block truncate text-xs text-muted-foreground">{access.localUrl}</code>
-          </span>
-          <CopyValue value={access.localUrl} label="local server URL" />
-        </div>
+    <SettingsGroup
+      label="Remote access"
+      labelId="remote-access-heading"
+      footer={
+        <>
+          On your phone, join the same tailnet and open the Tailscale URL. This uses Tailscale
+          Serve, not a public Funnel.{" "}
+          <a
+            href="https://tailscale.com/kb/1242/tailscale-serve"
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-0.5 text-foreground hover:underline"
+          >
+            Guide <ExternalLink className="size-3" />
+          </a>
+        </>
+      }
+    >
+      <SettingsRow
+        icon={<SettingsIcon><Globe2 /></SettingsIcon>}
+        title="Local server"
+        description={<code className="block truncate">{access.localUrl}</code>}
+        trailing={<CopyValue value={access.localUrl} label="local server URL" />}
+      />
 
-        <div className="space-y-3 px-4 py-3">
-          <div className="flex items-start gap-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-primary text-white">
-              <ShieldCheck className="size-4" />
+      <div className="space-y-3 pb-3">
+        <SettingsRow
+          className="pb-0"
+          icon={<SettingsIcon><ShieldCheck /></SettingsIcon>}
+          title={
+            <span className="flex items-center gap-2">
+              Tailscale
+              {tailscale.serveEnabled ? (
+                <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
+                  Active
+                </span>
+              ) : null}
             </span>
-            <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2 text-sm font-medium">
-                Tailscale
-                {tailscale.serveEnabled ? (
-                  <span className="rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-semibold text-success">
-                    Active
-                  </span>
-                ) : null}
-              </span>
-              <span className="block text-xs text-muted-foreground">
-                {tailscale.serveEnabled
-                  ? "Private HTTPS access is ready for devices in your tailnet."
-                  : tailscale.connected
-                    ? "This computer is connected. Run the command below once to expose omg.dev privately."
-                    : tailscale.installed
-                      ? "Connect Tailscale on this computer, then run the command below."
-                      : "Install Tailscale on this computer and your phone, then run the command below."}
-              </span>
-            </span>
-          </div>
+          }
+          description={
+            tailscale.serveEnabled
+              ? "Private HTTPS access is ready for devices in your tailnet."
+              : tailscale.connected
+                ? "This computer is connected. Run the command below once to expose omg.dev privately."
+                : tailscale.installed
+                  ? "Connect Tailscale on this computer, then run the command below."
+                  : "Install Tailscale on this computer and your phone, then run the command below."
+          }
+        />
 
+        {/* Indented to the title column, so the values line up under the row text. */}
+        <div className="space-y-2 pl-14 pr-4">
           {tailscale.serveUrl ? (
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-background/50 px-3 py-2">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-background/50 py-1 pl-3 pr-1">
               <a
                 href={tailscale.serveUrl}
                 target="_blank"
@@ -119,33 +130,20 @@ export function RemoteAccessSettingsSection() {
               <CopyValue value={tailscale.serveUrl} label="Tailscale URL" />
             </div>
           ) : suggestedUrl ? (
-            <p className="px-1 text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               After setup: <code>{suggestedUrl}</code>
             </p>
           ) : null}
 
           {!tailscale.serveEnabled ? (
-            <div className="flex items-center gap-2 rounded-xl border border-border bg-background/50 px-3 py-2">
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-background/50 py-1 pl-3 pr-1">
               <TerminalSquare className="size-4 shrink-0 text-muted-foreground" />
               <code className="min-w-0 flex-1 truncate text-xs">{tailscale.command}</code>
               <CopyValue value={tailscale.command} label="Tailscale command" />
             </div>
           ) : null}
-
-          <p className="px-1 text-xs leading-relaxed text-muted-foreground">
-            On your phone, join the same tailnet and open the Tailscale URL. This uses Tailscale
-            Serve, not a public Funnel.{" "}
-            <a
-              href="https://tailscale.com/kb/1242/tailscale-serve"
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-0.5 text-foreground hover:underline"
-            >
-              Guide <ExternalLink className="size-3" />
-            </a>
-          </p>
         </div>
       </div>
-    </section>
+    </SettingsGroup>
   );
 }

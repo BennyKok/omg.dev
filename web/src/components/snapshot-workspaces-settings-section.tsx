@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
+import { Copy } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
+import { SettingsIcon, SettingsRow } from "@/components/settings-ui";
 import type { GlobalSettings } from "@/lib/global-settings";
 
 export type SnapforkStatus = {
@@ -16,7 +18,8 @@ export type SnapforkStatus = {
  * session's worktree is a copy-on-write view of a shared project copy
  * (src/snapfork.ts) instead of a full checkout and install. The box reports
  * whether it can run them, so a machine without FUSE shows why the switch is
- * unavailable instead of a switch that silently does nothing.
+ * unavailable instead of a switch that silently does nothing. Renders one
+ * row; the caller owns the card.
  */
 export function SnapshotWorkspacesSettingsSection({
   settings,
@@ -45,24 +48,21 @@ export function SnapshotWorkspacesSettingsSection({
   else if (status.forks > 0) note = `${note} ${status.forks} active.`;
 
   return (
-    <section className="space-y-2">
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-        <div className="flex items-center justify-between gap-3 px-4 py-2.5">
-          <div className="min-w-0">
-            <div className="text-sm font-medium">Snapshot workspaces</div>
-            <div className="text-xs text-muted-foreground">{note}</div>
-          </div>
-          <Switch
-            aria-label="Use snapshot workspaces for new sessions"
-            checked={override ? status.enabled : settings.snapshotForks}
-            disabled={disabled}
-            onCheckedChange={(checked) =>
-              void onChange({ snapshotForks: checked }).then(refresh, refresh)
-            }
-          />
-        </div>
-      </div>
-    </section>
+    <SettingsRow
+      icon={<SettingsIcon><Copy /></SettingsIcon>}
+      title="Snapshot workspaces"
+      description={note}
+      trailing={
+        <Switch
+          aria-label="Use snapshot workspaces for new sessions"
+          checked={override ? status.enabled : settings.snapshotForks}
+          disabled={disabled}
+          onCheckedChange={(checked) =>
+            void onChange({ snapshotForks: checked }).then(refresh, refresh)
+          }
+        />
+      }
+    />
   );
 }
 

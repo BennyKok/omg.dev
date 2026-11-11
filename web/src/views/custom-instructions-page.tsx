@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { ChevronRight, ScrollText } from "lucide-react";
+import { ScrollText } from "lucide-react";
 
+import { SettingsIcon, SettingsRow } from "@/components/settings-ui";
 import { Textarea } from "@/components/ui/textarea";
 
 // Mirrors CUSTOM_INSTRUCTIONS_MAX_LENGTH in src/settings.ts. The server
 // enforces it; this copy only stops the typing instead of failing the save.
 export const CUSTOM_INSTRUCTIONS_MAX_LENGTH = 4000;
 
-/** The Settings row that opens the page. */
+/** The Settings row that opens the page. The caller owns the card. */
 export function CustomInstructionsRow({
   value,
   onOpen,
@@ -17,28 +18,13 @@ export function CustomInstructionsRow({
 }) {
   const preview = value.trim().split("\n")[0] ?? "";
   return (
-    <section className="space-y-2">
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40">
-        <button
-          type="button"
-          onClick={onOpen}
-          className="flex w-full items-center justify-between gap-4 px-4 py-2.5 text-left transition-colors duration-150 ease-ios hover:bg-foreground/[0.03] active:bg-foreground/[0.06]"
-        >
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-[7px] bg-muted text-foreground/70">
-              <ScrollText className="size-4" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-sm font-medium">Custom instructions</span>
-              <span className="block truncate text-xs text-muted-foreground">
-                {preview || "Not set"}
-              </span>
-            </span>
-          </div>
-          <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
-        </button>
-      </div>
-    </section>
+    <SettingsRow
+      onClick={onOpen}
+      icon={<SettingsIcon><ScrollText /></SettingsIcon>}
+      title="Custom instructions"
+      description={preview || "Not set"}
+      descriptionClassName="truncate"
+    />
   );
 }
 
