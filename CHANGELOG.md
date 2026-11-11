@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## November 11, 2026 - Linked devices, event hooks, Mac Computer (v0.7.5)
+
+- Link another computer to omg.dev. Run `omg device link` on it with a one-use pairing code from Settings > Linked devices. An agent can then ask that computer to run an action, and you approve it on that computer. The computer opens no port and runs only the actions in its own config.
+- In a session chat, type `@` to pick a linked device. Settings lists each device and its actions, and removes a device.
+- Event hooks check a source on a schedule, such as a script or a GitHub repository. They act only on new items: they start an agent, send you a notification, or run a command.
+- The Computer page now works on a Mac. It shows the screen and sends the pointer, the keyboard and the clipboard.
+- The plan pane shows the session's team of child sessions, their progress, and the questions that wait for you. An agent can keep a status there with a headline, key numbers and a chart.
+- On a wide screen, a new session shows the agent, model, thinking and folder controls under a tall message field. An open session keeps a one-row message bar.
+
 ## November 9, 2026 - Agent plans, docked terminal, simpler setup (v0.7.4)
 
 - See the agent's plan beside the chat. Claude and Codex sessions show their to-do steps and sub-agents in a side pane on wide screens and on a swipe page on a phone. Tap a step to ask the agent to do it next, skip it, or add a note.
