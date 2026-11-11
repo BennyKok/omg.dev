@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## November 11, 2026 - Calmer Settings on the desktop (v0.7.6)
+
+- On a wide screen, Settings and its pages open beside the sidebar, in one column. Storage, Custom instructions, Connectors, More, Provider limits and Changelog no longer cover the whole window.
+- Every page that Settings opens, Schedules included, has a Settings back button.
+- Settings groups now look the same: one card style, one label style, one note style.
+- Linked devices has its own page, reached from Settings > Linked devices.
+- The Bot schedule limit and Refresh full bot contexts rows are removed. Bots keep their current values.
+
 ## November 11, 2026 - Linked devices, event hooks, Mac Computer (v0.7.5)
 
 - Link another computer to omg.dev. Run `omg device link` on it with a one-use pairing code from Settings > Linked devices. An agent can then ask that computer to run an action, and you approve it on that computer. The computer opens no port and runs only the actions in its own config.

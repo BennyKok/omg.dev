@@ -6,10 +6,13 @@ name: desktop-package
 # poll the update.json files on that release to auto-update, so every version
 # tag republishes it.
 
+# Paused (2026-11-11, owner's decision): version tags no longer build or
+# publish the desktop app, so installed desktop apps stay where they are.
+# Run it by hand from the Actions tab. To resume, add back:
+#   push:
+#     tags:
+#       - "v*"
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       publish:
