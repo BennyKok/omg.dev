@@ -290,7 +290,7 @@ export default function CodingAgentsPage({
   }
 
   return (
-    <div className="mx-auto w-full max-w-xl space-y-3 pb-10 lg:max-w-none lg:px-2" data-lfg-page-column>
+    <div className="mx-auto w-full max-w-xl space-y-3 pb-10" data-lfg-page-column>
       <div className="flex items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-center gap-2">
           {onBack ? (
@@ -402,7 +402,7 @@ export default function CodingAgentsPage({
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border lg:grid lg:grid-cols-2 lg:items-start lg:gap-3 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:divide-y-0 2xl:grid-cols-3">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
         {agents.map((agent) => {
           const status = agent.status;
           const accounts = agent.key === "aisdk" ? (status.accounts ?? []) : [];
@@ -412,8 +412,8 @@ export default function CodingAgentsPage({
           const needsBinary = binaryMissing(status.checks);
           const setupNote = setupRowNote(status);
           return (
-            <div key={agent.key} className="lg:overflow-hidden lg:rounded-2xl lg:border lg:border-border lg:bg-card/40">
             <ExpandableRow
+              key={agent.key}
               icon={
                 <img src={agentIconSrc(agent.key)} alt={agentIconAlt(agent.key)} className="size-5" />
               }
@@ -632,7 +632,6 @@ export default function CodingAgentsPage({
                 ) : null}
               </div>
             </ExpandableRow>
-            </div>
           );
         })}
       </div>

@@ -697,6 +697,7 @@ import {
 } from "./views/custom-instructions-page";
 import { RemoteAccessSettingsSection } from "./components/remote-access-settings";
 import { LinkedDevicesSettingsSection } from "./components/linked-devices-settings";
+import { SETTINGS_STAGE_SUBPAGES, SettingsStageSubpage } from "./components/settings-stage-subpage";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
 import {
@@ -8990,10 +8991,15 @@ export function App() {
   // Coding agents is a Settings page. On the desktop it stays in the stage
   // beside the rail, the same way Settings does. The phone keeps the pushed page.
   const codingAgentsInWorkspace = tab === "coding-agents" && isWide && !bare;
+  // The other Settings pages do the same: on the desktop they open in the
+  // stage beside the rail, in one column under Back to Settings. The phone
+  // keeps the pushed page. Terminal and Computer stay full-screen surfaces.
+  const settingsSubpageInWorkspace = SETTINGS_STAGE_SUBPAGES.has(tab) && isWide && !bare;
   const pageInWorkspace =
     ((tab === "notifications" || tab === "artifacts") && isWide) ||
     settingsInWorkspace ||
-    codingAgentsInWorkspace;
+    codingAgentsInWorkspace ||
+    settingsSubpageInWorkspace;
   const liveSessionIdSet = new Set(
     liveSessions.flatMap((s) =>
       [s.sessionId, s.nativeSessionId].filter((x): x is string => !!x),
@@ -9044,6 +9050,58 @@ export function App() {
       computerVersionReport={computerVersionReport}
     />
   );
+  // Settings' own pages. One copy, mounted in the stage on the desktop
+  // (settingsSubpageInWorkspace) or as the pushed page on a phone.
+  const settingsSubpage = (page: string) => {
+    if (page === "usage") return <UsagePage />;
+    if (page === "changelog")
+      return (
+        <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading changelog…</div>}>
+          <ChangelogPage />
+        </Suspense>
+      );
+    if (page === "storage") return <StoragePage />;
+    if (page === "instructions")
+      return (
+        <CustomInstructionsPage
+          value={settings.customInstructions}
+          onChange={(customInstructions) => updateSettings({ customInstructions })}
+        />
+      );
+    if (page === "connectors")
+      return (
+        <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
+          <ConnectorsPage />
+        </Suspense>
+      );
+    if (page === "more")
+      return (
+        <MoreView
+          // Same source the Settings root used before Ping moved here.
+          connection={useWsLive ? wsLiveStream.connection : null}
+          latency={useWsLive ? wsLiveStream.latency : null}
+          dark={dark}
+          toggleTheme={toggleTheme}
+          user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
+          onOpenTerminal={() => setTab("term")}
+          onOpenComputer={() => setTab("computer")}
+          onOpenUsage={() => setTab("usage")}
+          onOpenChangelog={() => setTab("changelog")}
+          // Same row, different flow per surface — which is the whole point
+          // of keeping the two first runs separate. A hosted Computer must
+          // not be able to reset the open-source walkthrough (it never ran
+          // it, and doing so would demand a profile and a repo it doesn't
+          // need), and a self-hosted box has no hosted tour to replay.
+          onRedoOnboarding={redoOnboarding}
+          managedComputer={managedComputer}
+          extTabs={extNavTabs}
+          onOpenExt={(id) => setTab(id)}
+          settings={settings}
+          onSettingsChange={updateSettings}
+        />
+      );
+    return null;
+  };
   const codingAgentsPage = (inWorkspace: boolean) => (
     <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
       <CodingAgentsPage
@@ -9557,7 +9615,13 @@ export function App() {
                           ? artifactsPage(true)
                           : tab === "coding-agents"
                             ? codingAgentsPage(true)
-                            : settingsPage
+                            : settingsSubpageInWorkspace
+                              ? (
+                                  <SettingsStageSubpage onBack={() => setTab("settings")}>
+                                    {settingsSubpage(tab)}
+                                  </SettingsStageSubpage>
+                                )
+                              : settingsPage
                       : null
               }
               stageSheet={openFinding || openReport ? autoSheet : null}
@@ -9698,7 +9762,7 @@ export function App() {
           />
         ) : null}
         {tab === "auto" && !autoInWorkspace ? autoManageView : null}
-        {tab === "usage" ? <UsagePage /> : null}
+        {!settingsSubpageInWorkspace ? settingsSubpage(tab) : null}
         {tab === "coding-agents" && !codingAgentsInWorkspace ? codingAgentsPage(false) : null}
         {!isWide && (keepShipped || tab === "notifications") ? (
           <div className={tab === "notifications" ? undefined : "hidden"} aria-hidden={tab !== "notifications"}>
@@ -9740,26 +9804,9 @@ export function App() {
             />
           </div>
         ) : null}
-        {tab === "changelog" ? (
-          <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading changelog…</div>}>
-            <ChangelogPage />
-          </Suspense>
-        ) : null}
         {tab === "term" ? (
           <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading terminal…</div>}>
             <TermView />
-          </Suspense>
-        ) : null}
-        {tab === "storage" ? <StoragePage /> : null}
-        {tab === "instructions" ? (
-          <CustomInstructionsPage
-            value={settings.customInstructions}
-            onChange={(customInstructions) => updateSettings({ customInstructions })}
-          />
-        ) : null}
-        {tab === "connectors" ? (
-          <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
-            <ConnectorsPage />
           </Suspense>
         ) : null}
         {tab === "computer" ? (
@@ -9790,31 +9837,6 @@ export function App() {
               onOpenShipped={openShippedSession}
             />
           </Suspense>
-        ) : null}
-        {tab === "more" ? (
-          <MoreView
-            // Same source the Settings root used before Ping moved here.
-            connection={useWsLive ? wsLiveStream.connection : null}
-            latency={useWsLive ? wsLiveStream.latency : null}
-            dark={dark}
-            toggleTheme={toggleTheme}
-            user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
-            onOpenTerminal={() => setTab("term")}
-            onOpenComputer={() => setTab("computer")}
-            onOpenUsage={() => setTab("usage")}
-            onOpenChangelog={() => setTab("changelog")}
-            // Same row, different flow per surface — which is the whole point
-            // of keeping the two first runs separate. A hosted Computer must
-            // not be able to reset the open-source walkthrough (it never ran
-            // it, and doing so would demand a profile and a repo it doesn't
-            // need), and a self-hosted box has no hosted tour to replay.
-            onRedoOnboarding={redoOnboarding}
-            managedComputer={managedComputer}
-            extTabs={extNavTabs}
-            onOpenExt={(id) => setTab(id)}
-            settings={settings}
-            onSettingsChange={updateSettings}
-          />
         ) : null}
         {extNavTabs.some((t) => t.id === tab) ? (
           extNavTabs.find((t) => t.id === tab)!.render()
@@ -30091,10 +30113,8 @@ function SettingsView({
   const versionNote = versionMismatchNote(versionSkew);
 
   return (
-    <div className="mx-auto w-full max-w-xl space-y-8 pb-10 lg:grid lg:max-w-none lg:grid-cols-2 lg:items-start lg:gap-8 lg:space-y-0 lg:px-2" data-lfg-page-column>
-      <div className="lg:col-span-2">
-        {bare ? <UserIconSettingsSection identityEmail={user} /> : <IdentitySettingsHeader user={user} />}
-      </div>
+    <div className="mx-auto w-full max-w-xl space-y-8 pb-10" data-lfg-page-column>
+      {bare ? <UserIconSettingsSection identityEmail={user} /> : <IdentitySettingsHeader user={user} />}
 
       {/* Computer — in standalone LFG this box IS the computer, so the row is
           static. When these sections are mounted by a host (omg) this is the
