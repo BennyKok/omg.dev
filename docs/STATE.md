@@ -2,7 +2,7 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-10.
+Last refresh: 2026-11-11.
 
 ## Active work (last 14 days)
 
@@ -20,11 +20,11 @@ Last refresh: 2026-11-10.
 - **Web performance**: React Compiler covers hot components (#464); rail rows
   update selectively (#465). Web moved to Vite 8 and React 19.3 (#467–#468).
   Chat swipe-back was fixed (#471).
-- **Navigation and templates**: Apps and folders shared one list (#461),
-  Create separated templates and skills (#463), host tutorials were drawn in
-  the page flow (#477), and the web-game template was updated (#469).
+- **Navigation and templates**: Create separated templates and skills (#463).
+  Host tutorials were drawn in the page flow (#477), and the web-game template
+  was updated (#469).
   Hosted templates were later removed (`89f52e88c`).
-- **Earlier hosted work**: Terra model selection (#459), app identity (#460),
+- **Earlier hosted work**: Terra model selection (#459),
   deploy (#482), finding autopilot (#490), and the prebuilt embed bundle
   (#475) landed before the local-only changes above. These PRs do not establish
   current cloud support.
@@ -32,7 +32,11 @@ Last refresh: 2026-11-10.
   (#496), pinned Actions, release approval gates, and npm trusted publishing
   (#491) landed.
 - **Release and docs**: release failures no longer file issues (#485).
-  Nightly documentation refreshes continue (latest: #503).
+  Nightly documentation refreshes continue (latest: #506).
+- **Latest direct commits**: device connection and request approval are in the
+  local UI (`baed18dc7`). Remote access has its own Settings page
+  (`0e0f075c4`); desktop settings and composer layouts were updated
+  (`119826c87`, `21266a1ea`). Desktop packaging is paused (`88e1928ac`).
 
 ## Open pull requests
 
