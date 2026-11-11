@@ -13,7 +13,7 @@ import { ModelProviderIcon, modelProviderIconKey } from "./lib/model-provider-ic
 import { setupOutcome, type SetupResultInfo, type SetupWatchAgent } from "../../packages/protocol/src/coding-agent-setup-outcome";
 import { useRuntimeLifecycle } from "./lib/runtime-lifecycle";
 import { LiveHeaderContext } from "./components/live-header-context";
-import { CreateBackdrop, Spinner } from "./components/apps-home";
+import { Spinner } from "./components/apps-home";
 import { SessionTerminalDock } from "./components/session-terminal-dock";
 import {
   hasPanel,
@@ -37,7 +37,7 @@ import {
   type SetupChoice,
   type SetupSheetPage,
 } from "./components/agent-setup-sheet";
-import { ComposerPickerFooter } from "./components/composer-picker-footer";
+
 import { FastModeSettingsSection } from "./components/fast-mode-settings-section";
 import { SnapshotWorkspacesSettingsSection } from "./components/snapshot-workspaces-settings-section";
 /** The only machine a local install shows: the box that served this page. */
@@ -9588,13 +9588,13 @@ export function App() {
               composerVisible={mobileComposerVisible}
               // Desktop, empty stage: the composer fills the pane instead of
               // the drawer. Same props as the drawer below, so both read the
-              // same draft, agents and repos.
+              // same draft, agents and repos. The stage uses the desktop
+              // composer (agent and model pill, thinking, folder, send), not
+              // the phone card.
               stageComposer={(handlers) => (
                 <NewSessionDialog
                   variant="stage"
                   open
-                  // The desktop home matches the phone Create page: a heading
-                  // and the chat box, with no starter row above it.
                   starters={false}
                   users={users}
                   repos={repos}
@@ -17332,10 +17332,12 @@ function SessionChatBody({
     [sid, failed],
   );
 
-  // Always in the expanded shape. Folding to one row on blur and opening again
-  // on focus moved the bar while the keyboard animated, and that read as a
-  // glitch, so the shape no longer follows focus or content.
-  const composerExpanded = true;
+  // The phone stays in the expanded shape. Folding to one row on blur and
+  // opening again on focus moved the bar while the keyboard animated, and
+  // that read as a glitch. A desktop window has no soft keyboard, so the
+  // session composer is one row: attach, the field, mic, and send.
+  const desktopComposer = useIsWide();
+  const composerExpanded = !desktopComposer;
   // One element, placed in whichever slot the bar's shape gives it: before
   // the field at rest, at the head of the control row when expanded.
   // No chip behind it: a bare glyph, as in the iOS Messages bar. The drop
@@ -17456,6 +17458,7 @@ function SessionChatBody({
           // Which chat box this is, for a host that waits for it to show
           // (omg.dev opens a tutorial's chat and checks it is on screen).
           data-composer-kind="session"
+          data-composer-layout={desktopComposer ? "desktop" : "phone"}
           data-composer-sid={sid}
           {...files.dropZoneProps}
           className={cn(
@@ -17506,7 +17509,11 @@ function SessionChatBody({
               // outward instead of looking round.
               // z-[1]: the held-queue card above docks under this bar's
               // top edge, so the bar has to paint over it.
-              "lfg-gfield relative z-[1] rounded-3xl transition-[background-color,border-color,box-shadow,padding] duration-200 ease-ios motion-reduce:transition-none",
+              "lfg-gfield relative z-[1] transition-[background-color,border-color,box-shadow,padding] duration-200 ease-ios motion-reduce:transition-none",
+              // The phone bar holds circular controls, so a 24px corner agrees
+              // with them. The desktop bar is one row in the pane, and it uses
+              // the same 16px corner as the new-session field.
+              desktopComposer ? "rounded-2xl" : "rounded-3xl",
               composerExpanded ? "px-2.5 pb-2 pt-2 md:px-2 md:pb-1.5 md:pt-1.5" : "px-2 py-1.5 md:px-1.5 md:py-1",
             )}
             onFocus={(event) => {
@@ -23360,11 +23367,12 @@ function NewSessionDialog({
   const cycleAgentRef = useRef<(dir: 1 | -1) => void>(() => {});
   const [agentIconDir, setAgentIconDir] = useState<1 | -1>(1);
   const [agentIconNonce, setAgentIconNonce] = useState(0);
-  // The desktop stage wears the mobile composer too: one card, the agent mark
-  // that opens the agent sheet, and the actions inside the field. Both stay in
-  // the expanded shape: folding to one row on blur moved the bar while the
-  // keyboard animated, and that read as a glitch.
-  const sheetShape = variant === "inline" || variant === "stage";
+  // Only the phone home uses the mobile card: the agent mark, and attach,
+  // mic and send inside the field. It stays expanded. Folding to one row on
+  // blur moved the bar while the keyboard animated. The desktop stage uses
+  // the drawer composer below: a field, then the agent, model, thinking and
+  // folder controls.
+  const sheetShape = variant === "inline";
   const inlineExpanded = sheetShape;
 
   // Own the agent-icon gesture end-to-end with pointer events (one code path
@@ -24274,27 +24282,12 @@ function NewSessionDialog({
       onNewFolder={() => openFolderBrowser(true)}
     />
   );
-  // Built here, not at the use site, so each keeps its own memo slot.
+  // Built here, not at the use site, so it keeps its own memo slot.
   const folderPill = folderPicker("pill");
-  const folderChip = folderPicker("chip");
 
   // The composer carries no Stash button. Stash and recent sessions open with
   // the upward swipe on a phone and from a project's "find sessions" card.
 
-  const pickerThinking =
-    agentSupportsThinking(agent) && thinkingLevels.length > 0
-      ? {
-          options: thinkingLevels.map((level) => ({
-            id: level,
-            label: thinkingLevelLabel(level),
-            selected: level === thinkingLevel,
-          })),
-          onPick: (level: string) => changeComposerThinkingLevel(level as ThinkingLevel),
-        }
-      : null;
-  const pickerFast = fastModeAvailable
-    ? { enabled: fastModeEnabled, onToggle: () => setFastMode(!fastModeEnabled) }
-    : null;
   const modelControls = (
     <>
       {
@@ -24315,26 +24308,19 @@ function NewSessionDialog({
           onModelChange={chooseModel}
           showModels={view.showComposerModels}
           showAgents={view.showComposerAgents}
-          // The stage keeps Thinking and Fast inside the picker. With neither
-          // available there is no footer, so no divider under the list.
-          footer={variant === "stage" && (pickerThinking || pickerFast) ? (
-            <ComposerPickerFooter thinking={pickerThinking} fast={pickerFast} />
-          ) : undefined}
         />
       }
 
-      {variant === "stage" ? null : (
-        <ThinkingLevelPill
-          agent={agent}
-          value={thinkingLevel}
-          levels={thinkingLevels}
-          onChange={changeComposerThinkingLevel}
-          flat={variant === "inline"}
-          immersive
-        />
-      )}
+      <ThinkingLevelPill
+        agent={agent}
+        value={thinkingLevel}
+        levels={thinkingLevels}
+        onChange={changeComposerThinkingLevel}
+        flat={variant === "inline"}
+        immersive
+      />
 
-      {fastModeAvailable && variant !== "stage" ? (
+      {fastModeAvailable ? (
         <FastModePill
           enabled={fastModeEnabled}
           onToggle={() => setFastMode(!fastModeEnabled)}
@@ -24343,7 +24329,7 @@ function NewSessionDialog({
       ) : null}
 
 
-      {variant !== "stage" && !projectScoped ? folderPill : null}
+      {variant === "stage" || !projectScoped ? folderPill : null}
     </>
   );
 
@@ -24713,17 +24699,13 @@ function NewSessionDialog({
             attachments.length
               ? "Add a note for the files…"
               : placeholder ??
-                (variant === "stage" && unassigned
-                  ? "Describe a game or an app…"
-                  : ownsFolder && !unassigned
-                    ? `What should we work on in ${projectFilterLabel(composerProject, shortProject)}?`
-                    : "What should we work on?")
+                (ownsFolder && !unassigned
+                  ? `What should we work on in ${projectFilterLabel(composerProject, shortProject)}?`
+                  : "What should we work on?")
           }
           className={cn(
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
-            variant === "stage"
-              ? "min-h-24 max-h-[42dvh] px-1 py-1"
-              : variant === "inline"
+            variant === "inline"
               ? cn(
                   "min-h-9 px-1 py-1.5",
                   // At rest the field is empty by definition (any content
@@ -24738,7 +24720,7 @@ function NewSessionDialog({
         {sheetShape ? (
           <div
             // Tighter at rest, so a narrow phone keeps width for the field.
-            className={cn("flex shrink-0 items-center", variant === "stage" && "min-w-0", inlineExpanded ? "gap-2" : "gap-0.5")}
+            className={cn("flex shrink-0 items-center", inlineExpanded ? "gap-2" : "gap-0.5")}
             // Keep the field focused while a control is tapped, so the
             // composer does not collapse under the finger.
             onMouseDown={(event) => {
@@ -24747,13 +24729,11 @@ function NewSessionDialog({
           >
             {/* Fixed slots, so the mic never remounts mid-dictation when the
                 first words expand the composer. */}
-            {inlineExpanded ? (variant === "stage" ? modelControls : agentPopover) : null}
+            {inlineExpanded ? agentPopover : null}
             {attachButton}
             {/* Where the next chat starts. A pick also filters the list,
                 through the same folder value the Folders page sets. */}
             {variant === "inline" ? folderPill : null}
-            {/* Desktop home uses the same folder menu as the session rail. */}
-            {variant === "stage" ? folderChip : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
             {micButton}
             {inlineExpanded ? startButton : null}
@@ -24884,14 +24864,19 @@ function NewSessionDialog({
 
   // Desktop stage: the same composer the drawer shows, sitting flat in the
   // empty pane instead of sliding over it. Escape closes it the way it closes
-  // the sheet.
+  // the sheet. Greets the session owner by roster name, falling back to the
+  // local part of the email, then to a plain "there".
+  const stageOwner = users.find((item) => item.email === user);
+  const stageGreetingName =
+    stageOwner?.name?.trim() || (user ? user.split("@")[0] : "") || "there";
   if (variant === "stage") {
     return (
       <div
         // overflow-visible on purpose: see the form's stage branch. The
         // suggest menus need to escape upward past the greeting.
-        className="relative flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-visible rounded-[inherit] p-4"
+        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center overflow-visible p-6"
         data-testid="new-session-stage"
+        data-composer-layout="desktop"
         onKeyDown={(e) => {
           if (e.key === "Escape" && !e.defaultPrevented) {
             e.preventDefault();
@@ -24899,16 +24884,11 @@ function NewSessionDialog({
           }
         }}
       >
-        {/* Flat on the stage background: no card, no border, no shadow. This
-            is the page's content, not a dialog over it, so it gets no dialog
-            chrome. The field's own outline is the only frame. */}
-        {/* The phone Create page's colour, kept inside this pane. */}
-        <CreateBackdrop shown contained />
-        <section aria-label="New session" className="relative z-[1] w-full max-w-xl">
-          {/* The phone Create page's heading. No close control: Esc, or
-              opening any session from the rail, leaves this surface. */}
-          <h2 className="px-3 pb-3 text-[26px] font-bold leading-tight tracking-[-0.02em]">
-            What do you want to make?
+        {/* Flat on the stage panel: no phone colour wash, no dialog chrome.
+            The field's own outline is the only frame. */}
+        <section aria-label="New session" className="w-full max-w-xl">
+          <h2 className="px-3 pb-2 text-lg font-semibold">
+            Hello {stageGreetingName}!
           </h2>
           {formBody}
         </section>
