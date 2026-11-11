@@ -38,13 +38,13 @@ find "$RUNTIME_DIR/web/dist" -name '*.map' -delete
 find "$RUNTIME_DIR/src" "$RUNTIME_DIR/scripts" -name '*.test.ts' -delete
 # Same list as scripts/release.sh: workspace packages the server imports from
 # source through tsconfig.json "paths" or a relative packages/<name>/src path.
-mkdir -p "$RUNTIME_DIR/packages/connectors" "$RUNTIME_DIR/packages/protocol" "$RUNTIME_DIR/packages/cloud"
+# packages/cloud was deleted in v0.7.0 (omg.dev is local software); copying it
+# failed every desktop build from v0.7.0 to v0.7.5.
+mkdir -p "$RUNTIME_DIR/packages/connectors" "$RUNTIME_DIR/packages/protocol"
 cp packages/connectors/package.json "$RUNTIME_DIR/packages/connectors/"
 cp -R packages/connectors/src "$RUNTIME_DIR/packages/connectors/src"
 cp packages/protocol/package.json "$RUNTIME_DIR/packages/protocol/"
 cp -R packages/protocol/src "$RUNTIME_DIR/packages/protocol/src"
-cp packages/cloud/package.json "$RUNTIME_DIR/packages/cloud/"
-cp -R packages/cloud/src "$RUNTIME_DIR/packages/cloud/src"
 find "$RUNTIME_DIR/packages" -name '*.test.ts' -delete
 
 bun run scripts/prepare-release-manifest.ts "$RUNTIME_DIR/package.json"
