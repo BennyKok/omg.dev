@@ -8987,8 +8987,13 @@ export function App() {
   // does: rail on the left, the page in the stage. Narrow layouts keep the
   // standalone pages below (and their keep-alive mount).
   const settingsInWorkspace = tab === "settings" && isWide && !bare;
+  // Coding agents is a Settings page. On the desktop it stays in the stage
+  // beside the rail, the same way Settings does. The phone keeps the pushed page.
+  const codingAgentsInWorkspace = tab === "coding-agents" && isWide && !bare;
   const pageInWorkspace =
-    ((tab === "notifications" || tab === "artifacts") && isWide) || settingsInWorkspace;
+    ((tab === "notifications" || tab === "artifacts") && isWide) ||
+    settingsInWorkspace ||
+    codingAgentsInWorkspace;
   const liveSessionIdSet = new Set(
     liveSessions.flatMap((s) =>
       [s.sessionId, s.nativeSessionId].filter((x): x is string => !!x),
@@ -9038,6 +9043,28 @@ export function App() {
       connection={useWsLive ? wsLiveStream.connection : null}
       computerVersionReport={computerVersionReport}
     />
+  );
+  const codingAgentsPage = (inWorkspace: boolean) => (
+    <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
+      <CodingAgentsPage
+        setupChecks={setupChecks}
+        agents={codingAgents}
+        onVisibleChange={(kind, visible) => void setCodingAgentVisible(kind, visible)}
+        onSetup={setupCodingAgent}
+        onUpdate={updateCodingAgent}
+        onUpdateAll={updateAllCodingAgents}
+        onLogin={(kind, accountId) => loginCodingAgent(kind, undefined, accountId)}
+        onAddClaudeAccount={addClaudeAccount}
+        onRemoveClaudeAccount={removeClaudeAccountFromSettings}
+        onConnectProvider={(kind, provider) => void loginAgentProvider(kind, provider)}
+        onDisconnectProvider={(kind, provider) => void disconnectAgentProvider(kind, provider)}
+        onSetupCheck={runSetupCheck}
+        computerMcpEnabled={settings.computerMcpEnabled}
+        onComputerMcpChange={(next) => void updateSettings({ computerMcpEnabled: next })}
+        onRefresh={() => void refreshCodingAgents({ refreshModels: true })}
+        onBack={inWorkspace ? () => setTab("settings") : undefined}
+      />
+    </Suspense>
   );
   const workspaceVisible =
     (tab === "live" || botsInWorkspace || autoInWorkspace || boardInWorkspace || pageInWorkspace) &&
@@ -9528,7 +9555,9 @@ export function App() {
                         ? notificationsPage(true)
                         : tab === "artifacts"
                           ? artifactsPage(true)
-                          : settingsPage
+                          : tab === "coding-agents"
+                            ? codingAgentsPage(true)
+                            : settingsPage
                       : null
               }
               stageSheet={openFinding || openReport ? autoSheet : null}
@@ -9670,27 +9699,7 @@ export function App() {
         ) : null}
         {tab === "auto" && !autoInWorkspace ? autoManageView : null}
         {tab === "usage" ? <UsagePage /> : null}
-        {tab === "coding-agents" ? (
-          <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
-          <CodingAgentsPage
-            setupChecks={setupChecks}
-            agents={codingAgents}
-            onVisibleChange={(kind, visible) => void setCodingAgentVisible(kind, visible)}
-            onSetup={setupCodingAgent}
-            onUpdate={updateCodingAgent}
-            onUpdateAll={updateAllCodingAgents}
-            onLogin={(kind, accountId) => loginCodingAgent(kind, undefined, accountId)}
-            onAddClaudeAccount={addClaudeAccount}
-            onRemoveClaudeAccount={removeClaudeAccountFromSettings}
-            onConnectProvider={(kind, provider) => void loginAgentProvider(kind, provider)}
-            onDisconnectProvider={(kind, provider) => void disconnectAgentProvider(kind, provider)}
-            onSetupCheck={runSetupCheck}
-            computerMcpEnabled={settings.computerMcpEnabled}
-            onComputerMcpChange={(next) => void updateSettings({ computerMcpEnabled: next })}
-            onRefresh={() => void refreshCodingAgents({ refreshModels: true })}
-          />
-          </Suspense>
-        ) : null}
+        {tab === "coding-agents" && !codingAgentsInWorkspace ? codingAgentsPage(false) : null}
         {!isWide && (keepShipped || tab === "notifications") ? (
           <div className={tab === "notifications" ? undefined : "hidden"} aria-hidden={tab !== "notifications"}>
             {notificationsPage(tab === "notifications")}
@@ -30082,8 +30091,10 @@ function SettingsView({
   const versionNote = versionMismatchNote(versionSkew);
 
   return (
-    <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
-      {bare ? <UserIconSettingsSection identityEmail={user} /> : <IdentitySettingsHeader user={user} />}
+    <div className="mx-auto w-full max-w-xl space-y-8 pb-10 lg:grid lg:max-w-none lg:grid-cols-2 lg:items-start lg:gap-8 lg:space-y-0 lg:px-2" data-lfg-page-column>
+      <div className="lg:col-span-2">
+        {bare ? <UserIconSettingsSection identityEmail={user} /> : <IdentitySettingsHeader user={user} />}
+      </div>
 
       {/* Computer — in standalone LFG this box IS the computer, so the row is
           static. When these sections are mounted by a host (omg) this is the

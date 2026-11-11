@@ -16,6 +16,7 @@ import { cn } from "@/lib/utils";
 import {
   Check,
   ChevronDown,
+  ChevronLeft,
   Download,
   Globe,
   KeyRound,
@@ -245,6 +246,8 @@ export default function CodingAgentsPage({
   onRefresh,
   computerMcpEnabled,
   onComputerMcpChange,
+  /** Desktop stage only. The phone header already has Back to Settings. */
+  onBack,
 }: {
   setupChecks: SetupCheckGroup[];
   agents: CodingAgentInfo[];
@@ -262,6 +265,7 @@ export default function CodingAgentsPage({
   onRefresh: () => void | Promise<void>;
   computerMcpEnabled: boolean;
   onComputerMcpChange: (next: boolean) => void;
+  onBack?: () => void;
 }) {
   const [refreshing, setRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -286,11 +290,24 @@ export default function CodingAgentsPage({
   }
 
   return (
-    <div className="mx-auto max-w-xl space-y-3 pb-10" data-lfg-page-column>
-      <div className="flex items-center justify-between px-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          Coding agents
-        </h2>
+    <div className="mx-auto w-full max-w-xl space-y-3 pb-10 lg:max-w-none lg:px-2" data-lfg-page-column>
+      <div className="flex items-center justify-between gap-3 px-4">
+        <div className="flex min-w-0 items-center gap-2">
+          {onBack ? (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Back to Settings"
+              className="flex h-8 shrink-0 items-center gap-0.5 rounded-full pr-1 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ChevronLeft className="size-4" />
+              Settings
+            </button>
+          ) : null}
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground lg:text-lg lg:font-semibold lg:normal-case lg:tracking-normal lg:text-foreground">
+            Coding agents
+          </h2>
+        </div>
         <div className="flex items-center gap-3">
         {canUpdateAll ? (
           <button
@@ -385,7 +402,7 @@ export default function CodingAgentsPage({
         </div>
       ) : null}
 
-      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border lg:grid lg:grid-cols-2 lg:items-start lg:gap-3 lg:overflow-visible lg:rounded-none lg:border-0 lg:bg-transparent lg:divide-y-0 2xl:grid-cols-3">
         {agents.map((agent) => {
           const status = agent.status;
           const accounts = agent.key === "aisdk" ? (status.accounts ?? []) : [];
@@ -395,8 +412,8 @@ export default function CodingAgentsPage({
           const needsBinary = binaryMissing(status.checks);
           const setupNote = setupRowNote(status);
           return (
+            <div key={agent.key} className="lg:overflow-hidden lg:rounded-2xl lg:border lg:border-border lg:bg-card/40">
             <ExpandableRow
-              key={agent.key}
               icon={
                 <img src={agentIconSrc(agent.key)} alt={agentIconAlt(agent.key)} className="size-5" />
               }
@@ -615,6 +632,7 @@ export default function CodingAgentsPage({
                 ) : null}
               </div>
             </ExpandableRow>
+            </div>
           );
         })}
       </div>
