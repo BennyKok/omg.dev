@@ -14,7 +14,6 @@ Built by the team behind [omg.dev](https://omg.dev).
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![GitHub release](https://img.shields.io/github/v/release/BennyKok/omg.dev?label=release)](https://github.com/BennyKok/omg.dev/releases)
-[![Download macOS desktop preview](https://img.shields.io/badge/Download-macOS%20desktop%20preview-000000?logo=apple&logoColor=white)](https://github.com/BennyKok/omg.dev/releases/download/desktop-preview/macos-arm64-omg.dev.dmg)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://omg.dev/discord)
 
 <p align="center">
@@ -51,15 +50,6 @@ to use Homebrew. `tmux` and `jq` are not required.
 Open **Settings → Coding agents**. Supports Claude Code, Codex, Grok, Cursor,
 omg agent, OpenCode, fx, Muse, DeepSeek, Devin, Jcode, Copilot, and Pi. Sign in
 with the agent provider.
-
-### Try the macOS desktop preview
-
-Apple Silicon. Ships with its own runtime. No separate CLI install.
-
-[**Download omg.dev for macOS →**](https://github.com/BennyKok/omg.dev/releases/download/desktop-preview/macos-arm64-omg.dev.dmg)
-
-Unsigned preview. Control-click the app, choose **Open**, then **Open** again.
-Or **System Settings → Privacy & Security → Open Anyway**.
 
 ## What you get
 

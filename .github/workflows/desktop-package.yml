@@ -57,9 +57,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # macOS is paused (2026-11-11, owner's decision). To turn it back on, add
+        #   - target: macos-arm64
+        #     runner: macos-15
+        # here and restore the macOS checks in publish-preview. The macOS steps
+        # below stay in place; each one runs only for that target.
         include:
-          - target: macos-arm64
-            runner: macos-15
           - target: linux-x64
             runner: ubuntu-24.04
           - target: linux-arm64
@@ -227,17 +230,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s desktop-dist/macos-arm64-omg.dev.dmg
+          # macOS is paused (see the package matrix). Its files are not built.
           test -s desktop-dist/linux-x64-omg.dev-Setup.tar.gz
           test -s desktop-dist/linux-arm64-omg.dev-Setup.tar.gz
-          test -s desktop-dist/macos-arm64-SHA256SUMS.txt
           test -s desktop-dist/linux-x64-SHA256SUMS.txt
           test -s desktop-dist/linux-arm64-SHA256SUMS.txt
           # Auto-update manifests and archives read by installed apps.
-          for target in macos-arm64 linux-x64 linux-arm64; do
+          for target in linux-x64 linux-arm64; do
             test -s "desktop-dist/stable-$target-update.json"
           done
-          test -s desktop-dist/stable-macos-arm64-omg.dev.app.tar.zst
 
       - name: Publish rolling preview release
         env:
@@ -251,9 +252,8 @@ jobs:
           {
             echo 'Native omg.dev desktop preview packages.'
             echo
-            echo '- macOS supports Apple Silicon.'
-            echo '- The macOS app is signed with Developer ID and notarized by Apple.'
             echo '- Linux packages are available for x64 and ARM64.'
+            echo '- macOS packages are paused. The macOS files on this release are from an older build.'
             echo '- Every package includes the omg.dev UI and local runtime.'
             echo
             echo "Built from \`$GITHUB_REF_NAME\`, commit \`$GITHUB_SHA\`, by [GitHub Actions]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)."
