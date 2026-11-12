@@ -20,6 +20,7 @@ export async function handleLocalDeviceApi(req: Request, peerAddress?: string, r
   if (!isLocalDeviceUi(req, peerAddress)) return json({ error: "Open omg.dev on this computer through localhost to manage incoming access." }, 403);
   const path = new URL(req.url).pathname;
   try {
+    if (path === `${LOCAL_DEVICE_PREFIX}/events` && req.method === "GET") return receiverEvents(req, runtime);
     if (path === LOCAL_DEVICE_PREFIX && req.method === "GET") return json(runtime.snapshot());
     if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
     const text = await req.text();
@@ -41,6 +42,9 @@ export async function handleLocalDeviceApi(req: Request, peerAddress?: string, r
       case `${LOCAL_DEVICE_PREFIX}/stop`:
         await runtime.stop();
         break;
+      case `${LOCAL_DEVICE_PREFIX}/clear`:
+        await runtime.stopAndClear();
+        break;
       case `${LOCAL_DEVICE_PREFIX}/decision`:
         if (typeof b.token !== "string" || typeof b.allow !== "boolean") return json({ error: "An approval token and a decision are required." }, 400);
         runtime.decide(b.token, b.allow);
@@ -50,4 +54,34 @@ export async function handleLocalDeviceApi(req: Request, peerAddress?: string, r
     }
     return json(runtime.snapshot());
   } catch (e) { return json({ error: e instanceof Error ? e.message : String(e) }, 400); }
+}
+
+function receiverEvents(req: Request, runtime: DeviceRuntime): Response {
+  let cleanup = () => {};
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      let closed = false;
+      const send = () => {
+        if (closed || (controller.desiredSize ?? 0) <= 0) return;
+        try { controller.enqueue(encoder.encode(`data: ${JSON.stringify(runtime.snapshot())}\n\n`)); }
+        catch { cleanup(); }
+      };
+      const unsubscribe = runtime.subscribe(send);
+      // Heartbeats also pick up local config edits and CLI activity.
+      const heartbeat = setInterval(send, 5000);
+      cleanup = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(heartbeat);
+        unsubscribe();
+        req.signal.removeEventListener("abort", cleanup);
+        try { controller.close(); } catch { /* The reader may already have cancelled. */ }
+      };
+      req.signal.addEventListener("abort", cleanup, { once: true });
+      if (req.signal.aborted) cleanup(); else send();
+    },
+    cancel() { cleanup(); },
+  });
+  return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-store", "x-accel-buffering": "no" } });
 }

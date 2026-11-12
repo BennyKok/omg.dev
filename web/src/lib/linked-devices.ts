@@ -23,6 +23,7 @@ export type DeviceRequestRow = {
   id: string;
   device: string;
   action: string;
+  requestedBy?: string;
   status: string;
   reason?: string;
   createdAt: number;
@@ -103,6 +104,8 @@ export type ReceiverState = {
   idleMinutes: number | null;
   actions: LinkedDevice["actions"];
   error: string | null;
+  requests?: Array<{ id: string; action: string; args: Record<string, string>; requestedBy?: string; status: string; expiresAt: number }>;
+  queueError?: string | null;
   pending: {
     token: string;
     request: { id: string; action: string; args: Record<string, string>; requestedBy?: string };

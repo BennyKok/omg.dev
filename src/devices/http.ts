@@ -95,6 +95,15 @@ export async function handleDeviceLink(req: Request): Promise<Response> {
   const device = await authenticate(req, path, body);
   if (device instanceof Response) return device;
 
+  if (path === `${LINK_PREFIX}requests` && req.method === "POST") {
+    const rows = await store.listRequests({ deviceId: device.id, activeOnly: true });
+    return json({ requests: rows.map(({ id, action, args, expiresAt, requestedBy, status }) => ({ id, action, args, expiresAt, requestedBy, status })) });
+  }
+
+  if (path === `${LINK_PREFIX}clear` && req.method === "POST") {
+    return json({ cleared: await store.clearRequests(device.id) });
+  }
+
   if (path === `${LINK_PREFIX}poll`) {
     const b = parse(body) as { actions?: unknown; wait?: unknown } | null;
     await store.touchDevice(device.id, b?.actions !== undefined ? store.sanitizeActions(b.actions) : undefined);
@@ -167,6 +176,7 @@ export function presentRequest(r: store.DeviceRequest) {
     device: r.deviceId,
     action: r.action,
     args: r.args,
+    requestedBy: r.requestedBy,
     status: r.status,
     exitCode: r.exitCode,
     reason: r.reason,

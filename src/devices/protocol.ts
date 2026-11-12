@@ -40,6 +40,8 @@ export const FINAL_STATUSES: ReadonlySet<RequestStatus> = new Set(["done", "fail
 
 /** What the device receives. */
 export type WireRequest = { id: string; action: string; args: Record<string, string>; expiresAt: number; requestedBy?: string };
+/** Passive receiver overview. Reading this never delivers or runs a request. */
+export type WireRequestState = WireRequest & { status: RequestStatus };
 
 /** What the device reports. */
 export type WireUpdate = {

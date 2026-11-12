@@ -116,6 +116,8 @@ export function readLocationSessionId(search?: string): string | null {
 
 /** The typed shape of the app's search params (path aside). */
 export interface AppSearch {
+  /** A device notification opens the receiving controls on this computer. */
+  receive?: boolean;
   /** Deep link to focus a session on load. EXTERNAL CONTRACT: the server emits
    *  `/?session=<id>` via `publicSessionUrl` into messaging bridges and Shipped
    *  posts, so this key must never be renamed or dropped. */
@@ -137,6 +139,7 @@ export interface AppSearch {
 /** Validate the search params carried on every route. */
 export function validateAppSearch(search: Record<string, unknown>): AppSearch {
   const out: AppSearch = {};
+  if (search.receive === true || search.receive === "true" || search.receive === "1" || search.receive === 1) out.receive = true;
   if (typeof search.session === "string" && search.session) out.session = search.session;
   if (typeof search.conversation === "string" && search.conversation) out.conversation = search.conversation;
   if (typeof search.replies === "string" && search.replies) out.replies = search.replies;

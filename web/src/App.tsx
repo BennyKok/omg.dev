@@ -696,6 +696,7 @@ import {
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
 import { RemoteAccessPage, RemoteAccessRow } from "./components/remote-access-settings";
+import { DeviceReceiverMonitor } from "./components/device-receiver-monitor";
 import { LinkedDevicesPage, LinkedDevicesRow } from "./components/linked-devices-settings";
 import { SETTINGS_STAGE_SUBPAGES, SettingsStageSubpage } from "./components/settings-stage-subpage";
 import { ConnectionOverlay } from "./components/connection-overlay";
@@ -2038,6 +2039,7 @@ function AgentMark({
   rounding = "rounded-lg",
   compact = false,
   large = false,
+  collapsed = false,
   showAccountNumber = true,
 }: {
   session: Session;
@@ -2051,6 +2053,8 @@ function AgentMark({
    * text rather than the row's identity.
    */
   large?: boolean;
+  /** Keep a readable, fixed mark inside the collapsed rail’s working ring. */
+  collapsed?: boolean;
   /** The rail omits account routing detail; headers keep it by default. */
   showAccountNumber?: boolean;
 }) {
@@ -2061,7 +2065,7 @@ function AgentMark({
           aria-label="working"
           className={cn(
             "pointer-events-none absolute inset-0 m-auto animate-spin text-warning motion-reduce:animate-none",
-            compact ? "size-4" : large ? "size-9" : "size-6",
+            compact ? "size-4" : collapsed || large ? "size-9" : "size-6",
           )}
           strokeWidth={1.75}
         />
@@ -2075,8 +2079,8 @@ function AgentMark({
         className={cn(
           rounding,
           "transition-transform duration-300 ease-ios",
-          compact ? "size-4" : large ? "size-9" : "size-6",
-          busy && (compact ? "scale-75" : large ? "scale-[0.78]" : "scale-[0.67]"),
+          compact ? "size-4" : collapsed ? "size-7" : large ? "size-9" : "size-6",
+          busy && !collapsed && (compact ? "scale-75" : large ? "scale-[0.78]" : "scale-[0.67]"),
         )}
         size={busy || compact ? "sm" : "md"}
       />
@@ -9280,6 +9284,7 @@ export function App() {
         embedded && !bare && "pb-[var(--lfg-host-bottom-inset)]",
       )}
     >
+      <DeviceReceiverMonitor showIndicator={tab !== "devices"} onOpen={() => { setTab("devices"); window.dispatchEvent(new Event("omg-device-open")); }} />
       {viewerArtifact ? (
         <ArtifactViewerPage artifact={viewerArtifact} onClose={closeArtifactViewer} />
       ) : null}
@@ -14758,7 +14763,7 @@ const RailRow = memo(function RailRow({
       className={cn(
         "lfg-rail-in relative rounded-xl",
         swiping ? "overflow-hidden" : "overflow-visible",
-        cursored && "ring-2 ring-inset ring-primary/60",
+        cursored && !(collapsed && active) && "ring-2 ring-inset ring-primary/60",
       )}
     >
       {swiping ? (
@@ -14804,7 +14809,7 @@ const RailRow = memo(function RailRow({
           // The web row was 60px with 8px of padding, so the same fleet read
           // as a denser product on the web than in the app.
           collapsed
-            ? "h-11 justify-center px-0"
+            ? "h-11 justify-center rounded-[10px] px-0 focus-visible:ring-2 focus-visible:ring-ring"
             : singleLine
               ? dense
                 ? "h-10 pl-2.5 pr-2"
@@ -14817,8 +14822,9 @@ const RailRow = memo(function RailRow({
           swiping
             ? "border-transparent bg-card"
             : active
-              ? // Open-in-stage rows wear the mobile card's glass edge instead of a flat tint.
-                "lfg-gborder border-transparent bg-card shadow-[0_8px_24px_-18px_rgba(0,0,0,0.55)]"
+              ? collapsed
+                ? "border-border bg-muted"
+                : "lfg-gborder border-transparent bg-card shadow-[0_8px_24px_-18px_rgba(0,0,0,0.55)]"
               : // Unread is carried by the dot, the tooltip and the spoken
                 // label, and by nothing else. A tinted row on top of those
                 // said the same thing a third time and made a quiet list look
@@ -15062,7 +15068,7 @@ const RailItem = memo(function RailItem({
         // the bot-backed row a slightly larger slot makes the two weigh the
         // same on screen, and the group is homogeneous so nothing is left
         // ragged.
-        dense ? (drivingBot ? "size-9" : "size-8") : drivingBot ? "size-11" : "size-10"
+        collapsed ? "size-8" : dense ? (drivingBot ? "size-9" : "size-8") : drivingBot ? "size-11" : "size-10"
       }
       mark={plainRow ? null : (
         <>
@@ -15075,7 +15081,7 @@ const RailItem = memo(function RailItem({
           {drivingBot ? (
             // The creature carries busy in its own posture, so a bot-backed
             // row would be saying it twice.
-            <BotAvatar bot={drivingBot} working={busy} size={dense ? 36 : 44} />
+            <BotAvatar bot={drivingBot} working={busy} size={collapsed ? 32 : dense ? 36 : 44} />
           ) : showFavicon ? (
             <>
               {busy ? (
@@ -15083,7 +15089,7 @@ const RailItem = memo(function RailItem({
                   aria-label="working"
                   className={cn(
                     "pointer-events-none absolute inset-0 m-auto animate-spin text-warning motion-reduce:animate-none",
-                    dense ? "size-8" : "size-9",
+                    collapsed ? "size-9" : dense ? "size-8" : "size-9",
                   )}
                   strokeWidth={1.75}
                 />
@@ -15092,7 +15098,7 @@ const RailItem = memo(function RailItem({
                 src={faviconSrc}
                 alt=""
                 aria-hidden="true"
-                className={cn("rounded-md object-contain", dense ? "size-7" : "size-9")}
+                className={cn("rounded-md object-contain", collapsed || dense ? "size-7" : "size-9")}
                 loading="lazy"
                 decoding="async"
                 onError={() => setFailedFaviconSrc(faviconSrc)}
@@ -15104,6 +15110,7 @@ const RailItem = memo(function RailItem({
               busy={busy}
               rounding="rounded-none"
               large={!dense}
+              collapsed={collapsed}
               showAccountNumber={false}
             />
           ) : (

@@ -1,6 +1,6 @@
 # Device link
 
-Status: core, controller Settings, and local receiver UI implemented in `src/devices/` and `web/src/` (2026-11-11).
+Status: core, controller Settings, and local receiver UI implemented in `src/devices/` and `web/src/` (2026-11-12).
 
 A device link lets an agent on this computer ask a linked device, such as a
 test Mac, to do one action. The user approves the action on that device. The
@@ -155,8 +155,17 @@ With omg.dev running on both computers:
 4. Select an access duration and Start access. Pending requests show the exact
    argument list. Select Allow once, Allow until access ends, or Deny as offered
    by that action's rule. No answer within two minutes means deny.
-5. Use Stop access to stop the grant, or Disconnect controller to remove the
-   local key. Both views show request activity. Output appears as plain text.
+5. Enable device notifications in the receiving UI. Keep its local browser open.
+   A new request appears across the app, even when access is stopped. Select
+   View incoming requests to review it. A paired receiver opens this view by
+   default. The active list shows queued work, approvals, running actions, and
+   links to the requesting sessions on the controller.
+6. Use Stop access to stop the grant. Stop and clear requests also cancels all
+   open requests for this device on the controller. It preserves the audit log
+   and coding sessions. If the controller cannot be reached, local access still
+   stops and the UI reports that clearing failed. New requests can queue, but
+   cannot run until access starts again. Disconnect controller removes the
+   local key. Output appears as plain text.
 
 The roles describe each link. The same instance can send requests to devices
 and receive requests from its one paired controller. The receiver UI is not
@@ -179,6 +188,17 @@ proxy too, which adds a second check before the signature. Behind such a proxy
 the server sees `127.0.0.1`, so the address pin is off.
 
 ## Known limits
+
+- Update omg.dev on both computers for passive request lists and clearing.
+  Deploying the controller does not update the receiving computer.
+- Browser notifications need permission on the receiver. They use the local
+  UI event stream and the existing app service worker. They work across pages
+  and background tabs, but not while the browser is closed or suspended. OS
+  notification settings can silence them. Notices contain no command arguments
+  or session identifiers. Selecting one opens the local receiving page; it
+  never approves the request.
+- The UI can show work owned by a separate CLI receiver. That process still
+  owns its approvals and grant. Stop it before taking control from the UI.
 
 - After an unclean process exit, `~/.omg-device/run.lock` may remain. Verify
   that its PID is no longer running before removing the lock. Access never

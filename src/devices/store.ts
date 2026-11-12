@@ -285,7 +285,7 @@ function expire(rows: DeviceRequest[], now: number): boolean {
   return changed;
 }
 
-export async function listRequests(filter: { deviceId?: string; limit?: number } = {}): Promise<DeviceRequest[]> {
+export async function listRequests(filter: { deviceId?: string; limit?: number; activeOnly?: boolean } = {}): Promise<DeviceRequest[]> {
   const rows = await serial(async () => {
     const rows = await readRequests();
     if (expire(rows, Date.now())) await writeJson(requestsPath(), rows);
@@ -293,8 +293,25 @@ export async function listRequests(filter: { deviceId?: string; limit?: number }
   });
   return rows
     .filter((r) => !filter.deviceId || r.deviceId === filter.deviceId)
+    .filter((r) => !filter.activeOnly || !FINAL_STATUSES.has(r.status))
     .slice(-(filter.limit ?? 20))
     .reverse();
+}
+
+/** The receiver stops its worker first. Only this device's open work is cleared. */
+export function clearRequests(deviceId: string): Promise<number> {
+  return serial(async () => {
+    const rows = await readRequests();
+    const open = rows.filter((r) => r.deviceId === deviceId && !FINAL_STATUSES.has(r.status));
+    for (const r of open) {
+      r.status = r.status === "running" ? "failed" : "denied";
+      r.reason = "Stopped and cleared on the receiving computer";
+      r.updatedAt = Date.now();
+    }
+    if (open.length) await writeJson(requestsPath(), rows);
+    for (const r of open) await logEvent({ kind: "status", device: deviceId, request: r.id, status: r.status, reason: r.reason });
+    return open.length;
+  });
 }
 
 export async function getRequest(id: string): Promise<DeviceRequest | null> {

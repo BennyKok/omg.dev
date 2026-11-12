@@ -3,7 +3,7 @@
 import { closeSync, existsSync, openSync, readSync, fstatSync } from "node:fs";
 import { actionInfos, audit, call, deviceHome, deviceLogPath, Grant, GRANT_MAX_MINUTES, handleRequest, loadConfig, UnlinkedError, type ApprovalPrompt, type Ask, type DeviceConfig } from "./agent.ts";
 import { deviceIsLocked, lockDevice } from "./lock.ts";
-import { LINK_PREFIX, type WireRequest, type WireUpdate } from "./protocol.ts";
+import { FINAL_STATUSES, LINK_PREFIX, type WireRequest, type WireRequestState, type WireUpdate } from "./protocol.ts";
 
 export type LocalActivity = { at: number; kind: string; request?: WireRequest; update?: WireUpdate; reason?: string };
 type Pending = ApprovalPrompt & { token: string };
@@ -43,6 +43,12 @@ export class DeviceRuntime {
   private mutating = false;
   private activeConfig: DeviceConfig | null = null;
   private release: (() => void) | null = null;
+  private requests: WireRequestState[] = [];
+  private queueError: string | null = null;
+  private listeners = new Set<() => void>();
+  private watchTimer: ReturnType<typeof setInterval> | null = null;
+  private watchRequest: AbortController | null = null;
+  private revision = 0;
   finished: Promise<void> = Promise.resolve();
 
   snapshot() {
@@ -53,17 +59,77 @@ export class DeviceRuntime {
       otherProcess: !this.grant && !this.mutating && deviceIsLocked(deviceHome()),
       endsAt: this.grant?.endsAt ?? null, idleMinutes: this.grant?.idleMinutes ?? null,
       pending: this.pending, error: this.error, activity: readLocalActivity(),
+      requests: this.requests, queueError: this.queueError,
     };
   }
 
   private record(entry: Omit<LocalActivity, "at">) {
     audit(entry);
+    this.emit();
+  }
+
+  private emit() {
+    this.revision++;
+    for (const listener of this.listeners) {
+      try { listener(); } catch { /* A disconnected UI must not stop the worker. */ }
+    }
+  }
+
+  /** One passive monitor for all local UI subscribers, including background tabs. */
+  subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    if (!this.watchTimer) {
+      void this.refreshRequests();
+      this.watchTimer = setInterval(() => void this.refreshRequests(), 3000);
+    }
+    return () => {
+      this.listeners.delete(listener);
+      if (!this.listeners.size) {
+        if (this.watchTimer) clearInterval(this.watchTimer);
+        this.watchTimer = null;
+        this.watchRequest?.abort();
+        this.watchRequest = null;
+      }
+    };
+  }
+
+  async refreshRequests() {
+    if (this.watchRequest || this.mutating) return;
+    const abort = this.watchRequest = new AbortController();
+    const revision = this.revision;
+    try {
+      const c = this.activeConfig ?? loadConfig();
+      if (!c.deviceId || !c.server) return;
+      const result = await call<{ requests: WireRequestState[] }>(c, "POST", `${LINK_PREFIX}requests`, "{}", abort.signal);
+      if (abort.signal.aborted || revision !== this.revision) return;
+      if (!Array.isArray(result.requests) || result.requests.length > 20 || result.requests.some((r) => !r || typeof r.id !== "string" || typeof r.action !== "string" || !["queued", "delivered", "waiting-approval", "running"].includes(r.status))) {
+        throw new Error("The controller did not return a valid request list. Update omg.dev on both computers.");
+      }
+      this.requests = result.requests;
+      this.queueError = null;
+      this.emit();
+    } catch (e) {
+      if (abort.signal.aborted || revision !== this.revision) return;
+      this.queueError = `Cannot refresh incoming requests: ${e instanceof Error ? e.message : String(e)}`;
+      this.emit();
+    } finally {
+      if (this.watchRequest === abort) this.watchRequest = null;
+    }
+  }
+
+  private resetOverview() {
+    this.watchRequest?.abort();
+    this.watchRequest = null;
+    this.requests = [];
+    this.queueError = null;
   }
 
   async changeLink(change: () => void | Promise<void>) {
     if (this.mutating || this.grant) throw new Error("Stop access before changing the connection.");
     this.mutating = true;
-    try { await change(); } finally { this.mutating = false; }
+    try { await change(); this.resetOverview(); }
+    finally { this.mutating = false; this.emit(); }
+    if (this.listeners.size) void this.refreshRequests();
   }
 
   start(options: { minutes?: unknown; idle?: unknown } = {}, ask?: Ask) {
@@ -99,6 +165,8 @@ export class DeviceRuntime {
             onUpdate: (request, update) => {
               if (executing && (update.status === "done" || update.status === "failed")) grant.touch();
               executing = update.status === "running";
+              this.requests = this.requests.filter((r) => r.id !== request.id);
+              if (!FINAL_STATUSES.has(update.status)) this.requests.unshift({ ...request, status: update.status });
               this.record({ kind: update.status, request, update });
             },
           });
@@ -124,9 +192,9 @@ export class DeviceRuntime {
       this.grant = null;
       this.abort = null;
       this.activeConfig = null;
-      this.record({ kind: "access-stopped", reason: grant.over() ?? "stopped" });
       unlock();
       this.release = null;
+      this.record({ kind: "access-stopped", reason: grant.over() ?? "stopped" });
       process.removeListener("exit", this.shutdown);
     });
   }
@@ -142,6 +210,7 @@ export class DeviceRuntime {
         signal.removeEventListener("abort", cancel);
         this.pending = null;
         this.answer = null;
+        this.emit();
         resolve(value);
       };
       const cancel = () => finish(null);
@@ -149,6 +218,7 @@ export class DeviceRuntime {
       signal.addEventListener("abort", cancel, { once: true });
       this.pending = { ...prompt, token: crypto.randomUUID() };
       this.answer = finish;
+      this.emit();
       if (ask) void ask(question, prompt, signal).then(finish, cancel);
     });
   }
@@ -167,8 +237,36 @@ export class DeviceRuntime {
     await this.finished;
   }
 
+  async stopAndClear() {
+    if (this.mutating) throw new Error("Device access is being changed. Try again.");
+    if (!this.grant && deviceIsLocked(deviceHome())) throw new Error("Stop the other device process before clearing requests here.");
+    this.mutating = true;
+    let unlock: (() => void) | undefined;
+    try {
+      await this.stop();
+      unlock = lockDevice(deviceHome());
+      this.resetOverview();
+      try {
+        await call(loadConfig(), "POST", `${LINK_PREFIX}clear`, "{}");
+        this.record({ kind: "requests-cleared" });
+      } catch (e) {
+        this.queueError = `Access is stopped, but requests could not be cleared: ${e instanceof Error ? e.message : String(e)}`;
+        throw new Error(this.queueError);
+      }
+    } finally {
+      unlock?.();
+      this.mutating = false;
+      this.emit();
+      if (this.listeners.size) void this.refreshRequests();
+    }
+  }
+
   /** Synchronous process-exit cleanup: kill the action group before exiting. */
   shutdown = () => {
+    if (this.watchTimer) clearInterval(this.watchTimer);
+    this.watchTimer = null;
+    this.watchRequest?.abort();
+    this.watchRequest = null;
     this.abort?.abort();
     this.answer?.(null);
     this.release?.();

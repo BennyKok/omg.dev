@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Copy, Laptop, Loader2, Plus, Trash2 } from "lucide-react";
 import {
   createPairingCode,
@@ -11,6 +11,7 @@ import {
 } from "../lib/linked-devices";
 import { SettingsGroup, SettingsIcon, SettingsRow } from "./settings-ui";
 import { DeviceActivity, DevicePermissions } from "./device-activity";
+import { useDeviceReceiver } from "../lib/device-receiver";
 import { DeviceReceiverSettings } from "./device-receiver-settings";
 
 /** Same rule as src/devices/protocol.ts NAME_RE; the server checks it again. */
@@ -51,13 +52,14 @@ function CopyCommand({ value }: { value: string }) {
  */
 export function LinkedDevicesRow({ onOpen }: { onOpen: () => void }) {
   const { devices, loaded, unavailable } = useLinkedDevices();
+  const { state: receiver } = useDeviceReceiver();
   if (!loaded || unavailable) return null;
   return (
     <SettingsRow
       onClick={onOpen}
       icon={<SettingsIcon><Laptop /></SettingsIcon>}
       title="Linked devices"
-      description={devices.length ? devices.map((d) => `@${d.id}`).join(", ") : "None"}
+      description={[devices.map((d) => `@${d.id}`).join(", "), receiver?.deviceId ? `Receiving as @${receiver.deviceId}${receiver.pending ? " · Approval needed" : ""}` : ""].filter(Boolean).join(" · ") || "No devices linked"}
       descriptionClassName="truncate"
     />
   );
@@ -70,7 +72,14 @@ export function LinkedDevicesRow({ onOpen }: { onOpen: () => void }) {
  */
 export function LinkedDevicesPage() {
   const { devices, requests, loaded, unavailable } = useLinkedDevices(true);
-  const [role, setRole] = useState<"controller" | "receiver">("controller");
+  const { state: receiver } = useDeviceReceiver();
+  const [selectedRole, setRole] = useState<"controller" | "receiver" | null>(null);
+  const role = selectedRole ?? (new URLSearchParams(window.location.search).has("receive") || receiver?.deviceId ? "receiver" : "controller");
+  useEffect(() => {
+    const open = () => setRole("receiver");
+    window.addEventListener("omg-device-open", open);
+    return () => window.removeEventListener("omg-device-open", open);
+  }, []);
   const [name, setName] = useState("");
   const [pairing, setPairing] = useState<PairingCode | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -116,7 +125,7 @@ export function LinkedDevicesPage() {
 
       <div className="grid grid-cols-2 gap-2" aria-label="Connection role">
         {([['controller', 'Send requests', 'Controller'], ['receiver', 'Receive requests', 'Controlled instance']] as const).map(([value, label, hint]) => <button key={value} type="button" aria-pressed={role === value} onClick={() => setRole(value)} className={`rounded-xl border px-4 py-3 text-left ${role === value ? "border-foreground bg-muted" : "border-border text-muted-foreground"}`}>
-          <span className="block text-sm font-medium">{label}</span><span className="text-xs text-muted-foreground">{hint}</span>
+          <span className="block text-sm font-medium">{label}</span><span className="text-xs text-muted-foreground">{value === "receiver" && receiver?.deviceId ? receiver.pending ? "Approval needed" : `${receiver.requests?.length ?? 0} active requests` : hint}</span>
         </button>)}
       </div>
 

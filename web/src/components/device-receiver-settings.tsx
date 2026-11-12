@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
-import { receiverRequest, type ReceiverState } from "../lib/linked-devices";
+import { useRef, useState } from "react";
+import { changeDeviceReceiver, controllerSessionUrl, useDeviceReceiver } from "../lib/device-receiver";
+import { DeviceNotificationSettings } from "./device-receiver-monitor";
 import { DevicePermissions } from "./device-activity";
 import { SettingsGroup } from "./settings-ui";
 
@@ -7,46 +8,20 @@ const inputClass = "h-9 w-full rounded-lg border border-border bg-background px-
 const buttonClass = "rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50";
 
 export function DeviceReceiverSettings() {
-  const [state, setState] = useState<ReceiverState | null>(null);
+  const { state, error: connectionError } = useDeviceReceiver();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [server, setServer] = useState("");
   const [code, setCode] = useState("");
   const [minutes, setMinutes] = useState(60);
-  const sequence = useRef(0);
   const mutating = useRef(false);
-
-  useEffect(() => {
-    const abort = new AbortController();
-    let loading = false;
-    const refresh = async () => {
-      if (loading || mutating.current || document.visibilityState === "hidden") return;
-      loading = true;
-      const seq = ++sequence.current;
-      try {
-        const next = await receiverRequest(undefined, {}, abort.signal);
-        if (sequence.current === seq && !abort.signal.aborted) { setState(next); setError(null); }
-      } catch (e) {
-        if (sequence.current === seq && !abort.signal.aborted) {
-          setError(e instanceof Error ? e.message : String(e));
-          // A stale approval must not remain actionable after loss of contact.
-          setState(null);
-        }
-      } finally { loading = false; }
-    };
-    void refresh();
-    const timer = window.setInterval(() => void refresh(), 2000);
-    document.addEventListener("visibilitychange", refresh);
-    return () => { abort.abort(); window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
-  }, []);
 
   const act = async (action: string, body: Record<string, unknown> = {}) => {
     if (mutating.current) return;
     mutating.current = true;
-    ++sequence.current;
     setBusy(true);
     setError(null);
-    try { setState(await receiverRequest(action, body)); if (action === "connect") setCode(""); }
+    try { await changeDeviceReceiver(action, body); if (action === "connect") setCode(""); }
     catch (e) { setError(e instanceof Error ? e.message : String(e)); }
     finally { mutating.current = false; setBusy(false); }
   };
@@ -54,10 +29,10 @@ export function DeviceReceiverSettings() {
   const pending = state?.pending;
   return <div className="space-y-6">
     <p className="px-1 text-sm text-muted-foreground">This instance receives requests. Its local config sets the permissions. Approve requests here on this computer.</p>
-    {error && <p role="alert" className="px-1 text-sm text-destructive">{error}</p>}
-    {!state && !error && <p className="px-1 text-sm text-muted-foreground">Loading device access…</p>}
+    {(error || connectionError) && <p role="alert" className="px-1 text-sm text-destructive">{error || connectionError}</p>}
+    {!state && !error && !connectionError && <p className="px-1 text-sm text-muted-foreground">Loading device access…</p>}
     {state && <>
-      {pending && <section aria-label="Action approval" className="space-y-3 rounded-xl border border-amber-500/50 bg-amber-500/5 p-4">
+      {pending && <section id="device-approval" tabIndex={-1} aria-label="Action approval" className="space-y-3 rounded-xl border border-amber-500/50 bg-amber-500/5 p-4">
         <h2 className="text-sm font-semibold">Approve {pending.request.action}</h2>
         <p className="text-xs text-muted-foreground">Requested by {state.server}{pending.request.requestedBy ? ` · session ${pending.request.requestedBy}` : ""}</p>
         <p className="text-xs">{pending.approval === "once-per-grant" ? "This allows the action with any valid arguments until access ends." : "This approval allows only this request."}</p>
@@ -68,6 +43,32 @@ export function DeviceReceiverSettings() {
           <button type="button" disabled={busy || pending.expiresAt <= Date.now()} className={buttonClass} onClick={() => void act("decision", { token: pending.token, allow: true })}>{pending.approval === "once-per-grant" ? "Allow until access ends" : "Allow once"}</button>
         </div>
       </section>}
+
+      {state.deviceId && <SettingsGroup label="Active requests and sessions" footer="These sessions requested work from the controller. Session links open that computer. Clearing requests keeps the audit log and leaves coding sessions open.">
+        <div className="space-y-3 px-4 py-3">
+          {state.queueError && <p role="alert" className="text-sm text-destructive">{state.queueError}</p>}
+          {!state.queueError && !state.requests?.length && <p className="text-sm text-muted-foreground">No active requests. New requests appear here even when access is stopped.</p>}
+          {state.requests?.map((request) => {
+            const href = controllerSessionUrl(state.server, request.requestedBy);
+            return <div key={request.id} className="space-y-1 rounded-lg border border-border p-3 text-sm">
+              <p className="font-medium">{request.action} <span className="font-normal text-muted-foreground">· {request.status.replaceAll("-", " ")}</span></p>
+              <p className="break-all text-xs text-muted-foreground">{request.id}</p>
+              <p className="break-all text-xs">{request.requestedBy ? `Session ${request.requestedBy}` : "Request from the controller"}</p>
+              <div className="flex flex-wrap gap-3 text-xs">
+                {href && <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Open requesting session</a>}
+                {state.pending?.request.id === request.id && <button type="button" className="underline underline-offset-4" onClick={() => {
+                  const approval = document.getElementById("device-approval");
+                  approval?.scrollIntoView?.({ block: "center", behavior: "smooth" }); approval?.focus();
+                }}>Review approval</button>}
+              </div>
+            </div>;
+          })}
+          {(state.active || !!state.requests?.length || !!state.queueError) && <button type="button" disabled={busy || state.otherProcess} className="rounded-lg bg-destructive px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => void act("clear")}>Stop and clear requests</button>}
+          <p className="text-xs text-muted-foreground">Stop and clear ends access, stops the running action, and cancels open requests. New requests cannot run until you start access again.</p>
+        </div>
+      </SettingsGroup>}
+
+      <SettingsGroup label="Notifications on this computer"><DeviceNotificationSettings /></SettingsGroup>
 
       <SettingsGroup label="Controller">
         <div className="space-y-3 px-4 py-3">

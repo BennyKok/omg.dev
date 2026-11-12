@@ -7,6 +7,8 @@ import { handleDeviceLink, handleDevicesApi } from "./http.ts";
 import { handleLocalDeviceApi, isLocalDeviceUi, LOCAL_DEVICE_PREFIX } from "./local-http.ts";
 import { DeviceRuntime } from "./runtime.ts";
 import * as store from "./store.ts";
+import { call, loadConfig } from "./agent.ts";
+import { LINK_PREFIX, newKeyPair } from "./protocol.ts";
 
 const oldData = PATHS.data;
 const oldHome = process.env.OMG_DEVICE_HOME;
@@ -108,7 +110,7 @@ test("Deny and Stop both settle a pending request without running it", async () 
   }
 });
 
-test("Stop kills a running action and releases the receiver for the next grant", async () => {
+test("Stop and clear kills a running action, clears queued work, and permits a new grant", async () => {
   await ui("start");
   const request = await store.createRequest({ deviceId: "receiver", action: "wait", args: {} });
   await until(() => runtime.snapshot().pending !== null);
@@ -117,8 +119,10 @@ test("Stop kills a running action and releases the receiver for the next grant",
   let pid = 0;
   await until(async () => { pid = Number(await readFile(join(root, "running.pid"), "utf8").catch(() => "0")); return pid > 0; });
   expect(() => process.kill(pid, 0)).not.toThrow();
+  const queued = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {} });
   const before = Date.now();
-  await ui("stop");
+  await ui("clear");
+  expect((await store.getRequest(queued.id))?.status).toBe("denied");
   expect(Date.now() - before).toBeLessThan(2000);
   expect((await store.getRequest(request.id))?.exitCode).toBe(130);
   expect((await store.getRequest(request.id))?.status).toBe("failed");
@@ -169,4 +173,101 @@ test("controller activity expires queued requests even when the receiver is stop
     Date.now = () => future;
     expect((await store.listRequests()).find((r) => r.id === request.id)?.status).toBe("expired");
   } finally { Date.now = now; }
+});
+
+
+test("passive overview shows queued sessions without granting access or delivering work", async () => {
+  const request = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {}, requestedBy: "remote-session" });
+  await runtime.refreshRequests();
+  expect(runtime.snapshot().active).toBe(false);
+  expect(runtime.snapshot().requests.find((r) => r.id === request.id)?.requestedBy).toBe("remote-session");
+  expect((await store.getRequest(request.id))?.status).toBe("queued");
+  await ui("clear");
+  expect((await store.getRequest(request.id))?.status).toBe("denied");
+});
+
+test("signed overview and clearing are confined to the authenticated device", async () => {
+  const pair = await store.createPairing("other-receiver");
+  await store.completePairing({ code: pair.code, publicKey: newKeyPair().publicKey, actions: [{ name: "inspect", approval: "each", args: {} }] });
+  const other = await store.createRequest({ deviceId: "other-receiver", action: "inspect", args: {}, requestedBy: "other-session" });
+  const ours = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {} });
+  const config = loadConfig();
+  const overview = await call<{ requests: Array<{ id: string }> }>(config, "POST", `${LINK_PREFIX}requests`, JSON.stringify({ deviceId: "other-receiver" }));
+  expect(overview.requests.map((r) => r.id)).toContain(ours.id);
+  expect(overview.requests.map((r) => r.id)).not.toContain(other.id);
+  await call(config, "POST", `${LINK_PREFIX}clear`, JSON.stringify({ deviceId: "other-receiver" }));
+  expect((await store.getRequest(ours.id))?.status).toBe("denied");
+  expect((await store.getRequest(other.id))?.status).toBe("queued");
+  for (const path of ["requests", "clear"]) {
+    const unsigned = await fetch(`http://127.0.0.1:${controller.port}${LINK_PREFIX}${path}`, { method: "POST", body: "{}" });
+    expect(unsigned.status).toBe(401);
+  }
+});
+
+test("clear revokes access, denies the pending approval, and cancels the remaining queue", async () => {
+  await ui("start");
+  const first = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {} });
+  await until(() => runtime.snapshot().pending !== null);
+  const token = runtime.snapshot().pending!.token;
+  const second = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {} });
+  const cleared = await ui("clear");
+  expect(cleared.status).toBe(200);
+  expect(cleared.body.active).toBe(false);
+  expect(cleared.body.pending).toBeNull();
+  expect(cleared.body.requests).toEqual([]);
+  expect((await store.getRequest(first.id))?.status).toBe("denied");
+  expect((await store.getRequest(second.id))?.status).toBe("denied");
+  expect((await ui("decision", { token, allow: true })).status).toBe(400);
+  expect(runtime.snapshot().activity.some((r) => r.kind === "requests-cleared")).toBe(true);
+  const later = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {} });
+  await runtime.refreshRequests();
+  expect((await store.getRequest(later.id))?.status).toBe("queued");
+  await ui("clear");
+});
+
+test("clear cannot claim to stop a receiver owned by another process", async () => {
+  const other = new DeviceRuntime();
+  other.start();
+  try {
+    const result = await ui("clear");
+    expect(result.status).toBe(400);
+    expect(result.body.error).toContain("other device process");
+    expect(other.snapshot().active).toBe(true);
+  } finally { await other.stop(); }
+});
+
+test("the local event stream emits approvals and rejects remote or cross-origin readers", async () => {
+  const path = `${LOCAL_DEVICE_PREFIX}/events`;
+  for (const [peer, origin] of [["100.64.0.5", base], ["127.0.0.1", "https://attacker.example"]]) {
+    const result = await handleLocalDeviceApi(new Request(`${base}${path}`, { headers: { origin } }), peer, runtime);
+    expect(result.status).toBe(403);
+  }
+  const abort = new AbortController();
+  const res = await fetch(`${base}${path}`, { signal: abort.signal });
+  expect(res.headers.get("content-type")).toBe("text/event-stream");
+  const reader = res.body!.getReader();
+  expect(new TextDecoder().decode((await reader.read()).value)).toContain('"active":false');
+  await ui("start");
+  const request = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {} });
+  await until(() => runtime.snapshot().pending !== null);
+  let received = "";
+  const timeout = setTimeout(() => abort.abort(), 2000);
+  try {
+    while (!received.includes('"token"')) received += new TextDecoder().decode((await reader.read()).value);
+    expect(received).toContain(request.id);
+    expect(received).toContain('"pending":{');
+  } finally {
+    clearTimeout(timeout); await reader.cancel(); abort.abort();
+  }
+});
+
+
+test("a controller outage cannot prevent local stop and is reported as a failed clear", async () => {
+  await ui("start");
+  controller.stop(true);
+  const result = await ui("clear");
+  expect(result.status).toBe(400);
+  expect(result.body.error).toContain("Access is stopped, but requests could not be cleared");
+  expect(runtime.snapshot().active).toBe(false);
+  expect(runtime.snapshot().pending).toBeNull();
 });
