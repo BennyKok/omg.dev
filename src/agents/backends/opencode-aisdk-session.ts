@@ -1,4 +1,4 @@
-import { EmptyOpencodeReply, opencodeTurnFailureMessage, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
+import { EmptyOpencodeReply, OpencodeProviderWait, type OpencodeRetryStatus, opencodeRetryDecision, opencodeTurnFailureMessage, opencodeTurnHasProgress, recoverOpencodeTurn } from "./opencode-turn-recovery.ts";
 import { customModelToolFilter, ensureCustomProviders, isCustomModel, refreshCustomModelContexts } from "../../custom-models.ts";
 import { APP_BUILDER_PRESET, BUILDER_MAX_STEPS, builderAgentConfig, createStepBound, builderReviewPacket, captureBuilderDesign, reviewBuilderDesign, reviewBuilderCode, runAppBuilder, validateBuilderPreset } from "./app-builder.ts";
 // Headless interactive session harness for the "opencode" agent kind.
@@ -587,8 +587,19 @@ export async function pipeToOpencodeAiSdk(
     const ocId = created.data.id;
     // Headless auto runs can't answer OpenCode questions — poll + reject while
     // the blocking prompt is in flight so the turn can't hang forever.
+    // A long provider retry wait (a plan usage limit) would hold the run for
+    // hours. Stop it and report the provider's text instead.
+    let providerWait: string | null = null;
     const rejectTimer = setInterval(() => {
       void autoRejectPendingQuestions(server.url, ocId);
+      if (providerWait) return;
+      void client.session.status({ query: { directory: cwd }, signal: AbortSignal.timeout(5_000) }).then((status) => {
+        const decision = opencodeRetryDecision((status.data as Record<string, OpencodeRetryStatus> | undefined)?.[ocId], Date.now());
+        if (decision?.action !== "stop" || providerWait) return;
+        providerWait = decision.text;
+        log(`[runner] opencode provider wait too long, stopping: ${decision.text.split("\n")[0]}`);
+        void client.session.abort({ path: { id: ocId }, query: { directory: cwd } }).catch(() => {});
+      }).catch(() => {});
     }, 1000);
     let res: { error?: unknown; data?: { parts?: OcPart[] } };
     try {
@@ -601,6 +612,7 @@ export async function pipeToOpencodeAiSdk(
       clearInterval(rejectTimer);
       await autoRejectPendingQuestions(server.url, ocId);
     }
+    if (providerWait) throw new OpencodeProviderWait(providerWait);
     if (res.error)
       throw new Error(`opencode prompt failed: ${JSON.stringify(res.error).slice(0, 500)}`);
     const { text } = partsToBlocks((res.data?.parts ?? []) as OcPart[]);
@@ -825,7 +837,12 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
   // session.prompt() call can hang indefinitely instead of rejecting, so the
   // event has to be able to end the turn on its own. `notify` resolves the race
   // runTurn waits on; the text becomes the assistant message the user sees.
-  const turnErrorRef: { current: { text: string; notify: () => void } | null } = { current: null };
+  // `wait` marks a provider retry wait that is too long (see
+  // opencodeRetryDecision); its text is then shown as it is.
+  const turnErrorRef: { current: { text: string; wait?: boolean; notify: () => void } | null } = { current: null };
+  // The retry notice on screen, as "<attempt>:<next>", so a repeated status
+  // does not rewrite it.
+  let retryNoticeKey = "";
   // True while OpenCode's `question` tool is waiting for a human answer.
   // busy is cleared for this window so the UI shows "needs answer" instead of
   // a permanent Working spinner; the underlying session.prompt() stays open.
@@ -910,6 +927,43 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         void handleDismissQuestion("timed out waiting for permission");
       }
     }, QUESTION_TIMEOUT_MS);
+  }
+
+  // OpenCode reports a provider retry (rate limit, overload, plan usage
+  // limit) only as `session.status` with type "retry". Show short waits, and
+  // end the turn on a long one instead of leaving it on Working.
+  function handleSessionStatus(status: OpencodeRetryStatus | undefined): void {
+    if (closing || !turnActive || turnInterrupted || !status) return;
+    if (status.type !== "retry") {
+      if (retryNoticeKey) {
+        retryNoticeKey = "";
+        publishDraft("", true);
+      }
+      return;
+    }
+    const decision = opencodeRetryDecision(status, Date.now());
+    if (!decision) return;
+    if (decision.action === "stop") {
+      const pending = turnErrorRef.current;
+      if (pending && !pending.text) {
+        pending.text = decision.text;
+        pending.wait = true;
+        pending.notify();
+      }
+      return;
+    }
+    const noticeKey = `${status.attempt ?? ""}:${status.next ?? ""}`;
+    if (noticeKey === retryNoticeKey) return;
+    retryNoticeKey = noticeKey;
+    publishDraft(decision.text, true, "thinking");
+  }
+
+  async function syncSessionStatus(): Promise<void> {
+    if (!ocSessionId || closing || !turnActive) return;
+    try {
+      const res = await client.session.status({ query: { directory: cwd }, signal: AbortSignal.timeout(5_000) });
+      handleSessionStatus((res.data as Record<string, OpencodeRetryStatus> | undefined)?.[ocSessionId]);
+    } catch {}
   }
 
   function clearQuestionState(resumeBusy: boolean): void {
@@ -1077,6 +1131,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
           patterns?: string[];
           resources?: string[];
           pattern?: string | string[];
+          status?: OpencodeRetryStatus;
         };
         const evSession = props.sessionID ?? props.part?.sessionID ?? props.info?.sessionID ?? null;
 
@@ -1157,6 +1212,10 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
         }
 
         if (!turnActive) continue;
+        if (ev?.type === "session.status" && evSession === ocSessionId) {
+          handleSessionStatus(props.status);
+          continue;
+        }
         const part = props.part;
         if (ev?.type === "message.part.updated" && part?.sessionID === ocSessionId) {
           if ((part.type === "text" || part.type === "reasoning") && typeof part.text === "string") {
@@ -1206,12 +1265,14 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     }
   })();
 
-  // Backup poll: catch questions if the SSE event was missed (common after
-  // reconnect / mid-turn subscribe). Cheap while a turn is active.
+  // Backup poll: catch questions and provider retries if the SSE event was
+  // missed (common after reconnect / mid-turn subscribe). Cheap while a turn
+  // is active.
   const questionPoll = setInterval(() => {
     if (closing || !turnActive) return;
     void syncPendingQuestions();
     void syncPendingPermissions();
+    void syncSessionStatus();
   }, 1500);
 
   async function runSingleTurn(prompt: string, images: Array<{ type: "file"; mime: string; url: string; filename?: string }> = []): Promise<boolean> {
@@ -1224,6 +1285,7 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
     draftTracker.reset();
     publishDraft("", true);
     turnHasProgress = false;
+    retryNoticeKey = "";
     stepBound.reset();
     const turnStarted = Date.now();
     try {
@@ -1255,7 +1317,11 @@ export async function cmdOpencodeAisdkSession(argv: string[]): Promise<void> {
             }),
             failed.promise,
           ]);
-          if (settled === "error") throw new Error(turnErrorRef.current?.text || "OpenCode reported an error for this turn");
+          if (settled === "error") {
+            const failure = turnErrorRef.current;
+            if (failure?.wait) throw new OpencodeProviderWait(failure.text);
+            throw new Error(failure?.text || "OpenCode reported an error for this turn");
+          }
           if (settled.error) throw new Error(JSON.stringify(settled.error).slice(0, 500));
           if (isAbortedReply(settled.data)) return [];
           const { text, blocks } = partsToBlocks((settled.data?.parts ?? []) as OcPart[]);

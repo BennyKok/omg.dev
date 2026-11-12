@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
 import {
   EmptyOpencodeReply,
+  OPENCODE_MAX_RETRY_WAIT_MS,
   OPENCODE_MODEL_NOT_IN_PLAN_MESSAGE,
+  OpencodeProviderWait,
+  opencodeRetryDecision,
   OPENCODE_RECOVERY_MESSAGE,
   opencodeTurnFailureMessage,
   opencodeTurnHasProgress,
@@ -97,4 +100,40 @@ test("an out-of-credit turn is not retried; plan refusals get their own message"
   expect(calls.filter(x => x === "request")).toHaveLength(1);
   expect(opencodeTurnFailureMessage(new Error("Payment Required: Upgrade your plan to use this model."))).toBe(OPENCODE_MODEL_NOT_IN_PLAN_MESSAGE);
   expect(opencodeTurnFailureMessage(new Error("fetch failed"))).toBe(OPENCODE_RECOVERY_MESSAGE);
+});
+
+const USAGE_LIMIT = "5 hour usage limit reached. It will reset in 1 hour 47 minutes. To continue using";
+
+test("a plan usage limit wait stops the turn and keeps the provider text", () => {
+  const now = 1_000_000;
+  const decision = opencodeRetryDecision({ type: "retry", attempt: 1, message: USAGE_LIMIT, next: now + 107 * 60_000 }, now);
+  expect(decision?.action).toBe("stop");
+  expect(decision?.text).toContain(USAGE_LIMIT);
+  expect(decision?.text).toContain("1 h 47 min");
+});
+
+test("a short backoff shows a notice and does not stop the turn", () => {
+  const now = 1_000_000;
+  const decision = opencodeRetryDecision({ type: "retry", attempt: 2, message: "Too Many Requests", next: now + 4_000 }, now);
+  expect(decision).toEqual({ action: "notice", text: "Too Many Requests. Trying again in 4 s (attempt 2)." });
+});
+
+test("the stop threshold is the wait, not the attempt count", () => {
+  const now = 0;
+  expect(opencodeRetryDecision({ type: "retry", message: "x", next: OPENCODE_MAX_RETRY_WAIT_MS }, now)?.action).toBe("notice");
+  expect(opencodeRetryDecision({ type: "retry", message: "x", next: OPENCODE_MAX_RETRY_WAIT_MS + 1 }, now)?.action).toBe("stop");
+});
+
+test("busy and idle statuses need no action", () => {
+  expect(opencodeRetryDecision({ type: "busy" }, 0)).toBeNull();
+  expect(opencodeRetryDecision({ type: "idle" }, 0)).toBeNull();
+  expect(opencodeRetryDecision(undefined, 0)).toBeNull();
+});
+
+test("a provider wait is shown as it is and never replayed", async () => {
+  const wait = new OpencodeProviderWait(`Rate limit: ${USAGE_LIMIT}`);
+  expect(opencodeTurnFailureMessage(wait)).toBe(wait.message);
+  const { options, calls } = setup([wait]);
+  await expect(recoverOpencodeTurn(options)).rejects.toBe(wait);
+  expect(calls).toEqual(["request", "log", "abort"]);
 });
