@@ -444,18 +444,42 @@ function readyBases(repo: string, root: string): ReadyBase[] {
   return out.sort((a, b) => b.readyAt - a.readyAt);
 }
 
-async function findReusableBase(
+/**
+ * Nested bun projects (see `nestedBunProjects`) that commit `sha` tracks, read
+ * from git rather than a checkout. `null` when git cannot say.
+ */
+async function nestedProjectsAt(repo: string, sha: string): Promise<string[] | null> {
+  const r = await git(repo, ["ls-tree", "-r", "-z", "--name-only", sha]);
+  if (!r.ok) return null;
+  const files = r.out.split("\0").filter(Boolean);
+  const manifests = new Set(files.filter((f) => f.endsWith("/package.json")));
+  return nestedBunProjects(files).filter((dir) => manifests.has(`${dir}/package.json`));
+}
+
+// A base older than a nested project has no install for it, so every fork of
+// that base that runs `bun install` there writes a private copy into its upper
+// layer. When vibes gained next/ (ten bun projects), forks made from older
+// bases held 11.7 GB of next/*/node_modules by 2026-11-12, up to 2 GB each. Such a
+// base is skipped so a fresh one is built. A project the base has but could
+// not install still counts as present, so a broken install cannot make every
+// fork rebuild the base.
+export async function findReusableBase(
   repo: string,
   targetSha: string,
   root: string,
   now = Date.now(),
 ): Promise<ReadyBase | null> {
+  let nested: string[] | null | undefined;
   for (const base of readyBases(repo, root)) {
     if (now - base.readyAt > BASE_MAX_AGE_MS) continue;
     if (base.sha === targetSha) return base;
     if (!(await git(repo, ["merge-base", "--is-ancestor", base.sha, targetSha])).ok) continue;
     const behind = await git(repo, ["rev-list", "--count", `${base.sha}..${targetSha}`]);
-    if (behind.ok && parseInt(behind.out.trim(), 10) <= BASE_MAX_BEHIND) return base;
+    if (!behind.ok || parseInt(behind.out.trim(), 10) > BASE_MAX_BEHIND) continue;
+    if (nested === undefined) nested = await nestedProjectsAt(repo, targetSha);
+    // Unknown keeps today's behaviour: reuse.
+    if (nested && nested.some((dir) => !existsSync(join(base.path, dir, "package.json")))) continue;
+    return base;
   }
   return null;
 }
