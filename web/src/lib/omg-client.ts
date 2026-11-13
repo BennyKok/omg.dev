@@ -12,6 +12,7 @@ import {
   resetGateWhenUserReturns,
   type ComputerPausedGate,
 } from "./computer-paused-gate";
+import { routedTransportForPath } from "./session-routing";
 
 /**
  * Did this failure come from the box refusing on PLAN grounds?
@@ -157,6 +158,14 @@ export function omgErrorSink(): OmgErrorSink | null {
 // Every request to the Computer passes through the four functions below, so
 // the paused gate (computer-paused-gate.ts) sees all of them in one place.
 
+/**
+ * The transport for one API path. A session that lives on another linked
+ * machine goes there (session-routing.ts); everything else uses the app's own.
+ */
+function transportFor(path: string): OmgTransport {
+  return routedTransportForPath(path) ?? omgTransport;
+}
+
 async function observed(response: Promise<Response>): Promise<Response> {
   const settled = await response;
   pausedGate.observe(settled.status);
@@ -224,8 +233,8 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (pausedGate.blocks(init)) throw new ComputerPausedError();
   const key = sharedReadKey(path, init);
   const read = key === null
-    ? asWrite(init, () => omgTransport.request<T>(path, init))
-    : joinOrStart(sharedApiReads as Map<string, Promise<T>>, key, () => omgTransport.request<T>(path, init)).read;
+    ? asWrite(init, () => transportFor(path).request<T>(path, init))
+    : joinOrStart(sharedApiReads as Map<string, Promise<T>>, key, () => transportFor(path).request<T>(path, init)).read;
   try {
     const value = await read;
     pausedGate.observe(200);
@@ -245,7 +254,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
  */
 function sharedFetch(path: string, init: RequestInit | undefined, key: string): Promise<Response> {
   const { read, joined } = joinOrStart(sharedFetchReads, key, async (): Promise<SharedFetch> => {
-    const response = await omgTransport.fetch(path, init);
+    const response = await transportFor(path).fetch(path, init);
     // Only a real JSON Response is shared. A host transport may answer with
     // something else; that goes to its caller untouched.
     const type = typeof response?.headers?.get === "function" ? response.headers.get("content-type") ?? "" : "";
@@ -258,7 +267,7 @@ function sharedFetch(path: string, init: RequestInit | undefined, key: string): 
       const empty = [101, 204, 205, 304].includes(shared.buffered.init.status ?? 200);
       return new Response(empty ? null : shared.buffered.body.slice(0), shared.buffered.init);
     }
-    return joined ? omgTransport.fetch(path, init) : shared.response;
+    return joined ? transportFor(path).fetch(path, init) : shared.response;
   });
 }
 
@@ -273,7 +282,7 @@ export function omgFetch(
 ): Promise<Response> {
   if (pausedGate.blocks(init, options.background)) return Promise.resolve(computerPausedResponse());
   const key = sharedReadKey(path, init);
-  if (key === null) return observed(asWrite(init, () => omgTransport.fetch(path, init)));
+  if (key === null) return observed(asWrite(init, () => transportFor(path).fetch(path, init)));
   return observed(sharedFetch(path, init, key));
 }
 
@@ -282,8 +291,9 @@ export function omgUpload(
   init: RequestInit,
   onProgress: (progress: OmgUploadProgress) => void,
 ): Promise<Response> {
+  const transport = transportFor(path);
   return observed(asWrite(init, () =>
-    omgTransport.upload?.(path, init, onProgress) ?? omgTransport.fetch(path, init)));
+    transport.upload?.(path, init, onProgress) ?? transport.fetch(path, init)));
 }
 
 export function openOmgLiveSocket(query?: string): Promise<OmgSocket> {
@@ -293,7 +303,7 @@ export function openOmgLiveSocket(query?: string): Promise<OmgSocket> {
 
 export function openOmgSocket(path: string): Promise<OmgSocket> {
   if (pausedGate.blocks()) return Promise.reject(new ComputerPausedError());
-  return omgTransport.openSocket(path);
+  return transportFor(path).openSocket(path);
 }
 
 /**
@@ -324,7 +334,7 @@ export function selectDirectUrl(transport: OmgTransport, path: string): string |
  * in the browser's own HTTP cache, which outlives the component.
  */
 export function omgDirectUrl(path: string): string | null {
-  return selectDirectUrl(omgTransport, path);
+  return selectDirectUrl(transportFor(path), path);
 }
 
 /**
@@ -333,9 +343,10 @@ export function omgDirectUrl(path: string): string | null {
  * null here, which keeps the existing authenticated-blob fallback working.
  */
 export async function resolveOmgDirectUrl(path: string): Promise<string | null> {
-  const direct = selectDirectUrl(omgTransport, path);
+  const transport = transportFor(path);
+  const direct = selectDirectUrl(transport, path);
   if (direct !== null) return direct;
-  return (await omgTransport.resolveAssetUrl?.(path)) ?? null;
+  return (await transport.resolveAssetUrl?.(path)) ?? null;
 }
 
 export function omgAssetUrl(path: string): string {

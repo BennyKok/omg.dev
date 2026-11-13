@@ -1,23 +1,18 @@
 import { createSameOriginTransport, type OmgTransport } from "@omg-dev/client";
 import { useCallback, useEffect, useState } from "react";
 
-/**
- * The linked machine the UI is pointed at. Not "omg:machine": that key held
- * choices from the removed omg Cloud switcher, and main.tsx clears it.
- */
-export const MACHINE_STORAGE_KEY = "omg:peer-machine";
+export {
+  activeMachine,
+  isLocalMachine,
+  LOCAL_MACHINE_ID,
+  MACHINE_STORAGE_KEY,
+  machineBasePath,
+  PEER_MACHINES_PREFIX,
+  type MachineChoice,
+} from "./machine-choice";
+import { activeMachine, LOCAL_MACHINE_ID, MACHINE_STORAGE_KEY, machineBasePath, type MachineChoice } from "./machine-choice";
+
 export const UNIFIED_FLEET_STORAGE_KEY = "omg:unified-fleet";
-
-/** The box that served the page. */
-export const LOCAL_MACHINE_ID = "local";
-
-export const PEER_MACHINES_PREFIX = "/api/peers/machines/";
-
-export type MachineChoice = {
-  id: string;
-  /** Shown in the rail and the picker. */
-  name: string;
-};
 
 export type SelfPeerInfo = {
   id: "local";
@@ -62,33 +57,6 @@ function storage(): Storage | null {
   } catch {
     return null;
   }
-}
-
-/** The stored choice, or the local box. */
-export function activeMachine(store: Storage | null = storage()): MachineChoice {
-  try {
-    const raw = store?.getItem(MACHINE_STORAGE_KEY);
-    if (!raw) return { id: LOCAL_MACHINE_ID, name: "This computer" };
-    const parsed = JSON.parse(raw) as Partial<MachineChoice>;
-    if (typeof parsed.id !== "string" || !parsed.id.trim() || parsed.id === LOCAL_MACHINE_ID) {
-      return { id: LOCAL_MACHINE_ID, name: "This computer" };
-    }
-    return {
-      id: parsed.id.trim(),
-      name: typeof parsed.name === "string" && parsed.name.trim() ? parsed.name.trim() : parsed.id.trim(),
-    };
-  } catch {
-    return { id: LOCAL_MACHINE_ID, name: "This computer" };
-  }
-}
-
-export function isLocalMachine(choice: MachineChoice = activeMachine()): boolean {
-  return choice.id === LOCAL_MACHINE_ID;
-}
-
-/** The API prefix for a machine, or "" for the local box. */
-export function machineBasePath(id: string): string {
-  return id === LOCAL_MACHINE_ID ? "" : `${PEER_MACHINES_PREFIX}${encodeURIComponent(id)}`;
 }
 
 /** The transport the app should boot with for the stored choice. */

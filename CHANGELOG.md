@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## November 13, 2026 - Open a linked machine's session in place (v0.7.8)
+
+- A session from a linked machine opens in place from the unified sidebar. The page does not reload, and this computer's own connection stays up.
+- omg.dev connects to the linked machine only while one of its sessions is open, and disconnects when you leave it. Messages, files, prompts and the terminal of that session go to its own machine.
+- Security fix: the linked-machine connection now refuses requests from other websites, as the terminal already did. In v0.7.7, a web page open in your browser could try to reach a linked machine through omg.dev. Update every computer that links another one.
+
 ## November 13, 2026 - Linked omg.dev machines (v0.7.7)
 
 - Link another omg.dev computer and work on it from this one. In Settings > Remote access > Linked machines, paste its address or pairing code. Each linked machine shows whether it is online and how many sessions it has.

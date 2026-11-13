@@ -4513,7 +4513,16 @@ export async function cmdServe() {
   // --web`) get the shim, which opens the page in the Computer's desktop
   // browser. Every child of this process inherits it.
   installXdgOpenShim(process.env, PORT);
-  const peerMachineProxy = createPeerMachineProxy();
+  const peerMachineProxy = createPeerMachineProxy({
+    // The same extra origin the terminal accepts (the box's public URL).
+    allowedOrigins: () => {
+      try {
+        return PUBLIC_URL ? [new URL(PUBLIC_URL).origin] : [];
+      } catch {
+        return [];
+      }
+    },
+  });
   const server = Bun.serve<AppSocketData>({
     port: PORT,
     hostname: HOST,
@@ -4739,8 +4748,8 @@ export async function cmdServe() {
       // local /api route.
       if (path.startsWith("/api/peers/machines/")) {
         if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-          const data = peerMachineProxy.upgradeData(url);
-          if (!data) return err(404, "not found");
+          const data = peerMachineProxy.upgradeData(req, url);
+          if (!data) return err(403, "Open omg.dev itself to use a linked machine.");
           const ok = server.upgrade(req, { data });
           if (ok) return undefined;
           return err(400, "expected a websocket upgrade");

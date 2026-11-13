@@ -19,6 +19,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { hostname } from "node:os";
 import { dirname, join } from "node:path";
 import { PATHS } from "./config.ts";
+import { isTrustedTermRequest } from "./term/routes.ts";
 
 export const PEER_MACHINES_PREFIX = "/api/peers/machines/";
 
@@ -309,7 +310,8 @@ export interface ProxyClientSocket {
 export interface PeerMachineProxy {
   target(url: URL): { peerId: string; path: string } | null;
   handleHttp(req: Request, url: URL): Promise<Response>;
-  upgradeData(url: URL): PeerProxySocketData | null;
+  /** Socket data for an upgrade, or null to refuse it (unknown peer or untrusted page). */
+  upgradeData(req: Request, url: URL): PeerProxySocketData | null;
   isProxySocket(ws: ProxyClientSocket): boolean;
   open(ws: ProxyClientSocket): void;
   message(ws: ProxyClientSocket, message: string | ArrayBufferLike | ArrayBufferView): void;
@@ -321,12 +323,26 @@ function closeCode(code: number): number {
   return code;
 }
 
+/**
+ * Whether a browser request may use the proxy. The same rule as the terminal
+ * (src/term/routes.ts): refuse a cross-site page, and an `Origin` that is not
+ * this box. The proxy adds the linked box's token and strips `Origin`, so the
+ * linked box cannot apply this check itself. Without it, any web page could
+ * open a websocket through this box to the linked box's terminal.
+ */
+export function isTrustedPeerProxyRequest(req: Request, allowedOrigins: readonly string[] = []): boolean {
+  return isTrustedTermRequest(req, allowedOrigins);
+}
+
 export function createPeerMachineProxy(options: {
   dataDir?: string;
   fetch?: FetchLike;
   WebSocket?: typeof globalThis.WebSocket;
+  /** Extra browser origins that may use the proxy (this box's public URL). */
+  allowedOrigins?: () => readonly string[];
 } = {}): PeerMachineProxy {
   const dataDir = options.dataDir ?? PATHS.data;
+  const trusted = (req: Request) => isTrustedPeerProxyRequest(req, options.allowedOrigins?.() ?? []);
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const WebSocketImpl = options.WebSocket ?? globalThis.WebSocket;
   const upstreams = new WeakMap<
@@ -353,6 +369,7 @@ export function createPeerMachineProxy(options: {
   async function handleHttp(req: Request, url: URL): Promise<Response> {
     const target = parsePeerMachinePath(url);
     if (!target) return errorResponse("not found", 404);
+    if (!trusted(req)) return errorResponse("Open omg.dev itself to use a linked machine.", 403);
     const peer = findPeer(target.peerId);
     if (!peer) return errorResponse(`Unknown linked machine "${target.peerId}".`, 404);
 
@@ -399,9 +416,10 @@ export function createPeerMachineProxy(options: {
     }
   }
 
-  function upgradeData(url: URL): PeerProxySocketData | null {
+  function upgradeData(req: Request, url: URL): PeerProxySocketData | null {
     const target = parsePeerMachinePath(url);
     if (!target) return null;
+    if (!trusted(req)) return null;
     if (!findPeer(target.peerId)) return null;
     return { peerProxy: target };
   }

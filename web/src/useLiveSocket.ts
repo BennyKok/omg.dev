@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { OmgLiveConnection, type OmgTranscriptEvent } from "@omg-dev/client";
+import { OmgLiveConnection, type OmgTranscriptEvent, type OmgTransport } from "@omg-dev/client";
 import type { MessageAuthorRef } from "../../src/conversation-contract";
 import { evlog } from "./lib/evlog";
 import { openOmgLiveSocket } from "./lib/omg-client";
+import { remoteMachineForSession, subscribeSessionOwners, transportForMachine } from "./lib/session-routing";
 import type { OmgQueueMessage } from "./lib/omg-chat-transport";
 import {
   queueRowHydration,
@@ -353,12 +354,17 @@ const INITIAL_CONNECTION_STATE: ConnectionState = {
   lastMessageAt: null,
 };
 
-/** The web's socket: OmgLiveConnection over the current Computer transport. */
-function createLiveConnection(viewerIdentity: string): OmgLiveConnection {
+/**
+ * The web's socket: OmgLiveConnection over the current Computer transport, or
+ * over a linked machine's transport for that machine's sessions.
+ */
+function createLiveConnection(viewerIdentity: string, transport?: OmgTransport): OmgLiveConnection {
   return new OmgLiveConnection(
     // Read at every connect: a host swaps the transport in place when the
     // user switches Computers, and the next socket must go to the new one.
-    { openLiveSocket: (query?: string) => openOmgLiveSocket(query) },
+    transport
+      ? { openLiveSocket: (query?: string) => transport.openLiveSocket(query) }
+      : { openLiveSocket: (query?: string) => openOmgLiveSocket(query) },
     {
       capabilities: { workRows: true, deferToolArgs: true },
       // Typing presence: declared at connect time and never on a frame, so a
@@ -442,8 +448,20 @@ export function useLiveSocket(
   const firstMsgRef = useRef<Set<string>>(new Set());
   const draftSeenRef = useRef<Set<string>>(new Set());
   const openAtRef = useRef(0);
-  /** The hook's own subscription per session, which folds events into state. */
-  const foldRef = useRef<Map<string, () => void>>(new Map());
+  /**
+   * The hook's own subscription per session, which folds events into state,
+   * with the machine it was opened on ("" for this app's own machine).
+   */
+  const foldRef = useRef<Map<string, { off: () => void; machine: string }>>(new Map());
+  /**
+   * One live connection per OTHER linked machine (session-routing.ts). Its
+   * socket opens with the first subscription to one of that machine's
+   * sessions and closes when the last one ends (OmgLiveConnection does both),
+   * so a linked machine costs nothing until you open one of its sessions.
+   */
+  const remoteRef = useRef<Map<string, OmgLiveConnection>>(new Map());
+  const [ownersVersion, setOwnersVersion] = useState(0);
+  useEffect(() => subscribeSessionOwners(() => setOwnersVersion((v) => v + 1)), []);
   /** Sessions the app shows expanded. */
   const expandedRef = useRef<Set<string>>(new Set());
   /** Per session, how many consumer listeners hold a subscription. */
@@ -484,8 +502,10 @@ export function useLiveSocket(
       offChanges();
       offStatus();
       offConnection();
-      for (const off of foldRef.current.values()) off();
+      for (const fold of foldRef.current.values()) fold.off();
       foldRef.current = new Map();
+      for (const remote of remoteRef.current.values()) remote.dispose();
+      remoteRef.current = new Map();
       for (const sid of Object.keys(thinkTimerRef.current)) {
         clearTimeout(thinkTimerRef.current[sid]);
         delete thinkTimerRef.current[sid];
@@ -611,22 +631,45 @@ export function useLiveSocket(
     }
   }, [markFirst]);
 
+  /** The connection that carries a session: this app's own, or its linked machine's. */
+  const connectionFor = useCallback((sid: string): { connection: OmgLiveConnection; machine: string } | null => {
+    if (!live) return null;
+    const machine = remoteMachineForSession(sid);
+    if (!machine) return { connection: live, machine: "" };
+    let remote = remoteRef.current.get(machine);
+    if (!remote) {
+      remote = createLiveConnection(viewerIdentity, transportForMachine(machine));
+      remoteRef.current.set(machine, remote);
+    }
+    return { connection: remote, machine };
+  }, [live, viewerIdentity]);
+
   /** Hold or release the hook's own subscription for each session in `wanted`. */
   const syncFolds = useCallback((wanted: Set<string>) => {
     if (!live) return;
-    for (const [sid, off] of foldRef.current) {
-      if (wanted.has(sid)) continue;
-      off();
+    for (const [sid, current] of foldRef.current) {
+      // A session whose owner became known moves to its own machine.
+      if (wanted.has(sid) && current.machine === (remoteMachineForSession(sid) ?? "")) continue;
+      current.off();
       foldRef.current.delete(sid);
     }
     for (const sid of wanted) {
       if (foldRef.current.has(sid)) continue;
-      foldRef.current.set(sid, live.subscribeTranscript(sid, (event) => fold(sid, event)));
+      const route = connectionFor(sid);
+      if (!route) continue;
+      foldRef.current.set(sid, {
+        off: route.connection.subscribeTranscript(sid, (event) => fold(sid, event)),
+        machine: route.machine,
+      });
     }
-  }, [live, fold]);
+  }, [live, fold, connectionFor]);
 
+  // A linked machine's session streams only while something shows it. The
+  // desktop rail keeps every session it once opened "expanded", which is free
+  // on this app's own socket but would hold a socket to the other machine
+  // open for good. The rail reads those rows from the fleet poll instead.
   const wantedSessions = useCallback(() => new Set([
-    ...expandedRef.current,
+    ...[...expandedRef.current].filter((sid) => !remoteMachineForSession(sid)),
     ...Object.entries(activeConsumersRef.current).filter(([, count]) => count > 0).map(([sid]) => sid),
   ]), []);
 
@@ -656,11 +699,11 @@ export function useLiveSocket(
     setTypingBySid((prev) => sameEntries(prev, Object.fromEntries(Object.entries(prev).filter(([sid]) => active.has(sid)))));
     syncFolds(active);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [streamKey, listBusy, seedBySid, syncFolds]);
+  }, [streamKey, listBusy, seedBySid, syncFolds, ownersVersion]);
 
   const sendTyping = useCallback((sid: string, typing: boolean) => {
-    live?.sendTyping(sid, typing);
-  }, [live]);
+    connectionFor(sid)?.connection.sendTyping(sid, typing);
+  }, [connectionFor]);
 
   const reconnectNow = useCallback(() => {
     // Cut the wait, keep a live socket.
@@ -668,9 +711,10 @@ export function useLiveSocket(
   }, [live]);
 
   const subscribeTranscript = useCallback<TranscriptSubscribe>((sid, listener, options) => {
-    if (!live) return () => {};
+    const route = connectionFor(sid);
+    if (!route) return () => {};
     const passive = !!options?.passive;
-    const off = live.subscribeTranscript(sid, (event) => {
+    const off = route.connection.subscribeTranscript(sid, (event) => {
       const mapped = consumerEvent(event);
       if (mapped) listener(mapped);
     }, { passive });
@@ -684,7 +728,7 @@ export function useLiveSocket(
       else delete activeConsumersRef.current[sid];
       syncFolds(wantedSessions());
     };
-  }, [live, syncFolds, wantedSessions]);
+  }, [connectionFor, syncFolds, wantedSessions]);
 
   const mergedBusy = useMemo(() => ({ ...listBusy, ...busyBySid }), [listBusy, busyBySid]);
 

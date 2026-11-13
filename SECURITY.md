@@ -43,7 +43,9 @@ understand it before you run it anywhere shared.
   except manage links (`/api/peers*` returns 403 to it). The token is stored in
   `peers.json` (mode 600). Turn the switch off or rotate the code to revoke it.
   Responses proxied from a linked box carry a `sandbox` CSP, so its pages
-  cannot run script as your origin.
+  cannot run script as your origin. The proxy refuses a cross-site page or a
+  foreign `Origin` (the terminal's rule), so another website cannot reach a
+  linked box through yours.
 
 ## Dependency auditing
 

@@ -284,3 +284,49 @@ describe("createPeerMachineProxy", () => {
     ).toBe(`/api/peers/machines/${peer.id}/api/bootstrap`);
   });
 });
+
+describe("peer proxy trust", () => {
+  test("a cross-site page cannot use the proxy, over HTTP or a websocket", async () => {
+    const calls: string[] = [];
+    const fakeFetch = async (input: string | URL | Request) => {
+      calls.push(String(input instanceof Request ? input.url : input));
+      return Response.json({ ok: true });
+    };
+    await handlePeersRequest(
+      new Request("http://127.0.0.1:8766/api/peers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pairingCode: "https://studio.example.ts.net#omg_peer_token_99", allowOffline: true }),
+      }),
+      new URL("http://127.0.0.1:8766/api/peers"),
+      { dataDir, fetch: fakeFetch, localMachineName: () => "Local", localUrl: () => "http://127.0.0.1:8766" },
+    );
+    const peer = readPeerStore(dataDir).peers[0]!;
+    const proxy = createPeerMachineProxy({ dataDir, fetch: fakeFetch, allowedOrigins: () => ["https://box.example.ts.net"] });
+    const url = new URL(`http://127.0.0.1:8766/api/peers/machines/${peer.id}/api/term?sessionId=s1`);
+    const at = (headers: Record<string, string>) => new Request(url.toString(), { headers: { host: "127.0.0.1:8766", ...headers } });
+    calls.length = 0;
+
+    // Refused: another site, a sandboxed (null) origin, a cross-site fetch.
+    for (const headers of <Array<Record<string, string>>>[
+      { origin: "https://evil.example" },
+      { origin: "null" },
+      { "sec-fetch-site": "cross-site" },
+    ]) {
+      expect((await proxy.handleHttp(at(headers), url)).status).toBe(403);
+      expect(proxy.upgradeData(at({ ...headers, upgrade: "websocket" }), url)).toBeNull();
+    }
+    expect(calls).toEqual([]);
+
+    // Allowed: this box's own page, its public URL, and a non-browser caller.
+    for (const headers of <Array<Record<string, string>>>[
+      { origin: "http://127.0.0.1:8766" },
+      { origin: "https://box.example.ts.net" },
+      {},
+    ]) {
+      expect((await proxy.handleHttp(at(headers), url)).status).toBe(200);
+      expect(proxy.upgradeData(at({ ...headers, upgrade: "websocket" }), url)).not.toBeNull();
+    }
+    expect(calls).toHaveLength(3);
+  });
+});

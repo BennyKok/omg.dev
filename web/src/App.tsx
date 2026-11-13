@@ -700,7 +700,8 @@ import { DeviceReceiverMonitor } from "./components/device-receiver-monitor";
 import { LinkedDevicesPage, LinkedDevicesRow } from "./components/linked-devices-settings";
 import { SETTINGS_STAGE_SUBPAGES, SettingsStageSubpage } from "./components/settings-stage-subpage";
 import { MachineSwitcher } from "./components/machine-switcher";
-import { activeMachine, selectMachine, usePeerMachines } from "./lib/machines";
+import { usePeerMachines } from "./lib/machines";
+import { setSessionOwners } from "./lib/session-routing";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
 import {
@@ -6045,14 +6046,8 @@ export function App() {
   const openSessionPage = useCallback(
     (sid: string) => {
       if (!sid) return;
-      const target = sessionsForRefs.current.find((s) => s.sessionId === sid);
-      if (target?.peerId && target.peerId !== activeMachine().id) {
-        selectMachine(
-          { id: target.peerId, name: target.peerName || target.peerId },
-          { sessionId: sid },
-        );
-        return;
-      }
+      // A linked machine's session opens in place: session-routing.ts sends
+      // its requests and its live transcript to that machine.
       void navigate({ to: sessionToPath(sid), search: keepHostSearch });
     },
     [navigate, keepHostSearch],
@@ -7221,6 +7216,19 @@ export function App() {
   }, [hostedSurface]);
 
   const peerMachines = usePeerMachines(true);
+  // Route each linked machine's sessions to that machine (session-routing.ts).
+  // Wait for the first answer: the saved map covers a reload until then.
+  const peerMachinesLoaded = peerMachines.self !== null;
+  useEffect(() => {
+    if (!peerMachinesLoaded) return;
+    setSessionOwners(
+      peerMachines.peers.length === 0
+        ? []
+        : peerMachines.fleetSessions.flatMap((s) =>
+            typeof s.sessionId === "string" && s.sessionId ? [{ sessionId: s.sessionId, machineId: s.peerId }] : [],
+          ),
+    );
+  }, [peerMachinesLoaded, peerMachines.peers.length, peerMachines.fleetSessions]);
   const allLiveSessions = useMemo(
     () => {
       const localList: Session[] = [...sessions];
@@ -12950,14 +12958,6 @@ function RailStage({
   // session opens only when the person (or a focus/deep link) picks one.
 
   const openSession = (sid: string) => {
-    const targetSession = bySid.get(sid);
-    if (targetSession?.peerId && targetSession.peerId !== activeMachine().id) {
-      selectMachine(
-        { id: targetSession.peerId, name: targetSession.peerName || targetSession.peerId },
-        { sessionId: sid },
-      );
-      return;
-    }
     // From Schedules, picking a session in the rail goes back to Chat: the
     // stage is showing the schedule list, and a preview set underneath it
     // would be an open session nobody can see.
