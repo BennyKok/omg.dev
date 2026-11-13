@@ -2,6 +2,18 @@
 
 Recent product updates and deployment notes.
 
+## November 13, 2026 - Linked omg.dev machines (v0.7.7)
+
+- Link another omg.dev computer and work on it from this one. In Settings > Remote access > Linked machines, paste its address or pairing code. Each linked machine shows whether it is online and how many sessions it has.
+- Switch the whole app to a linked machine from the machine menu at the foot of the sidebar. Turn on the unified sidebar to see the sessions of every linked machine in one list, each marked with its machine name.
+- "Allow linking from other machines" is off by default. When you turn it on, this computer gets a pairing code that gives full control of it. Turn the switch off or rotate the code to lock out every machine that used it.
+- A linked machine cannot add, remove or read links on the machine it reaches, and its pages cannot run script in your omg.dev page.
+- A computer that receives device requests can now connect to its controller, start and stop access, and approve each request in the omg.dev page on that computer. Incoming requests also show as notifications across the app.
+- Remote access is its own Settings page. The Settings row shows the Tailscale address, or "Local only".
+- An OpenCode turn no longer stays on Working during a long provider retry wait, such as a usage limit. A wait over two minutes stops the turn and shows the provider message.
+- Five View switches are removed: agent icons in the sidebar and in chat, the worktree diff badge, and the agent and model pickers in the composer. They are always on.
+- New forks no longer reuse a base that is missing a nested Bun project install, which kept each fork from writing its own copy.
+
 ## November 11, 2026 - Calmer Settings on the desktop (v0.7.6)
 
 - On a wide screen, Settings and its pages open beside the sidebar, in one column. Storage, Custom instructions, Connectors, More, Provider limits and Changelog no longer cover the whole window.
