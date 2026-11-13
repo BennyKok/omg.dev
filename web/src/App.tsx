@@ -1091,7 +1091,7 @@ const SendIdentityContext = createContext<string | null>(null);
  * the tombstone; the next refresh then puts the session back.
  */
 const SessionRestoreContext = createContext<(sid: string) => void>(() => {});
-const BotUnreadContext = createContext<{
+export const BotUnreadContext = createContext<{
   conversations: BotConversationUnread[];
   any: boolean;
   selectedConversationId: string | null;
@@ -10435,7 +10435,7 @@ function UsageRingsButton({
  * through the Settings page, which embed mode hides — leaving them unreachable
  * inside omg entirely.
  */
-function PagesMenu({
+export function PagesMenu({
   tab,
   onOpenTab,
   extraTabs,
@@ -15319,7 +15319,7 @@ export { RailItem };
  * deleted from the row — so no `onSwipeLeft` is offered and the row does not
  * rubber-band left.
  */
-function BotRosterRow({
+export function BotRosterRow({
   bot,
   busy,
   active,
@@ -30477,7 +30477,7 @@ function BotStagePlaceholder({
   );
 }
 
-function SurfaceToggle({
+export function SurfaceToggle({
   active,
   onOpenSessions,
   onOpenBots,
@@ -30981,7 +30981,7 @@ function BotConversationMenu({
   );
 }
 
-function BotsView({
+export function BotsView({
   bots,
   sessions,
   selectedBotId,

@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import type { ReactNode } from "react";
@@ -18,7 +18,6 @@ const { StreamdownResponse } = await import("./streamdown-response");
 let ui: Mounted;
 let seen: unknown[];
 
-beforeAll(() => process.chdir(import.meta.dir));
 beforeEach(() => {
   ui = mount();
   seen = [];

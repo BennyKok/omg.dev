@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import { createSameOriginTransport } from "@omg-dev/client";
 import { configureOmgTransport } from "../lib/omg-client";
@@ -10,11 +10,6 @@ let ui: Mounted;
 const originalFetch = globalThis.fetch;
 let calls: { url: string; body: unknown }[];
 let open: Record<string, unknown>[];
-
-// Ask questions render through Streamdown, which reads process.cwd(). In the
-// full suite an earlier test can leave the process in a deleted directory
-// (see streamdown-session-ref.test.tsx), so pin one that exists.
-beforeAll(() => process.chdir(import.meta.dir));
 
 beforeEach(() => {
   ui = mount();

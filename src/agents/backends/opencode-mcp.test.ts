@@ -10,10 +10,11 @@
 // config whose stdio `omg` entry never answers, as on that Computer, and checks
 // what OpenCode actually sends to the model.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "../../config.ts";
+import { whichRunnable } from "../../runnable-bin.ts";
 import { serveOmgMcpRequest } from "../../mcp-http.ts";
 import {
   SESSION_TOKEN_HEADER,
@@ -132,8 +133,7 @@ describe("awaitOpencodeMcp", () => {
 
 function opencodeBinary(): string | null {
   const local = join(import.meta.dir, "../../../node_modules/.bin/opencode");
-  if (existsSync(local)) return local;
-  return Bun.which("opencode");
+  return whichRunnable("opencode", [local]);
 }
 
 const OPENCODE = opencodeBinary();

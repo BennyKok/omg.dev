@@ -1,14 +1,11 @@
-// A new agent line must reach a watching socket when it is written, not on the
-// next poll. The file tailer polled every 700 ms and the index-backed path
-// (agent harnesses that write the transcript index from their own process)
-// every 1 s, so a line took up to that long to appear (scripts/sync-bench.ts,
-// 2026-10-17: p95 700 ms). Each test writes just after a poll would have run,
-// so a poll alone could not meet the deadline.
-import { afterAll, beforeAll, test } from "bun:test";
+// A new agent line must reach a watching socket on a write notification,
+// without waiting for the file or index fallback poll.
+import { afterAll, beforeAll, spyOn, test } from "bun:test";
 import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PATHS } from "./config.ts";
+import { ensureChatTranscriptCaughtUp } from "./chat-ingest.ts";
 import { createLiveWsSupport } from "./live-ws.ts";
 import { setClaudeProjectsDirForTests, type SessionMsg } from "./sessions.ts";
 import { indexSessionMessagesDirect, resetTranscriptIndexConnectionForTests } from "./transcript-index.ts";
@@ -19,7 +16,12 @@ const FILE_SID = "66666666-6666-4666-8666-666666666666";
 const INDEX_SID = "77777777-7777-4777-8777-777777777777";
 const projectDir = join(home, ".claude", "projects", "-bench-project");
 const transcript = join(projectDir, `${FILE_SID}.jsonl`);
-const DEADLINE_MS = 300;
+// Prove write notifications work without a poll, rather than racing a 300 ms
+// wall-clock budget on a busy test host. Periodic fallback polls cannot fire
+// during either test; file/index write notifications remain real.
+const DEADLINE_MS = 5_000;
+const realSetInterval = globalThis.setInterval;
+let intervals: ReturnType<typeof spyOn>;
 
 function line(role: "user" | "assistant", text: string, uuid: string, parent: string | null): string {
   const base = { sessionId: FILE_SID, uuid, parentUuid: parent, cwd: "/bench/project", timestamp: new Date().toISOString(), isSidechain: false, userType: "external" };
@@ -37,6 +39,8 @@ type Fake = { frames: Frame[]; data: unknown; send(raw: string): void; close(): 
 let live: { open(ws: unknown): void; message(ws: unknown, raw: string): void; close(ws: unknown): void; dataForRequest(id: string | null): unknown };
 
 beforeAll(() => {
+  intervals = spyOn(globalThis, "setInterval").mockImplementation(((callback: Parameters<typeof setInterval>[0], _delay?: number, ...args: unknown[]) =>
+    realSetInterval(callback, 60_000, ...args)) as typeof setInterval);
   mkdirSync(projectDir, { recursive: true });
   writeFileSync(transcript, line("user", "hello", "u1", null) + line("assistant", "first reply", "a1", "u1"));
   setClaudeProjectsDirForTests(join(home, ".claude", "projects"));
@@ -47,6 +51,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  intervals.mockRestore();
   setClaudeProjectsDirForTests(null);
   resetTranscriptIndexConnectionForTests();
   PATHS.data = originalData;
@@ -68,22 +73,21 @@ async function until(check: () => boolean, ms: number): Promise<void> {
   }
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const mentions = (ws: Fake, sid: string, text: string) => ws.frames.some((f) => f.key === sid && f.t === "delta" && JSON.stringify(f).includes(text));
 
-async function watch(sid: string): Promise<{ ws: Fake; subscribedAt: number }> {
+async function watch(sid: string): Promise<Fake> {
   const ws = socket();
-  const subscribedAt = Date.now();
   live.message(ws, JSON.stringify({ t: "subscribe", channels: [{ kind: "transcript", key: sid }] }));
   await until(() => ws.frames.some((f) => f.t === "snapshot" && f.key === sid), 5_000);
-  return { ws, subscribedAt };
+  return ws;
 }
 
 test("a line an agent appends to its transcript file reaches the socket at once", async () => {
-  const { ws, subscribedAt } = await watch(FILE_SID);
+  const ws = await watch(FILE_SID);
   try {
-    // The file poll runs every 700 ms from the subscribe. Write just after one.
-    await sleep(Math.max(0, subscribedAt + 760 - Date.now()));
+    // Finish the initial read before appending: the notification, not a read
+    // already in flight when we subscribed, must deliver the new line.
+    await ensureChatTranscriptCaughtUp(transcript, FILE_SID);
     appendFileSync(transcript, line("assistant", "file line", "a2", "a1"));
     await until(() => mentions(ws, FILE_SID, "file line"), DEADLINE_MS);
   } finally {
@@ -92,10 +96,8 @@ test("a line an agent appends to its transcript file reaches the socket at once"
 }, 15_000);
 
 test("a row a harness writes to the transcript index reaches the socket at once", async () => {
-  const { ws, subscribedAt } = await watch(INDEX_SID);
+  const ws = await watch(INDEX_SID);
   try {
-    // The index poll runs every 1 s from the subscribe. Write just after one.
-    await sleep(Math.max(0, subscribedAt + 1_080 - Date.now()));
     indexSessionMessagesDirect(INDEX_SID, [msg("a2", "assistant", "index line")]);
     await until(() => mentions(ws, INDEX_SID, "index line"), DEADLINE_MS);
   } finally {

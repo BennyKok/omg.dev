@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 import type { ThreadDetail, ThreadMessage } from "../../../packages/protocol/src/threads";
 
@@ -59,10 +59,6 @@ function view(props: Partial<Parameters<typeof ThreadChatView>[0]> = {}) {
 }
 
 let ui: Mounted;
-// Messages render through Streamdown, which reads process.cwd(). In the full
-// suite an earlier test can leave the process in a deleted directory
-// (see streamdown-session-ref.test.tsx), so pin one that exists.
-beforeAll(() => process.chdir(import.meta.dir));
 beforeEach(() => {
   ui = mount();
   sent.length = 0;

@@ -74,7 +74,10 @@ test("a shown session fills from its snapshot and live frames, and status and li
   await ui!.flushAsync(async () => {
     socket.receive({ t: "snapshot", kind: "transcript", key: "s1", seq: 1, messages: [{ id: "u1", role: "user", kind: "text", text: "hello", ts: 1 }], nextBefore: null });
     socket.receive({ t: "delta", kind: "transcript", key: "s1", seq: 2, delta: { t: "msg", sid: "s1", message: { id: "a1", role: "assistant", kind: "text", text: "hi there", ts: 2 } } });
-    socket.receive({ t: "delta", kind: "transcript", key: "s1", seq: 3, delta: { t: "queue", sid: "s1", queue: [{ id: "q1", text: "next please", status: "queued", createdAt: 3, queuedBehindTurn: true }] } });
+    socket.receive({ t: "delta", kind: "transcript", key: "s1", seq: 3, delta: { t: "queue", sid: "s1", queue: [
+      { id: "q1", text: "next please", status: "pending", createdAt: 3 },
+      { id: "q2", text: "after this turn", status: "queued", createdAt: 4, queuedBehindTurn: true },
+    ] } });
     socket.receive({ t: "delta", kind: "transcript", key: "s1", seq: 4, delta: { t: "busy", sid: "s1", busy: true } });
     socket.receive({ t: "typing", sid: "s1", ids: ["p1"] });
     socket.receive({ t: "status", rows: [{ sessionId: "s1", title: "renamed" }] });
@@ -82,6 +85,7 @@ test("a shown session fills from its snapshot and live frames, and status and li
   });
   const texts = (box.hook!.messagesBySid.s1 ?? []).map((m) => m.text);
   expect(texts).toEqual(expect.arrayContaining(["hello", "hi there", "next please"]));
+  expect(texts).not.toContain("after this turn");
   expect(box.hook!.busyBySid.s1).toBe(true);
   expect(box.hook!.typingBySid.s1).toEqual(["p1"]);
   expect(rows).toEqual([{ sessionId: "s1", title: "renamed" }]);

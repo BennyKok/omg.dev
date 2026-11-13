@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mount, type Mounted } from "../../test-support/render";
 import { registerSessionRefHandlers } from "../../lib/session-ref-link";
 
@@ -8,10 +8,6 @@ const FULL = "228efabd-1111-4222-8333-444455556666";
 let ui: Mounted;
 let opened: string[];
 
-// Rendering loads Streamdown plugins lazily, which reads process.cwd(). In
-// the full suite an earlier test can leave the process in a directory it has
-// already deleted, so pin a directory that exists.
-beforeAll(() => process.chdir(import.meta.dir));
 
 beforeEach(() => {
   ui = mount();

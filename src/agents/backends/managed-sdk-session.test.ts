@@ -8,6 +8,7 @@ import { indexedRecentMessages, sessionIndexKey, resetTranscriptIndexConnectionF
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
 
 const originalData = PATHS.data;
+const originalCwd = process.cwd();
 const KEY = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 
 let root = "";
@@ -19,6 +20,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  // The harness normally runs in its own process and changes its cwd.
+  // Restore the test runner before removing that harness's workspace.
+  process.chdir(originalCwd);
   resetTranscriptIndexConnectionForTests();
   PATHS.data = originalData;
   rmSync(root, { recursive: true, force: true });
