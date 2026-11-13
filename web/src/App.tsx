@@ -699,6 +699,8 @@ import { RemoteAccessPage, RemoteAccessRow } from "./components/remote-access-se
 import { DeviceReceiverMonitor } from "./components/device-receiver-monitor";
 import { LinkedDevicesPage, LinkedDevicesRow } from "./components/linked-devices-settings";
 import { SETTINGS_STAGE_SUBPAGES, SettingsStageSubpage } from "./components/settings-stage-subpage";
+import { MachineSwitcher } from "./components/machine-switcher";
+import { activeMachine, selectMachine, usePeerMachines } from "./lib/machines";
 import { ConnectionOverlay } from "./components/connection-overlay";
 import { ConnectorsRow } from "./views/connectors-row";
 import {
@@ -975,6 +977,9 @@ export type Session = {
   unread?: boolean;
   /** The agent's plan in brief, when it keeps one (sessionListRow on the server). */
   plan?: TeamPlanSummary;
+  /** Linked machine identity when surfaced in the unified multi-device fleet. */
+  peerId?: string | null;
+  peerName?: string | null;
 };
 
 type User = { email: string; name?: string; avatar?: string };
@@ -6035,17 +6040,25 @@ export function App() {
     }),
     [],
   );
+  const sessionsForRefs = useRef<Session[]>(sessions);
+  const openThreadPageRef = useRef<(id: string) => void>(() => {});
   const openSessionPage = useCallback(
     (sid: string) => {
       if (!sid) return;
+      const target = sessionsForRefs.current.find((s) => s.sessionId === sid);
+      if (target?.peerId && target.peerId !== activeMachine().id) {
+        selectMachine(
+          { id: target.peerId, name: target.peerName || target.peerId },
+          { sessionId: sid },
+        );
+        return;
+      }
       void navigate({ to: sessionToPath(sid), search: keepHostSearch });
     },
     [navigate, keepHostSearch],
   );
   // Session references in rendered messages open through this page route.
   // The list is read through a ref so a click sees the latest sessions.
-  const sessionsForRefs = useRef<Session[]>(sessions);
-  const openThreadPageRef = useRef<(id: string) => void>(() => {});
   sessionsForRefs.current = sessions;
   // The plan pane's Team view reads the same list (see lib/session-team.ts).
   useEffect(() => publishTeamSessions(sessions), [sessions]);
@@ -7207,9 +7220,20 @@ export function App() {
     }
   }, [hostedSurface]);
 
+  const peerMachines = usePeerMachines(true);
   const allLiveSessions = useMemo(
-    () =>
-      sessions
+    () => {
+      const localList: Session[] = [...sessions];
+      if (peerMachines.unified && peerMachines.peers.length > 0 && peerMachines.fleetSessions.length > 0) {
+        const seenIds = new Set(localList.map((s) => s.sessionId).filter(Boolean));
+        for (const remote of peerMachines.fleetSessions) {
+          const sid = typeof remote.sessionId === "string" ? remote.sessionId : null;
+          if (!sid || seenIds.has(sid)) continue;
+          seenIds.add(sid);
+          localList.push(remote as unknown as Session);
+        }
+      }
+      return localList
         .filter(
           (session) =>
             session.sessionId &&
@@ -7227,9 +7251,11 @@ export function App() {
           (a, b) =>
             (a.startedAt ?? 0) - (b.startedAt ?? 0) ||
             (a.sessionId ?? "").localeCompare(b.sessionId ?? ""),
-        ),
-    [sessions, removedSids, managedComputer],
+        );
+    },
+    [sessions, peerMachines.unified, peerMachines.peers.length, peerMachines.fleetSessions, removedSids, managedComputer],
   );
+  sessionsForRefs.current = allLiveSessions;
 
   // Unique projects present across the (user-filtered) live sessions plus every
   // known repo. The repo-derived entries are important for persistence: a saved
@@ -9999,7 +10025,7 @@ export function App() {
       {/* The one connection surface for the full app. Bare pages are hosted
           inside someone else's page and keep the toasts above. */}
       {!bare && !hostOwnsConnection ? (
-        <ConnectionOverlay />
+        <ConnectionOverlay machineSwitcher={<MachineSwitcher variant="nav" />} />
       ) : null}
       <VoiceSetupDialog />
       {/* Shift toggles the all-agent usage campfire; long-press rings on mobile. */}
@@ -12924,6 +12950,14 @@ function RailStage({
   // session opens only when the person (or a focus/deep link) picks one.
 
   const openSession = (sid: string) => {
+    const targetSession = bySid.get(sid);
+    if (targetSession?.peerId && targetSession.peerId !== activeMachine().id) {
+      selectMachine(
+        { id: targetSession.peerId, name: targetSession.peerName || targetSession.peerId },
+        { sessionId: sid },
+      );
+      return;
+    }
     // From Schedules, picking a session in the rail goes back to Chat: the
     // stage is showing the schedule list, and a preview set underneath it
     // would be an open session nobody can see.
@@ -13951,6 +13985,7 @@ function RailStage({
             // The machine lives in the menu, first, as in the phone drawer.
             // It is set once and rarely changed, so it does not need a
             // permanent row at the foot of the rail.
+            machineSwitcher={<MachineSwitcher variant="nav" onHostAction={() => setRailNavOpen(false)} />}
             footer={
               sideNav.onOpenHostSettings ? (
                 <button
@@ -13972,6 +14007,7 @@ function RailStage({
         {/* Hosted too. The host offers "Install omg" only inside its
             account menu, so this card is the one visible offer on either. */}
         {!railCollapsed ? <GetAppsRailCard /> : null}
+        <MachineSwitcher variant="rail" collapsed={railCollapsed} />
         {/* The product mark, at the foot, where the machine switcher was. The
             header carries the status line instead. Without a status line
             (no shell headline), the header keeps the mark and this stays
@@ -14971,6 +15007,14 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
         </span>
       ) : null}
       <span className={cn("min-w-0 flex-1 truncate", dense ? "text-[13px]" : "text-[14px]", unread ? "font-semibold" : "font-medium")}>{title}</span>
+      {session.peerName ? (
+        <span
+          data-session-peer={session.peerId ?? ""}
+          className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+        >
+          {session.peerName}
+        </span>
+      ) : null}
       {unread ? <span className={UNREAD_DOT_CLASS} aria-hidden="true" /> : null}
       {session.lastActivityAt ? (
         <span className="shrink-0 text-[12px] text-muted-foreground">{timeAgo(session.lastActivityAt)}</span>
@@ -15166,8 +15210,20 @@ const RailItem = memo(function RailItem({
       )}
       title={title}
       titleBadge={
-        topPinned ? (
-          <Pin aria-label="Pinned to top" className="size-3 shrink-0 text-primary" fill="currentColor" />
+        topPinned || session.peerName ? (
+          <span className="inline-flex shrink-0 items-center gap-1">
+            {session.peerName ? (
+              <span
+                data-session-peer={session.peerId ?? ""}
+                className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+              >
+                {session.peerName}
+              </span>
+            ) : null}
+            {topPinned ? (
+              <Pin aria-label="Pinned to top" className="size-3 shrink-0 text-primary" fill="currentColor" />
+            ) : null}
+          </span>
         ) : null
       }
       preview={

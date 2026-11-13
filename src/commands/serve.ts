@@ -24,7 +24,13 @@ import {
 import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts";
 import { hostDisks } from "../host-disks.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
-import { handleServerAccessRequest } from "../server-access.ts";
+import { handleServerAccessRequest, serverAccessInfo } from "../server-access.ts";
+import {
+  createPeerMachineProxy,
+  getLocalPeerToken,
+  handlePeersRequest,
+  type PeerProxySocketData,
+} from "../peer-machines.ts";
 import {
   answerMention,
   appendThreadMessage,
@@ -4435,7 +4441,8 @@ type AppSocketData =
   | SttStreamSocketData
   | LiveWsSocketData
   | ComputerSocketData
-  | ComputerVoxlSocketData;
+  | ComputerVoxlSocketData
+  | PeerProxySocketData;
 
 // The browser terminal's routes (src/term/routes.ts). A session terminal's
 // shell starts in that session's cwd (its worktree).
@@ -4506,6 +4513,7 @@ export async function cmdServe() {
   // --web`) get the shim, which opens the page in the Computer's desktop
   // browser. Every child of this process inherits it.
   installXdgOpenShim(process.env, PORT);
+  const peerMachineProxy = createPeerMachineProxy();
   const server = Bun.serve<AppSocketData>({
     port: PORT,
     hostname: HOST,
@@ -4531,6 +4539,10 @@ export async function cmdServe() {
       // as binary frames — the full raw VT byte stream a faithful renderer wants.
       idleTimeout: 600,
       open(ws: ServerWebSocket<AppSocketData>) {
+        if (peerMachineProxy.isProxySocket(ws)) {
+          peerMachineProxy.open(ws);
+          return;
+        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.open(ws as unknown as ServerWebSocket<unknown>);
           return;
@@ -4632,6 +4644,10 @@ export async function cmdServe() {
         termRoutes.open(ws as unknown as ServerWebSocket<TermSocketData>);
       },
       message(ws: ServerWebSocket<AppSocketData>, message) {
+        if (peerMachineProxy.isProxySocket(ws)) {
+          peerMachineProxy.message(ws, message);
+          return;
+        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.message(ws as unknown as ServerWebSocket<unknown>, message);
           return;
@@ -4668,6 +4684,10 @@ export async function cmdServe() {
         }
       },
       close(ws: ServerWebSocket<AppSocketData>) {
+        if (peerMachineProxy.isProxySocket(ws)) {
+          peerMachineProxy.close(ws);
+          return;
+        }
         if (liveWs.isLiveSocket(ws as unknown as ServerWebSocket<unknown>)) {
           liveWs.close(ws as unknown as ServerWebSocket<unknown>);
           return;
@@ -4713,6 +4733,39 @@ export async function cmdServe() {
 
       const response = await (async () => {
       try {
+      // Linked remote omg.dev machines, reached through this box
+      // (src/peer-machines.ts). Everything under /api/peers/machines/<peerId>/
+      // is the remote machine's own API and WebSockets, so this runs before any
+      // local /api route.
+      if (path.startsWith("/api/peers/machines/")) {
+        if (req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+          const data = peerMachineProxy.upgradeData(url);
+          if (!data) return err(404, "not found");
+          const ok = server.upgrade(req, { data });
+          if (ok) return undefined;
+          return err(400, "expected a websocket upgrade");
+        }
+        return await peerMachineProxy.handleHttp(req, url);
+      }
+      if (
+        path === "/api/peers" ||
+        path === "/api/peers/fleet" ||
+        path === "/api/peers/inbound" ||
+        path === "/api/peers/token"
+      ) {
+        const handled = await handlePeersRequest(req, url, {
+          localMachineName: () => getGlobalSettingsSync().machineName,
+          renameLocalMachine: async (machineName) => {
+            await setGlobalSettings({ machineName });
+          },
+          localUrl: () => localServeBaseUrl(),
+          tailscaleUrl: async () => {
+            const info = await serverAccessInfo().catch(() => null);
+            return info?.tailscale.serveUrl ?? (info?.tailscale.dnsName ? `https://${info.tailscale.dnsName}` : null);
+          },
+        });
+        if (handled) return handled;
+      }
       // The shared MCP endpoint. Agents registered with `--transport http`
       // reach the same tool surface `lfg mcp` exposes over stdio, without each
       // session spawning its own copy of this process. Streamable HTTP drives
@@ -12525,7 +12578,7 @@ a{color:#60a5fa}
           const { handleDeviceLink } = await import("../devices/http.ts");
           return handleDeviceLink(req);
         }
-        const gated = tailnetGateResponse(req);
+        const gated = tailnetGateResponse(req, { peerToken: getLocalPeerToken() });
         if (gated) {
           if (gated.status === 401) console.warn(`[tailnet-gate] 401 ${req.method} ${new URL(req.url).pathname}`);
           return gated;

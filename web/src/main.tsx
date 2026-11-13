@@ -11,6 +11,8 @@ import { router } from "./router";
 import { registerExtension } from "./lib/extensions";
 import { installErrorReporting } from "./lib/report-error";
 import { installIdleMotionPause } from "./lib/idle-motion";
+import { configureOmgTransport } from "./lib/omg-client";
+import { activeMachine, isLocalMachine, machineTransport } from "./lib/machines";
 import { AppDialogProvider } from "@/components/ui/app-dialog";
 import {
   applyTheme,
@@ -50,11 +52,18 @@ window.lfg = { React, ReactDOM, jsxRuntime: JsxRuntime, registerExtension };
 
 // omg.dev runs on this computer only. A machine chosen through the removed
 // omg Cloud switcher would point every request at a proxy that no longer
-// exists, so forget it.
+// exists, so forget it. Linked machines use their own key (lib/machines.ts).
 try {
   window.localStorage.removeItem("omg:machine");
 } catch {
   // Private mode: nothing was stored.
+}
+
+// Point the app at the chosen linked machine before anything reads the
+// transport. The local box needs nothing: the default same-origin transport is it.
+{
+  const machine = activeMachine();
+  if (!isLocalMachine(machine)) configureOmgTransport(machineTransport(machine));
 }
 
 applyTheme();

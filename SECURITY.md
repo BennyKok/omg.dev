@@ -36,6 +36,14 @@ understand it before you run it anywhere shared.
 - **Treat Tailscale auth keys as secrets.** Pass `TS_AUTHKEY` on the setup command
   line only; it is never written to disk. Prefer ephemeral, pre-approved, tagged,
   single-use keys.
+- **Treat a pairing code as a full-control credential.** Settings > Remote
+  access > "Allow linking from other machines" is off by default. When on, the
+  gated tailnet listener (`LFG_TAILNET_PORT`) accepts this box's peer token
+  from another omg.dev box. That box can then do anything the local UI can,
+  except manage links (`/api/peers*` returns 403 to it). The token is stored in
+  `peers.json` (mode 600). Turn the switch off or rotate the code to revoke it.
+  Responses proxied from a linked box carry a `sandbox` CSP, so its pages
+  cannot run script as your origin.
 
 ## Dependency auditing
 

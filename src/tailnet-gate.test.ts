@@ -45,6 +45,46 @@ describe("tailnet gate", () => {
     expect(tailnetGateResponse(req("/api/connectors/oauth/callback", { method: "POST" }))?.status).toBe(401);
   });
 
+  test("allows requests bearing the matching peerToken via Authorization or WebSocket subprotocol", () => {
+    const token = "omg_peer_secret1234567890";
+    expect(
+      tailnetGateResponse(
+        req("/api/sessions", { headers: { authorization: `Bearer ${token}` } }),
+        { peerToken: token },
+      ),
+    ).toBeNull();
+    expect(
+      tailnetGateResponse(
+        req("/api/live/ws", {
+          headers: { upgrade: "websocket", "sec-websocket-protocol": `lfg-bearer.${token}` },
+        }),
+        { peerToken: token },
+      ),
+    ).toBeNull();
+    expect(
+      tailnetGateResponse(
+        req("/api/sessions", { headers: { authorization: "Bearer wrong_token_value_12345" } }),
+        { peerToken: token },
+      )?.status,
+    ).toBe(401);
+  });
+
+  test("rejects every peer request while inbound access is off (null token)", () => {
+    const token = "omg_peer_secret1234567890";
+    expect(
+      tailnetGateResponse(req("/api/sessions", { headers: { authorization: `Bearer ${token}` } }), { peerToken: null })
+        ?.status,
+    ).toBe(401);
+  });
+
+  test("a peer token cannot reach link management or the onward proxy", () => {
+    const token = "omg_peer_secret1234567890";
+    const auth = { headers: { authorization: `Bearer ${token}` } };
+    for (const path of ["/api/peers", "/api/peers/token", "/api/peers/inbound", "/api/peers/machines/peer-1/api/sessions"]) {
+      expect(tailnetGateResponse(req(path, auth), { peerToken: token })?.status).toBe(403);
+    }
+  });
+
   test("LFG_TAILNET_PORT parsing", () => {
     expect(tailnetPortFromEnv(undefined, 8766)).toBe(0);
     expect(tailnetPortFromEnv("", 8766)).toBe(0);
