@@ -114,11 +114,17 @@ export function ImageLightbox({
   // Whether the current gesture moved enough to count as a pan/pinch (so we
   // don't treat a lift as a tap-to-close).
   const moved = useRef(false);
+  const gestureStart = useRef<{ x: number; y: number; backdrop: boolean } | null>(null);
   const [gesturing, setGesturing] = useState(false);
 
   // Reset the transform every time the viewer (re)opens.
   useEffect(() => {
     if (open) setView(RESET);
+    pointers.current.clear();
+    pinch.current = null;
+    gestureStart.current = null;
+    moved.current = false;
+    setGesturing(false);
   }, [open, src]);
 
   // Grow out of the tapped picture. Measured before the first paint, so the
@@ -237,9 +243,21 @@ export function ImageLightbox({
   );
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (closing.current || controlsRef.current?.contains(e.target as Node)) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    e.stopPropagation();
     e.currentTarget.setPointerCapture(e.pointerId);
+    if (pointers.current.size === 0) {
+      moved.current = false;
+      gestureStart.current = {
+        x: e.clientX, y: e.clientY,
+        backdrop: e.target === e.currentTarget || e.target === backdropRef.current,
+      };
+    } else {
+      // Adding a finger is a gesture even if neither finger moves.
+      moved.current = true;
+    }
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    moved.current = false;
     setGesturing(true);
     if (pointers.current.size === 2) {
       const [a, b] = [...pointers.current.values()];
@@ -255,6 +273,9 @@ export function ImageLightbox({
     const map = pointers.current;
     const prev = map.get(e.pointerId);
     if (!prev) return;
+    e.stopPropagation();
+    const start = gestureStart.current;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) moved.current = true;
     const next = { x: e.clientX, y: e.clientY };
     map.set(e.pointerId, next);
 
@@ -271,8 +292,8 @@ export function ImageLightbox({
         const ratio = dist / pinch.current.dist;
         const panX = mx - pinch.current.mx;
         const panY = my - pinch.current.my;
-        const dx = mx - rect.left;
-        const dy = my - rect.top;
+        const dx = pinch.current.mx - rect.left;
+        const dy = pinch.current.my - rect.top;
         setView((v) => {
           const target = clamp(v.scale * ratio, MIN_SCALE, MAX_SCALE);
           if (target === MIN_SCALE) return RESET;
@@ -300,16 +321,25 @@ export function ImageLightbox({
 
   function onPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
     const map = pointers.current;
+    if (!map.has(e.pointerId)) return;
+    e.stopPropagation();
+    if (e.type !== "pointerup") moved.current = true;
+    const start = gestureStart.current;
+    if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) > 8) moved.current = true;
     map.delete(e.pointerId);
     if (map.size < 2) pinch.current = null;
     if (map.size === 0) {
       setGesturing(false);
-      // A clean tap (no pan/pinch) while not zoomed dismisses the viewer.
-      if (!moved.current && view.scale <= MIN_SCALE) requestClose();
+      // Only a completed backdrop tap dismisses. Image taps must leave time
+      // for a second tap, and cancellations must never count as activation.
+      if (!moved.current && start?.backdrop) requestClose();
+      gestureStart.current = null;
     }
   }
 
   function onDoubleClick(e: ReactPointerEvent<HTMLDivElement>) {
+    if (controlsRef.current?.contains(e.target as Node)) return;
+    e.stopPropagation();
     if (view.scale > MIN_SCALE) setView(RESET);
     else zoomAt(DOUBLE_CLICK_SCALE, e.clientX, e.clientY);
   }
@@ -321,12 +351,14 @@ export function ImageLightbox({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[200] flex items-center justify-center"
+      className="fixed inset-0 z-[200] flex touch-none items-center justify-center"
       onWheel={onWheel}
-      onPointerDown={(e) => {
-        // Click on the backdrop (not the image) closes.
-        if (e.target === e.currentTarget || e.target === backdropRef.current) requestClose();
-      }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
+      onLostPointerCapture={onPointerUp}
+      onDoubleClick={onDoubleClick}
       role="dialog"
       aria-modal="true"
       aria-label={alt || "Image viewer"}
@@ -363,14 +395,9 @@ export function ImageLightbox({
       <div ref={stageRef} className="relative" style={{ transformOrigin: "0 0", willChange: "transform" }}>
       <div
         ref={imgRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerCancel={onPointerUp}
-        onDoubleClick={onDoubleClick}
         className={cn(
           "relative touch-none select-none",
-          zoomed ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-out",
+          zoomed ? "cursor-grab active:cursor-grabbing" : "cursor-zoom-in",
         )}
         style={{
           ...box,
