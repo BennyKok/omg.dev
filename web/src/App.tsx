@@ -6366,9 +6366,8 @@ export function App() {
     // A shrunken visual viewport only means "soft keyboard" if something that
     // can raise one actually has focus. Returning from the app switcher, iOS
     // hands back a mid-animation visual viewport (sometimes with a pinch scale
-    // still latched); read naively that looks exactly like a keyboard, and
-    // because <html> is sized from --lfg-app-height the whole document stays
-    // locked into the top slice of the screen until the next pinch or rotate.
+    // still latched). Keep keyboard-only chrome tied to focus, but size the
+    // app to the visible band even while those measurements settle.
     const keyboardCapableFocus = () => {
       // Shadow-piercing: the Pierre tree and editor keep their real input inside
       // a shadow root, so document.activeElement alone would report the host.
@@ -6414,9 +6413,11 @@ export function App() {
       const kb = Math.max(0, layoutHeight - measured);
       const shrunk = kb > 120;
       const open = shrunk && keyboardCapableFocus();
-      // Shrunk with nothing focused is a stale measurement, not a keyboard:
-      // keep the shell at the layout viewport and re-sample until WebKit
-      // settles, instead of squeezing the app into part of the screen.
+      // A smaller visual viewport with nothing focused can be a keyboard
+      // closing or a foreground transition. Re-sample until WebKit settles,
+      // but keep controls inside the visible band in the meantime. Falling
+      // back to innerHeight put the composer below the screen indefinitely
+      // when the layout viewport, rather than the visual one, was stale.
       const stale = shrunk && !open;
       // The shortcut bar floats over the page. Keep the shell at its resting
       // height so focusing or blurring a field does not resize the app.
@@ -6444,7 +6445,7 @@ export function App() {
       }
       const el = rootRef.current;
       const visualHeight = Math.ceil(
-        stale ? layoutHeight : barStep.active || lifted ? Math.max(layoutHeight, barStep.restHeight) : measured,
+        barStep.active || lifted ? Math.max(layoutHeight, barStep.restHeight) : measured,
       );
       const rawVisualTopPx = Math.max(
         0,
