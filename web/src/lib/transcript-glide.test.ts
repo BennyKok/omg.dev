@@ -101,8 +101,15 @@ describe("transcript follow action", () => {
     expect(action({ running: true })).toBe("continue");
   });
 
-  test("a manual jump to latest deliberately restarts the glide", () => {
+  test("re-pinning after a gesture starts a short settling glide", () => {
     expect(action({ reengaged: true, running: true })).toBe("start");
+  });
+
+  test("the latest button skips history even during a glide or recent gesture", () => {
+    expect(action({ latestJump: true, reengaged: true })).toBe("snap");
+    expect(action({ latestJump: true, running: true })).toBe("snap");
+    expect(action({ latestJump: true, gestureLive: true })).toBe("snap");
+    expect(action({ latestJump: true, reducedMotion: true })).toBe("snap");
   });
 
   test("ordinary stream growth still snaps when no glide is active", () => {

@@ -6,8 +6,8 @@ export type TranscriptGlideState = {
 
 export type TranscriptGlideAction = "start" | "continue" | "snap" | "hold";
 
-/** Follow new content immediately. Only an explicit return to latest starts
- * a glide; subsequent growth lets that user-requested glide finish.
+/** Follow new content immediately. An explicit jump skips history.
+ * Re-pinning after a gesture can glide through the remaining bottom slack.
  *
  * "hold" means write nothing. A reader's drag or coasting flick owns the pane:
  * a `scrollTop` write then stops the momentum dead and, at the end of the
@@ -19,16 +19,20 @@ export type TranscriptGlideAction = "start" | "continue" | "snap" | "hold";
  * again once scroll events stop, and that run glides the rest of the way. */
 export function transcriptGlideAction({
   reengaged,
+  latestJump = false,
   reducedMotion,
   running,
   gestureLive,
 }: {
   reengaged: boolean;
+  /** Explicit button press skips history; the pane reveals the destination. */
+  latestJump?: boolean;
   reducedMotion: boolean;
   running: boolean;
   /** A reader's gesture or its momentum is still moving the pane. */
   gestureLive: boolean;
 }): TranscriptGlideAction {
+  if (latestJump) return "snap";
   if (gestureLive) return "hold";
   if (reducedMotion) return "snap";
   if (reengaged) return "start";

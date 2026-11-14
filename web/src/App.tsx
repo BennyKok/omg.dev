@@ -20425,22 +20425,17 @@ const ChatStream = memo(function ChatStream({
     }
   }
 
-  // Follow-to-bottom used to be one line — `el.scrollTop = el.scrollHeight`
-  // on every change while `stick` — which snapped the viewport in the same
-  // frame the new message's layout landed at full height (its own fade/slide
-  // entrance is opacity+transform, which don't affect layout, so the height
-  // was already final before that entrance had drawn a single frame). Two
-  // motions arriving in the same frame reads as one flick, not two things
-  // happening.
-  //
-  // A fast token stream is the reason this can't just become
-  // `scrollTo({behavior:"smooth"})` everywhere: a smooth scroll that can't
-  // keep up with the next token arriving 30ms later looks worse than a jump
-  // (it visibly lags the text). So only *discrete* arrivals animate — a new
-  // item appended, or the typing indicator mounting/unmounting — and the
-  // streaming tail's own in-place growth still snaps instantly, same as
-  // before.
+  // Follow live content immediately. Only settling after a reader's gesture
+  // uses the spring. The latest button skips history and reveals its target
+  // with opacity, so long transcripts never race past the reader.
   const programmaticScrollRef = useRef(false);
+  const latestJumpRef = useRef(false);
+  const latestRevealRef = useRef<Animation | null>(null);
+  const stopLatestReveal = useCallback(() => {
+    latestRevealRef.current?.cancel();
+    latestRevealRef.current = null;
+  }, []);
+  useEffect(() => stopLatestReveal, [sid, stopLatestReveal]);
   const glideRafRef = useRef<number | null>(null);
   const glideSpringRef = useRef(createTranscriptGlideState());
   const prevStickRef = useRef(stick);
@@ -20477,8 +20472,9 @@ const ChatStream = memo(function ChatStream({
    */
   const beginUserScroll = useCallback(() => {
     userDrivenRef.current = true;
+    stopLatestReveal();
     stopGlide();
-  }, [stopGlide]);
+  }, [stopGlide, stopLatestReveal]);
 
   // Springs toward the bottom rather than tweening a fixed start/end: re-reads
   // `scrollHeight` every frame, so a message that keeps growing while this is
@@ -20915,12 +20911,12 @@ const ChatStream = memo(function ChatStream({
     return () => cancelAnimationFrame(frame);
   }, [loading, revealedSid, sid, stopGlide]);
 
-  // A manual jump-to-latest click is itself a discrete event — route it
-  // through the same `stick` transition the effect below already treats as
-  // one, instead of a second scroll call that would race the effect's own.
+  // Record the explicit jump intent. The follow effect remains the sole
+  // scroll owner and reveals the destination without traversing old rows.
   const scrollToBottom = useCallback(() => {
     // A deliberate request, so a flick that just ended does not hold it.
     userDrivenRef.current = false;
+    latestJumpRef.current = true;
     setStick(true);
   }, []);
 
@@ -20965,11 +20961,12 @@ const ChatStream = memo(function ChatStream({
       settleAfterGestureRef.current = false;
       return;
     }
+    const latestJump = latestJumpRef.current;
+    latestJumpRef.current = false;
     const switched = justSwitchedRef.current;
     const switching = revealedSid !== sid;
-    // New messages are visible before paint. Only a deliberate return to the
-    // live bottom animates; arrivals must not wait below the viewport while
-    // a spring catches up, especially after the composer changes height.
+    // New messages are visible before paint. A gesture can settle toward the
+    // live bottom; explicit jumps snap and reveal the destination instead.
     const reengaged = !sent && !switched && !prevStickRef.current;
     prevStickRef.current = stick || sent;
     // Only write when we're not already pinned: a redundant assignment still
@@ -21013,6 +21010,7 @@ const ChatStream = memo(function ChatStream({
     }
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     const glideAction = transcriptGlideAction({
+      latestJump,
       reengaged: reengaged || settleAfterGestureRef.current,
       reducedMotion,
       running: glideRafRef.current != null,
@@ -21032,8 +21030,8 @@ const ChatStream = memo(function ChatStream({
       return;
     }
     settleAfterGestureRef.current = false;
-    // A manual jump already in flight keeps chasing the live target. All
-    // other growth follows immediately through this one scroll owner.
+    // A settling glide keeps chasing the live target. Explicit jumps and
+    // other growth follow immediately through this one scroll owner.
     if (glideAction === "start") {
       startGlide(el);
     } else if (glideAction === "snap") {
@@ -21045,8 +21043,17 @@ const ChatStream = memo(function ChatStream({
       lastScrollTopRef.current = el.scrollTop;
       // Our write, not theirs: the event this raises must not move the mode.
       userDrivenRef.current = false;
+      if (latestJump) {
+        stopLatestReveal();
+        if (!reducedMotion) {
+          latestRevealRef.current = el.animate?.(
+            [{ opacity: 0 }, { opacity: 1 }],
+            { duration: 160, easing: "ease-out" },
+          ) ?? null;
+        }
+      }
     }
-  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, composerSendSeq, settleTick, startGlide, stopGlide, captureAnchor]);
+  }, [visibleMessages, busy, stick, items.length, showTypingIndicator, waitingKey, totalSize, viewportHeight, revealedSid, sid, composerSendSeq, settleTick, startGlide, stopGlide, stopLatestReveal, captureAnchor]);
 
   // The virtual list sits below the loading-older spinner, so the offsets the
   // virtualizer hands out are shifted by however much chrome is above it.
