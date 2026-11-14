@@ -49,7 +49,7 @@ Last refresh: 2026-11-14.
 - Local CLI, server, lifecycle, and agent adapters: `src/`.
 - Local web UI: `web/`. Desktop shell: `desktop/`.
 - Protocol and client libraries: `packages/protocol/` and `packages/client/`.
-- Device linking: `src/devices/` and `docs/device-link.md`. Peers: `src/peers/`.
+- Device linking: `src/devices/` and `docs/device-link.md`. Peers: `src/peer-machines.ts`.
 - Event hooks: `src/events/` and `docs/event-hooks.md`.
 - Session plans: `docs/session-plan.md`. Terminal: `docs/terminal.md`.
 - Hosted product, billing, and fleet: the separate `vibes` repository.
