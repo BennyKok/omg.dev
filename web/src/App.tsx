@@ -18845,7 +18845,9 @@ function SessionTitleSheet({
     const onStart = (event: TouchEvent) => {
       if (closingRef.current || event.touches.length !== 1) return;
       const target = event.target instanceof Element ? event.target : null;
-      if (target?.closest("form") ? composerIsEditing(event.target) : blocksSwipeBack(event.target)) return;
+      // Only the chat composer permits a swipe before editing starts. Secure
+      // fields and other forms must keep their native focus and paste gestures.
+      if (target?.closest("form[data-composer-kind]") ? composerIsEditing(event.target) : blocksSwipeBack(event.target)) return;
       const touch = event.touches[0];
       st.active = true;
       st.intent = "pending";
