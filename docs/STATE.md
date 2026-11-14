@@ -2,46 +2,46 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-11.
+Last refresh: 2026-11-14.
 
 ## Active work (last 14 days)
 
-- **Local runtime**: omg.dev is local software since v0.7.0. Cloud sign-in,
-  hosted-app commands, cloud builds, and paid media tools were removed
-  (`a53393a5e`, `2cdf61627`, `70884fae4`). Embedding and `@omg-dev/app` were
-  removed in v0.7.1 (`898522cf7`). The README describes the self-run version
-  (#501). The former Cloud and deploy design is marked superseded (#504).
-- **Computer**: macOS gained native screen capture, input, and clipboard
-  support (#505). Full-screen cursor cleanup was fixed (#479).
-  Personal Computer connections were retired (#493).
-- **Runtime and repository**: snapfork bases install nested Bun projects for
-  forks to share (#497). Native clients, legacy deploy templates, and internal
-  files were removed (#498).
-- **Web performance**: React Compiler covers hot components (#464); rail rows
-  update selectively (#465). Web moved to Vite 8 and React 19.3 (#467–#468).
-  Chat swipe-back was fixed (#471).
-- **Navigation and templates**: Create separated templates and skills (#463).
-  Host tutorials were drawn in the page flow (#477), and the web-game template
-  was updated (#469).
-  Hosted templates were later removed (`89f52e88c`).
-- **Earlier hosted work**: Terra model selection (#459),
-  deploy (#482), finding autopilot (#490), and the prebuilt embed bundle
-  (#475) landed before the local-only changes above. These PRs do not establish
-  current cloud support.
+- **Local runtime**: omg.dev became local software in v0.7.0. Cloud sign-in,
+  hosted-app commands, cloud builds, and embedding were removed
+  (`a53393a5e`, `2cdf61627`, `898522cf7`). The README describes the self-run
+  version (#501). The former Cloud and deploy design is superseded (#504).
+- **Computer**: native macOS screen capture, input, and clipboard landed
+  (#505). Personal Computer connections were retired (#493). The local
+  Computer page uses voxl by default (`1f21df9a5`).
+- **Runtime and repository**: nested Bun installs are shared by snapshot forks
+  (#497); bases older than a nested project are rejected (`bbd6bf3fa`). Native
+  clients, legacy deploy templates, and internal files were removed (#498).
+  OpenCode provider retry waits no longer leave turns stuck (`afc1e25a3`).
+- **Devices and peers**: local device connections and approvals are in the UI
+  (`baed18dc7`); incoming requests and notifications appear across the UI
+  (`2f7895388`). Linked remote omg.dev machines share the sidebar and switcher
+  (`8bfe61c5c`); their sessions open in place (`ac4cac00b`).
+- **Agents and session tools**: Google Antigravity uses its official ACP server
+  (`38ff557b8`). Event hooks act on new events (`7720e01b8`). The plan pane
+  shows steps and child sessions (`21a8fa14f`, `cbb7e8e55`). The terminal has
+  docked tabs and snapshot resume (`bd56dff91`).
+- **Web UI**: Remote access has its own Settings page (`0e0f075c4`). Recent
+  fixes cover activity navigation, secure input gestures, image pinch gestures,
+  and composer position (`8d93f981b`, `b127a4caf`, `56136fae3`, `8c028aa7a`).
 - **Security and dependencies**: audit fixes (#494), production address removal
   (#496), pinned Actions, release approval gates, and npm trusted publishing
   (#491) landed.
+- **Earlier hosted work**: Terra selection (#459) and finding autopilot (#490)
+  landed before the local-only changes. These PRs do not establish current
+  cloud support.
 - **Release and docs**: release failures no longer file issues (#485).
-  Nightly documentation refreshes continue (latest: #506).
-- **Latest direct commits**: device connection and request approval are in the
-  local UI (`baed18dc7`). Remote access has its own Settings page
-  (`0e0f075c4`); desktop settings and composer layouts were updated
-  (`119826c87`, `21266a1ea`). Desktop packaging is paused (`88e1928ac`).
+  Desktop packaging is paused (`88e1928ac`). The latest release commit is
+  v0.7.8 (`9983b663a`). The previous STATE.md refresh was #507.
 
 ## Open pull requests
 
-- In progress: none.
-- Stale (no update for 30+ days): none.
+- In progress: none at refresh time.
+- Stale (no update for 30+ days): none at refresh time.
 
 ## Where things are
 
@@ -49,7 +49,7 @@ Last refresh: 2026-11-11.
 - Local CLI, server, lifecycle, and agent adapters: `src/`.
 - Local web UI: `web/`. Desktop shell: `desktop/`.
 - Protocol and client libraries: `packages/protocol/` and `packages/client/`.
-- Device linking: `src/devices/` and `docs/device-link.md`.
+- Device linking: `src/devices/` and `docs/device-link.md`. Peers: `src/peer-machines.ts`.
 - Event hooks: `src/events/` and `docs/event-hooks.md`.
 - Session plans: `docs/session-plan.md`. Terminal: `docs/terminal.md`.
 - Hosted product, billing, and fleet: the separate `vibes` repository.
