@@ -42,6 +42,7 @@ const drivers: Record<string, [string, string]> = {
   muse: ["muse-msp-session", "cmdMuseMspSession"],
   deepseek: ["deepseek-acp-session", "cmdDeepseekAcpSession"],
   devin: ["devin-acp-session", "cmdDevinAcpSession"],
+  antigravity: ["antigravity-acp-session", "cmdAntigravityAcpSession"],
 };
 if (backend === "claude-report") {
   const { pipeToClaudeAiSdk } = await import("../agents/backends/claude-ai-sdk.ts");

@@ -1,0 +1,14 @@
+<svg width="128" height="128" viewBox="0 0 128 128" fill="none" xmlns="http://www.w3.org/2000/svg">
+<title>Antigravity</title>
+<!-- Neutral omg.dev mark for the Google Antigravity agent: an arch rising over a baseline. Not the Google logo. -->
+<rect width="128" height="128" rx="24" fill="white"/>
+<defs>
+<linearGradient id="agy" x1="24" y1="104" x2="104" y2="24" gradientUnits="userSpaceOnUse">
+<stop stop-color="#4285F4"/>
+<stop offset="0.5" stop-color="#9B72CB"/>
+<stop offset="1" stop-color="#D96570"/>
+</linearGradient>
+</defs>
+<path d="M24 100C24 100 36 28 64 28C92 28 104 100 104 100" stroke="url(#agy)" stroke-width="14" stroke-linecap="round" fill="none"/>
+<circle cx="64" cy="76" r="10" fill="url(#agy)"/>
+</svg>

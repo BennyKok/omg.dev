@@ -102,7 +102,12 @@ export async function bindAcpConversation(opts: {
   resume?: string;
   state: AcpUpdateState;
   sink: ManagedSdkEventSink;
-}): Promise<{ sessionId: string; methods: AcpAdvertisedSessionMethods }> {
+}): Promise<{
+  sessionId: string;
+  methods: AcpAdvertisedSessionMethods;
+  /** Session options the agent reported on open (model, thinking level, ...). */
+  configOptions: acp.SessionConfigOption[];
+}> {
   const init = await opts.context.request(acp.methods.agent.initialize, {
     protocolVersion: acp.PROTOCOL_VERSION,
     clientCapabilities: { fs: { readTextFile: true, writeTextFile: true } },
@@ -110,34 +115,68 @@ export async function bindAcpConversation(opts: {
   const methods = advertisedAcpSessionMethods(init);
   const strategy = acpResumeStrategy(methods, opts.resume);
   if (strategy === "resume") {
-    await opts.context.request(acp.methods.agent.session.resume, {
+    const resumed = await opts.context.request(acp.methods.agent.session.resume, {
       sessionId: opts.resume,
       cwd: opts.cwd,
       mcpServers: opts.mcpServers,
-    });
-    return { sessionId: opts.resume!, methods };
+    }) as { configOptions?: acp.SessionConfigOption[] | null } | null;
+    return { sessionId: opts.resume!, methods, configOptions: resumed?.configOptions ?? [] };
   }
   if (strategy === "load") {
     opts.state.replaying = true;
+    let loadedOptions: acp.SessionConfigOption[] = [];
     try {
-      await opts.context.request(acp.methods.agent.session.load, {
+      const loaded = await opts.context.request(acp.methods.agent.session.load, {
         sessionId: opts.resume,
         cwd: opts.cwd,
         mcpServers: opts.mcpServers,
-      });
+      }) as { configOptions?: acp.SessionConfigOption[] | null } | null;
+      loadedOptions = loaded?.configOptions ?? [];
     } finally {
       opts.state.replaying = false;
       opts.state.draft = "";
       opts.state.thought = "";
       opts.sink.draft("");
     }
-    return { sessionId: opts.resume!, methods };
+    return { sessionId: opts.resume!, methods, configOptions: loadedOptions };
   }
   const created = await opts.context.request(acp.methods.agent.session.new, {
     cwd: opts.cwd,
     mcpServers: opts.mcpServers,
-  }) as { sessionId?: string };
+  }) as { sessionId?: string; configOptions?: acp.SessionConfigOption[] | null };
   const sessionId = created.sessionId;
   if (!sessionId) throw new Error("ACP session/new returned no session id");
-  return { sessionId, methods };
+  return { sessionId, methods, configOptions: created.configOptions ?? [] };
+}
+
+function flatSelectOptions(option: acp.SessionConfigOption): acp.SessionConfigSelectOption[] {
+  if (option.type !== "select") return [];
+  return option.options.flatMap((entry) => ("options" in entry ? entry.options : [entry]));
+}
+
+/**
+ * Resolve a requested value against an agent-advertised select option.
+ *
+ * ACP agents publish their own value ids (an opaque model id, "extra" for a
+ * thinking level), while omg.dev stores the user's words. Match the value id
+ * first, then the display name, both case-insensitively, then a unique
+ * substring of either. Return null rather than guess between two candidates.
+ * Pure, so the matching rule is testable without an agent process.
+ */
+export function resolveAcpConfigChoice(
+  options: readonly acp.SessionConfigOption[],
+  category: string,
+  wanted: string,
+): { configId: string; value: string } | null {
+  const option = options.find((entry) => entry.type === "select" && entry.category === category);
+  if (!option) return null;
+  const choices = flatSelectOptions(option);
+  const needle = wanted.trim().toLowerCase();
+  if (!needle) return null;
+  const exact = choices.find((choice) => choice.value.toLowerCase() === needle)
+    ?? choices.find((choice) => choice.name.toLowerCase() === needle);
+  if (exact) return { configId: option.id, value: exact.value };
+  const partial = choices.filter((choice) =>
+    choice.value.toLowerCase().includes(needle) || choice.name.toLowerCase().includes(needle));
+  return partial.length === 1 ? { configId: option.id, value: partial[0]!.value } : null;
 }

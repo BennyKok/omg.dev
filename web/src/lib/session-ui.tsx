@@ -13,7 +13,7 @@ import { cn } from "./utils";
 // Bump whenever an agent mark in web/public changes: versioned icon URLs are
 // served `immutable, max-age=1y`, so a redrawn SVG at the same `?v=` keeps
 // serving the old art out of the browser cache forever.
-export const AGENT_ICON_VERSION = "20261011c";
+export const AGENT_ICON_VERSION = "20261114a";
 
 /**
  * The session-card / picker icon for an agent kind. Codex variants share the
@@ -28,6 +28,7 @@ export function agentIconSrc(agent?: string): string {
   if (agent === "muse") return omgAssetUrl(`/agent-muse.svg${v}`);
   if (agent === "deepseek") return omgAssetUrl(`/agent-deepseek.svg${v}`);
   if (agent === "devin") return omgAssetUrl(`/agent-devin.svg${v}`);
+  if (agent === "antigravity") return omgAssetUrl(`/agent-antigravity.svg${v}`);
   if (agent === "hermes") return omgAssetUrl(`/agent-hermes.svg${v}`);
   if (agent === "omg") return omgAssetUrl(`/agent-omg.svg${v}`);
   if (agent === "opencode") return omgAssetUrl(`/agent-opencode.svg${v}`);
@@ -45,6 +46,7 @@ export function agentIconAlt(agent?: string): string {
   if (agent === "muse") return "Muse";
   if (agent === "deepseek") return "DeepSeek";
   if (agent === "devin") return "Devin";
+  if (agent === "antigravity") return "Antigravity";
   if (agent === "hermes") return "Hermes";
   if (agent === "omg") return "omg agent";
   if (agent === "opencode") return "OpenCode";
@@ -173,6 +175,8 @@ export const BROWSER_AUTH_PROVIDER_LABELS: Record<string, string> = {
   fx: "Vercel",
   // `muse login` is the Meta device flow: a verification URL plus a code.
   muse: "Meta",
+  // `agy acp --login` prints a Google URL, then takes the pasted code.
+  antigravity: "Google",
 };
 
 export const BROWSER_AUTH_KINDS = new Set<string>(

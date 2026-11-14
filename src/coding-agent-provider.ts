@@ -13,6 +13,7 @@ import {
   spawnManagedCopilotSdkSession,
   spawnManagedCursorAcpSession,
   spawnManagedDevinAcpSession,
+  spawnManagedAntigravityAcpSession,
   spawnManagedFxAcpSession,
   spawnManagedDeepseekAcpSession,
   spawnManagedGrokAcpSession,
@@ -230,6 +231,19 @@ export const ACTIVE_CODING_AGENT_PROVIDERS = {
       omgSessionId: request.sessionId,
       omgUser: request.omgUser,
       containInAgentSlice: request.containInAgentSlice,
+    })),
+  antigravity: provider("antigravity", (request) =>
+    spawnManagedAntigravityAcpSession({
+      name: request.name,
+      cwd: request.cwd,
+      prompt: request.prompt,
+      model: request.model ?? defaultModelForAgent("antigravity"),
+      key: request.sessionId,
+      thinkingLevel: request.thinkingLevel,
+      omgSessionId: request.sessionId,
+      omgUser: request.omgUser,
+      containInAgentSlice: request.containInAgentSlice,
+      resume: request.resume,
     })),
   pi: provider("pi", (request) =>
     spawnManagedPiSession({

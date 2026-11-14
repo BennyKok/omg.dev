@@ -129,7 +129,7 @@ export async function cmdDoctor(argv: string[] = []): Promise<void> {
 
   // Which agent binaries exist. A session cannot start without one, and this is
   // the single most common reason a fresh install cannot do anything.
-  for (const bin of ["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "fx", "muse"]) {
+  for (const bin of ["claude", "codex", "opencode", "jcode", "grok", "cursor-agent", "fx", "muse", "agy"]) {
     probes.push(await probe(`agent: ${bin}`, () => commandVersion(bin)));
   }
 

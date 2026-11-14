@@ -106,7 +106,7 @@ test("Codex scheduled connector credentials do not mutate the parent environment
   expect(process.env.OMG_MCP_HEADER_0).toBe(before);
 });
 
-for (const backend of ["aisdk", "claude-report", "claude-cli", "codex-aisdk", "codex-report", "codex-cli", "opencode", "cursor", "grok", "fx", "copilot", "pi", "jcode", "muse", "deepseek", "devin"]) {
+for (const backend of ["aisdk", "claude-report", "claude-cli", "codex-aisdk", "codex-report", "codex-cli", "opencode", "cursor", "grok", "fx", "copilot", "pi", "jcode", "muse", "deepseek", "devin", "antigravity"]) {
   test(`${backend}: production launch argv has no MCP token or credential literal`, async () => {
     const capture = join(root, "audit.json");
     const proc = Bun.spawn([process.execPath, join(import.meta.dir, "test-support/mcp-argv-audit.fixture.ts"), backend], {

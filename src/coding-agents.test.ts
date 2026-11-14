@@ -159,6 +159,26 @@ describe("coding agent browser auth output", () => {
     });
   });
 
+  // Captured from `agy acp --login` against Antigravity CLI 1.5.9 (state and
+  // PKCE values shortened). It is a paste-a-code login like Claude's: the URL
+  // is shown first, then the process waits on stdin for the code.
+  test("extracts the Google sign-in URL and asks for a pasted code for antigravity", () => {
+    const url = "https://accounts.google.com/o/oauth2/auth?access_type=offline&client_id=1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com&code_challenge=abc&code_challenge_method=S256&prompt=consent&redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback&response_type=code&state=xyz";
+    const output = [
+      "Open this link in a browser to log in with Google:",
+      "",
+      `  ${url}`,
+      "",
+      "Then paste the authorization code, or the full URL of the page you land on, and press Enter:",
+    ].join("\n");
+
+    expect(parseAuthOutput("antigravity", output)).toEqual({ authorizationUrl: url, needsCode: true });
+    expect(parseAuthOutput("antigravity", output.split("\n").slice(0, 3).join("\n"))).toEqual({
+      authorizationUrl: url,
+      needsCode: false,
+    });
+  });
+
   // Captured verbatim from `muse login` against muse 1.0.2: the Meta device
   // flow prints the verification URL (which carries the code) and the code.
   test("extracts the Meta verification URL and device code for muse", () => {

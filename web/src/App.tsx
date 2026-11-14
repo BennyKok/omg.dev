@@ -844,6 +844,7 @@ type AuthProvider =
   | "grok"
   | "fx"
   | "muse"
+  | "antigravity"
   | "github"
   | "pi-anthropic"
   | "pi-codex"
@@ -856,6 +857,7 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   grok: "Grok",
   fx: "Vercel",
   muse: "Meta",
+  antigravity: "Google",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
@@ -1511,6 +1513,9 @@ const DEEPSEEK_MODELS = ["deepseek-v4-flash", "deepseek-v4-pro"];
 // Kept in sync with DEVIN_MODELS in src/agent-catalog.ts (the server catalog
 // overrides this fallback at bootstrap).
 const DEVIN_MODELS = ["adaptive", "swe", "opus", "gpt", "sonnet", "gemini", "codex"];
+// Kept in sync with ANTIGRAVITY_MODELS in src/agent-catalog.ts. The real list
+// is the signed-in Google plan's, reported inside the ACP session.
+const ANTIGRAVITY_MODELS = ["default"];
 // Kept in sync with COPILOT_MODELS in src/agent-catalog.ts (the server catalog
 // overrides this fallback at bootstrap).
 const COPILOT_MODELS = ["claude-sonnet-4.5", "claude-sonnet-4", "gpt-5", "grok-4.7"];
@@ -1558,7 +1563,8 @@ function agentSupportsThinking(agent: AgentKind): boolean {
     agent === "opencode" ||
     agent === "jcode" ||
     agent === "pi" ||
-    agent === "muse"
+    agent === "muse" ||
+    agent === "antigravity"
   );
 }
 
@@ -1576,6 +1582,7 @@ const AGENT_MODELS: Record<AgentKind, string[]> = {
   muse: MUSE_MODELS,
   deepseek: DEEPSEEK_MODELS,
   devin: DEVIN_MODELS,
+  antigravity: ANTIGRAVITY_MODELS,
   opencode: OPENCODE_MODELS,
   omg: OMG_MODELS,
   jcode: JCODE_MODELS,
@@ -1600,6 +1607,8 @@ const AGENT_THINKING_LEVELS: Record<AgentKind, string[]> = {
   // Devin exposes reasoning levels only inside a running session (Alt+T), not
   // as a launch flag, so the selector stays hidden.
   devin: [],
+  // Antigravity's ACP "Thinking level" option (xhigh is its "Extra").
+  antigravity: ["low", "medium", "high", "xhigh", "max"],
   opencode: [],
   omg: [],
   jcode: ["low", "medium", "high", "xhigh", "max"],
@@ -29240,7 +29249,9 @@ function CodingAgentAuthPanel({
                   ? "Paste the callback URL from the address bar after approval"
                   : session.provider === "jcode-claude"
                     ? "Paste the code or callback URL Claude shows after approval"
-                    : "Paste the code Claude shows after approval"}
+                    : session.provider === "antigravity"
+                      ? "Paste the authorization code, or the full URL of the page you land on"
+                      : "Paste the code Claude shows after approval"}
               </label>
               <div className="flex gap-2">
                 <input

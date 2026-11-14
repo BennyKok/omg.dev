@@ -112,6 +112,7 @@ LFG_INSTALL_FX="${LFG_INSTALL_FX:-0}"
 LFG_INSTALL_MUSE="${LFG_INSTALL_MUSE:-0}"
 LFG_INSTALL_DEEPSEEK="${LFG_INSTALL_DEEPSEEK:-0}"
 LFG_INSTALL_DEVIN="${LFG_INSTALL_DEVIN:-0}"
+LFG_INSTALL_ANTIGRAVITY="${LFG_INSTALL_ANTIGRAVITY:-0}"
 LFG_INSTALL_COPILOT="${LFG_INSTALL_COPILOT:-0}"
 # pi is not bundled any more: its provider layer pulls eleven SDKs (Anthropic,
 # OpenAI, Google GenAI, Mistral, Bedrock) totalling ~115MB, for one optional
@@ -549,6 +550,11 @@ run_agent_installer() {
     devin)
       curl -fsSL https://cli.devin.ai/install.sh | bash
       ;;
+    antigravity)
+      # Google's installer verifies the download checksum and writes the
+      # official `agy` binary to ~/.local/bin.
+      curl -fsSL https://antigravity.google/cli/install.sh | bash
+      ;;
     pi)
       # Installed into the install directory, which is where the harness and
       # detection both look for it.
@@ -612,6 +618,7 @@ ensure_agent fx       "$LFG_INSTALL_FX"       command -v fx
 ensure_agent muse     "$LFG_INSTALL_MUSE"     command -v muse
 ensure_agent deepseek "$LFG_INSTALL_DEEPSEEK" deepseek_harness_ready
 ensure_agent devin    "$LFG_INSTALL_DEVIN"    command -v devin
+ensure_agent antigravity "$LFG_INSTALL_ANTIGRAVITY" command -v agy
 ensure_agent copilot  "$LFG_INSTALL_COPILOT"  command -v copilot
 ensure_agent pi       "$LFG_INSTALL_PI"       test -f "$LFG_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
 

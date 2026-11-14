@@ -11,6 +11,8 @@ export const AGENT_DEFAULT_MODELS = {
   muse: "muse-spark-1.2",
   deepseek: "deepseek-v4-flash",
   devin: "adaptive",
+  // "default" keeps the model the signed-in Google account selects in Antigravity.
+  antigravity: "default",
   hermes: "nousresearch/hermes-4-405b",
   opencode: "opencode/nemotron-3.5-lightning-free",
   // The omg agent runs the owner's custom models (~/.omg/models.json); the

@@ -122,6 +122,7 @@ const DIRECT_INDEX_MANAGED_AGENTS = new Set<ManagedSession["agent"]>([
   "muse",
   "deepseek",
   "devin",
+  "antigravity",
   "copilot",
   "jcode",
 ]);
@@ -692,6 +693,8 @@ export function managedLaunchRow(
             ? "dsh --profile omg --patch config/deepseek-acp.patch.yml"
           : agent === "devin"
             ? `devin acp --model ${m.model ?? ""}`.trim()
+          : agent === "antigravity"
+            ? "agy acp --process-per-session"
           : agent === "jcode"
             ? `jcode --model ${m.model ?? ""} repl`.trim()
           : agent === "hermes"
@@ -743,7 +746,7 @@ export function managedLaunchRow(
     managed: true,
     assignedUser: assigns[m.tmuxName] ?? null,
     model:
-      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "omg" || agent === "jcode" || agent === "grok" || agent === "cursor" || agent === "deepseek" || agent === "devin" || agent === "hermes" || agent === "muse"
+      agent === "codex" || agent === "codex-aisdk" || agent === "opencode" || agent === "omg" || agent === "jcode" || agent === "grok" || agent === "cursor" || agent === "deepseek" || agent === "devin" || agent === "antigravity" || agent === "hermes" || agent === "muse"
         ? model
         : modelAlias(model),
     thinkingLevel: m.thinkingLevel ?? null,
@@ -3572,8 +3575,8 @@ export type ResumableSession = {
   // Which engine the session was recorded with. "claude" resumes via the claude
   // CLI (`claude --resume`); "codex" resumes via a codex-aisdk harness keyed to
   // the rollout's threadId. The serve /resume endpoint branches on this.
-  agent: "claude" | "codex" | "opencode" | "omg" | "pi" | "grok" | "cursor" | "fx" | "muse" | "copilot" | "jcode";
-  backend?: "aisdk" | "codex-aisdk" | "opencode" | "omg" | "pi" | "grok" | "cursor" | "fx" | "muse" | "copilot" | "jcode";
+  agent: "claude" | "codex" | "opencode" | "omg" | "pi" | "grok" | "cursor" | "fx" | "muse" | "antigravity" | "copilot" | "jcode";
+  backend?: "aisdk" | "codex-aisdk" | "opencode" | "omg" | "pi" | "grok" | "cursor" | "fx" | "muse" | "antigravity" | "copilot" | "jcode";
   resumeHandle?: string | null;
   model?: string | null;
   thinkingLevel?: string | null;

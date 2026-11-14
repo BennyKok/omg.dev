@@ -28,7 +28,7 @@ export function optionIndexForText(prompt: AisdkPrompt | null, text: string): nu
   return match ? match.index : null;
 }
 
-export type ManagedSdkAgent = "grok" | "cursor" | "fx" | "muse" | "deepseek" | "devin" | "copilot" | "jcode";
+export type ManagedSdkAgent = "grok" | "cursor" | "fx" | "muse" | "deepseek" | "devin" | "antigravity" | "copilot" | "jcode";
 
 export type ManagedSdkPromptOption = {
   label: string;

@@ -55,6 +55,7 @@ export type CodingAgentKind =
   | "muse"
   | "deepseek"
   | "devin"
+  | "antigravity"
   | "hermes"
   | "pi"
   | "copilot";
@@ -160,6 +161,7 @@ export type AuthProvider =
   | "grok"
   | "fx"
   | "muse"
+  | "antigravity"
   | "github"
   | "pi-anthropic"
   | "pi-codex"
@@ -172,6 +174,7 @@ const AUTH_PROVIDER_LABELS: Record<AuthProvider, string> = {
   grok: "Grok",
   fx: "Vercel",
   muse: "Meta",
+  antigravity: "Google",
   github: "GitHub",
   "pi-anthropic": "Claude",
   "pi-codex": "ChatGPT",
@@ -235,6 +238,7 @@ export const CODING_AGENT_KINDS: Exclude<CodingAgentKind, "claude" | "hermes">[]
   "muse",
   "deepseek",
   "devin",
+  "antigravity",
   "opencode",
   "omg",
   "jcode",
@@ -256,6 +260,7 @@ export const CODING_AGENT_LABELS: Record<CodingAgentKind, string> = {
   muse: "muse",
   deepseek: "deepseek",
   devin: "devin",
+  antigravity: "antigravity",
   hermes: "hermes",
   pi: "pi",
   copilot: "copilot",
@@ -599,6 +604,27 @@ function hasDevinAuth(): boolean {
   return hasDevinAccountAuth() || !!process.env.WINDSURF_API_KEY;
 }
 
+// Google's installer writes one `agy` binary to ~/.local/bin. omg.dev runs that
+// official, unmodified binary. It never reads or copies its Google credentials.
+export function antigravityPath(): string | null {
+  const home = userHome();
+  return which("agy", [
+    process.env.LFG_ANTIGRAVITY_PATH ?? "",
+    `${home}/.local/bin/agy`,
+    "/usr/local/bin/agy",
+  ]);
+}
+
+// `agy` keeps its Google login in its own store (the OS keychain when one
+// exists), so there is no file to probe. `agy models` exits 0 only when that
+// login works, and exits 1 with "Please sign in" otherwise. Async, because the
+// status read path must never block the event loop (see commandOutputAsync).
+async function hasAntigravityAccountAuth(): Promise<boolean> {
+  const binary = antigravityPath();
+  if (!binary) return false;
+  return (await commandOutputAsync([binary, "models"])).ok;
+}
+
 function rejectGrokAgent(path: string | null): string | null {
   if (!path) return null;
   return isGrokAgentPath(path) ? null : path;
@@ -918,6 +944,7 @@ function installCommandFor(kind: CodingAgentKind): string | null {
   if (kind === "muse") return "curl -fsSL https://dev.meta.ai/install.sh | bash";
   if (kind === "deepseek") return "bun add -g @deepseek-ai/dsh@0.1.1-rc.2 pnpm && dsh plugin --profile omg add @deepseek-ai/dsh-acp@0.1.1-rc.2";
   if (kind === "devin") return "curl -fsSL https://cli.devin.ai/install.sh | bash";
+  if (kind === "antigravity") return "curl -fsSL https://antigravity.google/cli/install.sh | bash";
   if (kind === "copilot") return "npm install -g @github/copilot";
   // pi is no longer bundled. Its provider layer (@earendil-works/pi-ai) pulls
   // in eleven SDKs — Anthropic, OpenAI, Google GenAI, Mistral, Bedrock — which
@@ -945,6 +972,9 @@ function loginCommandPartsFor(kind: CodingAgentKind): string[] | null {
   if (kind === "muse") return [musePath() ?? "muse", "login"];
   if (kind === "deepseek") return null;
   if (kind === "devin") return [devinPath() ?? "devin", "auth", "login"];
+  // Google's documented terminal sign-in for ACP: it prints a Google URL, reads
+  // the pasted authorization code, and exits. It works without a local browser.
+  if (kind === "antigravity") return [antigravityPath() ?? "agy", "acp", "--login"];
   if (kind === "copilot") return [copilotPath() ?? "copilot"];
   // pi has no login subcommand — auth is file-based (~/.pi/agent/auth.json) or
   // ANTHROPIC_API_KEY, so there is no terminal login to offer.
@@ -958,6 +988,7 @@ function authProviderFor(kind: CodingAgentKind): AuthProvider | null {
   if (kind === "grok") return "grok";
   if (kind === "fx") return "fx";
   if (kind === "muse") return "muse";
+  if (kind === "antigravity") return "antigravity";
   return null;
 }
 
@@ -967,6 +998,7 @@ function authProviderBinary(provider: AuthProvider): string | null {
   if (provider === "grok") return grokPath();
   if (provider === "fx") return fxPath();
   if (provider === "muse") return musePath();
+  if (provider === "antigravity") return antigravityPath();
   return githubCliPath();
 }
 
@@ -989,6 +1021,9 @@ function authProviderArgv(provider: AuthProvider, binary: string): string[] {
   if (provider === "fx") return [binary, "login"];
   // `muse login` is itself the Meta device flow (RFC 8628 against auth.meta.com).
   if (provider === "muse") return [binary, "login"];
+  // `agy acp --login` prints a Google OAuth URL, then waits on stdin for the
+  // authorization code (or the full callback URL) and exits 0 when it is saved.
+  if (provider === "antigravity") return [binary, "acp", "--login"];
   // Codex and Grok both expose an RFC 8628 device flow that prints a
   // verification URL plus a short user code — no terminal interaction needed.
   return [binary, "login", "--device-auth"];
@@ -1058,6 +1093,14 @@ export function parseAuthOutput(
     )?.[1];
     return { authorizationUrl, userCode, needsCode: false };
   }
+  if (provider === "antigravity") {
+    // `agy acp --login` prints:
+    //   Open this link in a browser to log in with Google:
+    //     https://accounts.google.com/o/oauth2/auth?...
+    //   Then paste the authorization code, or the full URL of the page you
+    //   land on, and press Enter:
+    return { authorizationUrl, needsCode: /paste the authorization code/i.test(output) };
+  }
   return {
     authorizationUrl,
     needsCode: /paste code here/i.test(output),
@@ -1080,7 +1123,11 @@ function updateAuthSessionFromOutput(session: InternalAuthSession): void {
   if (parsed.authorizationUrl) session.authorizationUrl = parsed.authorizationUrl;
   if (parsed.userCode) session.userCode = parsed.userCode;
   session.needsCode = parsed.needsCode;
-  const ready = !!session.authorizationUrl && (session.provider === "claude" || !!session.userCode);
+  // Claude and Antigravity are paste-a-code logins: the URL alone is enough to
+  // show, and the code comes back from the page. The device flows also need
+  // their printed user code before the UI can show anything useful.
+  const pasteCodeLogin = session.provider === "claude" || session.provider === "antigravity";
+  const ready = !!session.authorizationUrl && (pasteCodeLogin || !!session.userCode);
   if (ready && session.status === "starting") {
     session.status = "waiting";
     session.markReady();
@@ -1448,9 +1495,13 @@ export async function submitCodingAgentAuthCode(id: string, code: string): Promi
     session.needsCode = false;
     return publicAuthSession(session);
   }
-  if (session.provider !== "claude") throw new Error("This login does not accept a code");
+  if (session.provider !== "claude" && session.provider !== "antigravity") {
+    throw new Error("This login does not accept a code");
+  }
   const stdin = session.process?.stdin;
-  if (!stdin || typeof stdin === "number") throw new Error("Claude login is no longer accepting a code");
+  if (!stdin || typeof stdin === "number") {
+    throw new Error(`${AUTH_PROVIDER_LABELS[session.provider]} login is no longer accepting a code`);
+  }
   session.needsCode = false;
   stdin.write(`${value}\n`);
   await stdin.flush();
@@ -1614,6 +1665,14 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     addBinary("Devin CLI", devinPath());
     addAuth("Devin auth", hasDevinAuth(), "run `devin auth login` once or set WINDSURF_API_KEY");
     instructions.push("Install Devin CLI (curl -fsSL https://cli.devin.ai/install.sh | bash), then run `devin auth login` and sign in, or set WINDSURF_API_KEY.");
+  } else if (kind === "antigravity") {
+    // Only the Google login counts as a connected account. GEMINI_API_KEY makes
+    // `agy acp` runnable (its gemini-api-key auth method) but bills the key, not
+    // the Google AI subscription.
+    accountConnected = await hasAntigravityAccountAuth();
+    addBinary("Antigravity CLI", antigravityPath());
+    addAuth("Google sign-in", accountConnected || !!process.env.GEMINI_API_KEY, "use Login below (Google account) or set GEMINI_API_KEY");
+    instructions.push("Install Antigravity CLI (curl -fsSL https://antigravity.google/cli/install.sh | bash), then use Login to sign in with the Google account that has your Google AI plan. Google allows this for single-user interactive use through the official ACP agent.");
   } else if (kind === "pi") {
     const providers = piAuthProviders();
     accountConnected = providers.some((p) => p.connected && !p.fromEnv);
@@ -1949,6 +2008,7 @@ function setupEnvFor(kind: CodingAgentKind): Record<string, string> | null {
   if (kind === "muse") return { LFG_INSTALL_MUSE: "1" };
   if (kind === "deepseek") return { LFG_INSTALL_DEEPSEEK: "1" };
   if (kind === "devin") return { LFG_INSTALL_DEVIN: "1" };
+  if (kind === "antigravity") return { LFG_INSTALL_ANTIGRAVITY: "1" };
   if (kind === "copilot") return { LFG_INSTALL_COPILOT: "1" };
   return null;
 }

@@ -46,6 +46,7 @@ describe("session recovery integration", () => {
     expect(Object.keys(CODING_AGENT_ADAPTERS).sort()).toEqual([...SESSION_AGENT_KINDS].sort());
     expect([...DURABLE_RECOVERY_AGENT_KINDS].sort()).toEqual([
       "aisdk",
+      "antigravity",
       "claude",
       "codex",
       "codex-aisdk",
