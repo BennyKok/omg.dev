@@ -26,6 +26,7 @@ import {
   useSessionPlan,
 } from "./components/session-plan";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
+import { MobileHomeComposer } from "./components/mobile-home-composer";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
@@ -9915,6 +9916,7 @@ export function App() {
             <NewSessionDialog
               variant="inline"
               open
+              covered={openSessionId !== null || openThreadId !== null}
               // The phone shows no starter row: the list above is the page.
               starters={false}
               expanded={composerExpanded}
@@ -23242,6 +23244,7 @@ async function unlinkRepoFromList(
 
 function NewSessionDialog({
   open,
+  covered = false,
   starters = true,
   repos,
   users,
@@ -23275,6 +23278,8 @@ function NewSessionDialog({
    *  starts new work from Create, which has the host's tutorial cards. */
   starters?: boolean;
   open: boolean;
+  /** Keep a phone's home draft mounted but inactive beneath an open chat. */
+  covered?: boolean;
   repos: Repo[];
   users: User[];
   defaultUser: string;
@@ -24938,15 +24943,11 @@ function NewSessionDialog({
 
   if (variant === "inline") {
     return (
-      <div
-        ref={inlineBarRef}
-        aria-busy={launching}
-        className="mobile-scroll-composer-fade pointer-events-auto relative z-[55] mt-auto shrink-0 overflow-x-clip bg-background/95 shadow-[0_-8px_24px_rgba(0,0,0,0.12)] backdrop-blur-xl"
-      >
+      <MobileHomeComposer covered={covered} busy={launching} containerRef={inlineBarRef}>
         <div ref={inlineShellRef} className="mx-auto max-w-lg will-change-transform">
           {formBody}
         </div>
-      </div>
+      </MobileHomeComposer>
     );
   }
 
