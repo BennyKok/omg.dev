@@ -17,14 +17,17 @@ export function binaryMissing(checks: { label: string; ok: boolean }[]): boolean
  * silent, exactly as before.
  */
 export function agentStatusNote(
-  checks: { label: string; ok: boolean }[],
+  checks: { label: string; ok: boolean; actionLabel?: string }[],
   profile?: { label: string } | null,
   connectedAccounts = 0,
 ): string | null {
   const failing = checks.filter((check) => !check.ok);
   if (failing.length) {
     if (failing.some((check) => isBinaryCheck(check.label))) return "Install";
-    return "Connect";
+    // A signed-in account that the provider still blocks (Google's account
+    // verification) needs that action, not another sign-in.
+    const action = failing.find((check) => check.actionLabel)?.actionLabel;
+    return action ?? "Connect";
   }
   // Claude can hold several logins at once. Naming just the first would assert
   // that one account IS this agent, which is the opposite of what the row has

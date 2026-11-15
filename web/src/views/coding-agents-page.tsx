@@ -10,7 +10,7 @@ import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
 import { agentStatusNote, binaryMissing } from "../lib/coding-agent-status-note";
 import { setupRowNote } from "../../../packages/protocol/src/coding-agent-setup-outcome";
 import { Switch } from "@/components/ui/switch";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
 import {
@@ -562,6 +562,26 @@ export default function CodingAgentsPage({
                   ))}
                 </div>
               ) : null}
+
+              {status.checks
+                .filter((check) => !check.ok && check.actionUrl && /^https:\/\//.test(check.actionUrl))
+                .map((check) => (
+                  <div
+                    key={check.label}
+                    className="flex flex-wrap items-center gap-2 rounded-xl border border-destructive/30 bg-destructive/5 px-2.5 py-2 text-xs"
+                  >
+                    <span className="min-w-0 flex-1 text-destructive">{check.detail ?? check.label}</span>
+                    <a
+                      href={check.actionUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={buttonVariants({ size: "sm", variant: "outline" })}
+                    >
+                      <Globe className="size-3.5" />
+                      {check.actionLabel ?? "Open"}
+                    </a>
+                  </div>
+                ))}
 
               <div className="flex flex-wrap items-center gap-2">
                 {status.canAutoSetup && needsBinary ? (

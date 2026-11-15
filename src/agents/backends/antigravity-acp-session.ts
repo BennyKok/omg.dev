@@ -22,6 +22,7 @@ import {
   type AcpUpdateState,
 } from "./acp-session.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
+import { ANTIGRAVITY_VERIFICATION_REPLY, probeAntigravityAccount } from "./antigravity-verify.ts";
 
 function arg(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name);
@@ -51,6 +52,17 @@ export function antigravityThinkingValue(level: string): string {
 /** The text shown when `agy` has no usable Google login. */
 export const ANTIGRAVITY_SIGN_IN_HINT =
   "Antigravity is not signed in. Open Settings, choose the antigravity agent and use Login to sign in with Google, or run `agy acp --login` in a terminal.";
+
+/**
+ * What to tell the person when agy answers only "Verification Required".
+ * Google needs a browser check on the account; the link comes from agy's log.
+ */
+export function antigravityVerificationNotice(verifyUrl: string | null): string {
+  const where = verifyUrl
+    ? `Open this page, signed in as the same Google account, and finish the check: ${verifyUrl}`
+    : "Open Settings, choose the antigravity agent, and use Verify account.";
+  return `Google asks you to verify this account before Antigravity can answer. ${where} Then send your message again.`;
+}
 
 export function isAcpAuthRequired(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -162,6 +174,10 @@ export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
             sessionId,
             prompt: [{ type: "text", text: prompt }],
           });
+          if (ANTIGRAVITY_VERIFICATION_REPLY.test(state.draft)) {
+            const { verifyUrl } = await probeAntigravityAccount(antigravityHarnessPath());
+            sink.notice?.(antigravityVerificationNotice(verifyUrl));
+          }
           return { text: state.draft, thinking: state.thought };
         },
         interrupt: () => connection.agent.notify(acp.methods.agent.session.cancel, { sessionId }),

@@ -26,6 +26,7 @@ import {
   startPiOAuthLogin,
   type PiAuthProviderId,
 } from "./pi-auth.ts";
+import { probeAntigravityAccount, type AntigravityAccountState } from "./agents/backends/antigravity-verify.ts";
 import { customModelIds } from "./custom-models.ts";
 import { hasOpenCodeAccountAuth, opencodeAuthProviders } from "./opencode-auth.ts";
 import {
@@ -72,6 +73,10 @@ export type CodingAgentCheck = {
   label: string;
   ok: boolean;
   detail?: string;
+  /** A page the person must open to fix this check, e.g. Google's account
+   *  verification. Always https; the UI shows it as a button. */
+  actionUrl?: string;
+  actionLabel?: string;
 };
 
 export type CodingAgentStatus = {
@@ -617,12 +622,14 @@ export function antigravityPath(): string | null {
 
 // `agy` keeps its Google login in its own store (the OS keychain when one
 // exists), so there is no file to probe. `agy models` exits 0 only when that
-// login works, and exits 1 with "Please sign in" otherwise. Async, because the
-// status read path must never block the event loop (see commandOutputAsync).
-async function hasAntigravityAccountAuth(): Promise<boolean> {
+// login works, and exits 1 with "Please sign in" otherwise. It still exits 0
+// when Google wants the account verified, so the probe also reads agy's log
+// for that (see antigravity-verify.ts). Async, because the status read path
+// must never block the event loop (see commandOutputAsync).
+async function antigravityAccountState(): Promise<AntigravityAccountState> {
   const binary = antigravityPath();
-  if (!binary) return false;
-  return (await commandOutputAsync([binary, "models"])).ok;
+  if (!binary) return { signedIn: false, verifyUrl: null };
+  return probeAntigravityAccount(binary);
 }
 
 function rejectGrokAgent(path: string | null): string | null {
@@ -1669,9 +1676,22 @@ async function statusFor(kind: CodingAgentKind): Promise<CodingAgentStatus> {
     // Only the Google login counts as a connected account. GEMINI_API_KEY makes
     // `agy acp` runnable (its gemini-api-key auth method) but bills the key, not
     // the Google AI subscription.
-    accountConnected = await hasAntigravityAccountAuth();
+    const google = await antigravityAccountState();
+    accountConnected = google.signedIn;
     addBinary("Antigravity CLI", antigravityPath());
     addAuth("Google sign-in", accountConnected || !!process.env.GEMINI_API_KEY, "use Login below (Google account) or set GEMINI_API_KEY");
+    // Signed in, but Google refuses every request until the person verifies
+    // the account. Without this row the agent reads as ready and each turn
+    // answers only "Verification Required".
+    if (google.verifyUrl) {
+      checks.push({
+        label: "Google account verification",
+        ok: false,
+        detail: "Google asks you to verify this account before Antigravity can run",
+        actionUrl: google.verifyUrl,
+        actionLabel: "Verify account",
+      });
+    }
     instructions.push("Install Antigravity CLI (curl -fsSL https://antigravity.google/cli/install.sh | bash), then use Login to sign in with the Google account that has your Google AI plan. Google allows this for single-user interactive use through the official ACP agent.");
   } else if (kind === "pi") {
     const providers = piAuthProviders();

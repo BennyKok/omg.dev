@@ -73,6 +73,18 @@ describe("agentStatusNote", () => {
       ),
     ).toBe("Connect");
   });
+
+  // Google signed the person in but blocks every request until the account is
+  // verified. Another sign-in cannot fix that, so the row names the real step.
+  test("a signed-in agent that needs a provider check names that action", () => {
+    expect(
+      agentStatusNote([
+        { label: "Antigravity CLI", ok: true },
+        { label: "Google sign-in", ok: true },
+        { label: "Google account verification", ok: false, actionLabel: "Verify account" },
+      ]),
+    ).toBe("Verify account");
+  });
 });
 
 function agent(overrides: Partial<CodingAgentInfo> = {}): CodingAgentInfo {
@@ -133,6 +145,50 @@ describe("CodingAgentsPage", () => {
     expect(version?.textContent).toBe("v0.159.2");
     expect(version?.closest("button")?.getAttribute("aria-expanded")).toBe("false");
     expect(ui.text()).toContain("person@example.com");
+  });
+
+  test("an expanded row links to the page that fixes a failing check", () => {
+    const verifyUrl = "https://accounts.google.com/v3/signin/continue?plt=abc&sarp=1";
+    renderPage(ui, [
+      agent({
+        key: "antigravity",
+        label: "antigravity",
+        status: {
+          configured: false,
+          checks: [
+            { label: "Antigravity CLI", ok: true },
+            { label: "Google sign-in", ok: true },
+            {
+              label: "Google account verification",
+              ok: false,
+              detail: "Google asks you to verify this account before Antigravity can run",
+              actionUrl: verifyUrl,
+              actionLabel: "Verify account",
+            },
+          ],
+        } as never,
+      }),
+    ]);
+    expect(ui.text()).toContain("Verify account");
+    ui.flush(() => (ui.query('button[aria-expanded="false"]') as HTMLButtonElement).click());
+    const link = ui.query(`a[href="${verifyUrl}"]`) as HTMLAnchorElement | null;
+    expect(link?.textContent).toContain("Verify account");
+    expect(link?.getAttribute("target")).toBe("_blank");
+    expect(link?.getAttribute("rel")).toContain("noopener");
+    expect(ui.text()).toContain("Google asks you to verify this account");
+  });
+
+  test("never renders a non-https action link", () => {
+    renderPage(ui, [
+      agent({
+        status: {
+          checks: [{ label: "Codex auth", ok: false, actionUrl: "javascript:alert(1)", actionLabel: "Fix" }],
+        } as never,
+      }),
+    ]);
+    ui.flush(() => (ui.query('button[aria-expanded="false"]') as HTMLButtonElement).click());
+    expect(ui.query('[aria-expanded="true"]')).not.toBeNull();
+    expect(ui.query('a[href^="javascript"]')).toBeNull();
   });
 
   test("omits the version when the runtime does not report one", () => {
