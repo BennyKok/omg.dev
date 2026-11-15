@@ -27,6 +27,7 @@ import {
   type PiAuthProviderId,
 } from "./pi-auth.ts";
 import { probeAntigravityAccount, type AntigravityAccountState } from "./agents/backends/antigravity-verify.ts";
+import { antigravityEnv } from "./agents/backends/antigravity-env.ts";
 import { customModelIds } from "./custom-models.ts";
 import { hasOpenCodeAccountAuth, opencodeAuthProviders } from "./opencode-auth.ts";
 import {
@@ -1412,7 +1413,8 @@ async function startAuthSession(
   const proc = Bun.spawn(argv, {
     cwd: userHome(),
     env: {
-      ...process.env,
+      // Antigravity's login must take the same network path as its sessions.
+      ...(provider === "antigravity" ? antigravityEnv() : process.env),
       BROWSER: "true",
       ...(claudeConfigDir ? { CLAUDE_CONFIG_DIR: claudeConfigDir } : {}),
     },

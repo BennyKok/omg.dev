@@ -9,6 +9,7 @@ import { mkdirSync, readFileSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import { antigravityEnv } from "./antigravity-env.ts";
 
 /** The exact text `agy acp` streams as the answer when Google wants a check. */
 export const ANTIGRAVITY_VERIFICATION_REPLY = /^\s*⚠?\s*Verification Required\s*$/i;
@@ -58,6 +59,7 @@ export async function probeAntigravityAccount(binary: string, timeoutMs = 15_000
       stdin: "ignore",
       stdout: "ignore",
       stderr: "ignore",
+      env: antigravityEnv(),
     });
     const timer = setTimeout(() => proc.kill(), timeoutMs);
     const exitCode = await proc.exited.finally(() => clearTimeout(timer));

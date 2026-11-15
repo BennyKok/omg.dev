@@ -23,6 +23,7 @@ import {
 } from "./acp-session.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
 import { ANTIGRAVITY_VERIFICATION_REPLY, probeAntigravityAccount } from "./antigravity-verify.ts";
+import { antigravityEnv } from "./antigravity-env.ts";
 
 function arg(argv: string[], name: string): string | undefined {
   const index = argv.indexOf(name);
@@ -95,7 +96,7 @@ export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
     async createRuntime(sink) {
       const child = spawn(antigravityHarnessPath(), antigravityHarnessArgv(), {
         cwd,
-        env: process.env,
+        env: antigravityEnv(),
         stdio: ["pipe", "pipe", "inherit"],
       });
       if (!child.stdin || !child.stdout) throw new Error("Antigravity ACP stdio was not available");
