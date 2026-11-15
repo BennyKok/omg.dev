@@ -2,7 +2,7 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-14.
+Last refresh: 2026-11-15.
 
 ## Active work (last 14 days)
 
@@ -22,7 +22,9 @@ Last refresh: 2026-11-14.
   (`2f7895388`). Linked remote omg.dev machines share the sidebar and switcher
   (`8bfe61c5c`); their sessions open in place (`ac4cac00b`).
 - **Agents and session tools**: Google Antigravity uses its official ACP server
-  (`38ff557b8`). Event hooks act on new events (`7720e01b8`). The plan pane
+  (`38ff557b8`). Its picker lists Google plan models; account verification,
+  tool approval, and plan usage are handled (`316c151ce`, `f607a70f2`,
+  `98745dd95`). Event hooks act on new events (`7720e01b8`). The plan pane
   shows steps and child sessions (`21a8fa14f`, `cbb7e8e55`). The terminal has
   docked tabs and snapshot resume (`bd56dff91`).
 - **Web UI**: Remote access has its own Settings page (`0e0f075c4`). Recent
@@ -31,16 +33,15 @@ Last refresh: 2026-11-14.
 - **Security and dependencies**: audit fixes (#494), production address removal
   (#496), pinned Actions, release approval gates, and npm trusted publishing
   (#491) landed.
-- **Earlier hosted work**: Terra selection (#459) and finding autopilot (#490)
-  landed before the local-only changes. These PRs do not establish current
-  cloud support.
-- **Release and docs**: release failures no longer file issues (#485).
-  Desktop packaging is paused (`88e1928ac`). The latest release commit is
-  v0.7.8 (`9983b663a`). The previous STATE.md refresh was #507.
+- **Earlier hosted work**: finding autopilot (#490) landed before the
+  local-only changes. This PR does not establish current cloud support.
+- **Release and docs**: desktop packaging is paused (`88e1928ac`). The latest
+  release commit is v0.7.8 (`9983b663a`). STATE.md refreshes landed in
+  #487, #492, #495, #499, #500, #503, #506, #507, and #508.
 
 ## Open pull requests
 
-- In progress: none at refresh time.
+- In progress: #509 (scope skill suggestions to the active agent).
 - Stale (no update for 30+ days): none at refresh time.
 
 ## Where things are
