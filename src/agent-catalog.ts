@@ -139,9 +139,9 @@ export const DEEPSEEK_MODELS: string[] = ["deepseek-v4-flash", "deepseek-v4-pro"
 // discovery.
 export const DEVIN_MODELS: string[] = ["adaptive", "swe", "opus", "gpt", "sonnet", "gemini", "codex"];
 // Fallback until model discovery has run `agy models` (model-discovery.ts),
-// which lists the signed-in Google plan's models. "default" keeps the
-// account's own choice. A chosen id is matched against the ACP session's
-// model option values.
+// which lists the signed-in Google plan's models and replaces this list.
+// "default" keeps the account's own choice while discovery has not answered.
+// A chosen id is matched against the ACP session's model option values.
 export const ANTIGRAVITY_MODELS: string[] = ["default"];
 // Static fallback until model discovery (GET api.meta.ai/muse-code/models, the
 // document the CLI itself reads) has answered; discovery is authoritative and

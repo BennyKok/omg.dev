@@ -264,7 +264,6 @@ describe("parseAntigravityModels", () => {
   test("collapses effort levels to the ids an ACP session accepts", () => {
     const parsed = parseAntigravityModels(OUT);
     expect(parsed.models).toEqual([
-      "default",
       "gemini-4-argon",
       "gemini-4-hydrogen",
       "gemini-pro-orchestrator-g1-pro",
@@ -277,8 +276,14 @@ describe("parseAntigravityModels", () => {
     expect(parsed.labels["gpt-oss-120b-medium"]).toBe("GPT-OSS 120B (Medium)");
   });
 
-  test("a signed-out or empty answer lists only the account default", () => {
-    expect(parseAntigravityModels("Please sign in").models).toEqual(["default"]);
+  test("a signed-out or empty answer lists no models", () => {
+    expect(parseAntigravityModels("Please sign in").models).toEqual([]);
+  });
+
+  // No "default" entry: the plan's first model is what a new session uses.
+  test("the first listed model becomes the picker default", () => {
+    const { models } = parseAntigravityModels(OUT);
+    expect(defaultModelForCatalogItem("antigravity", models, false)).toBe("gemini-4-argon");
   });
 
   test("an agy update re-runs Antigravity discovery", () => {

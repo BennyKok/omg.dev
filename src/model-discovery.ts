@@ -238,8 +238,9 @@ const ANTIGRAVITY_EFFORT_SUFFIX = /-(?:low|medium|high|xhigh|max)$/;
  * model without the level (`gemini-4-argon`) and sets the level through its
  * own Thinking option, so a family that comes in several levels collapses to
  * its base id. A model with a single variant keeps its id as printed, because
- * that is also how ACP names it (`gpt-oss-120b-medium`). "default" stays first
- * so the account's own choice is still selectable.
+ * that is also how ACP names it (`gpt-oss-120b-medium`). The list carries no
+ * "default" entry: the first model agy prints, the plan's own default, becomes
+ * the picker's default (defaultModelForCatalogItem).
  */
 export function parseAntigravityModels(text: string): { models: string[]; labels: Record<string, string> } {
   const rows: Array<{ id: string; name: string }> = [];
@@ -255,7 +256,6 @@ export function parseAntigravityModels(text: string): { models: string[]; labels
   }
   const models: string[] = [];
   const labels: Record<string, string> = {};
-  addModel(models, labels, "default");
   for (const row of rows) {
     const base = row.id.replace(ANTIGRAVITY_EFFORT_SUFFIX, "");
     if (base !== row.id && (variants.get(base) ?? 0) > 1) {
