@@ -3,6 +3,7 @@ import type * as acp from "@agentclientprotocol/sdk";
 import { resolveAcpConfigChoice } from "./acp-session.ts";
 import {
   ANTIGRAVITY_SIGN_IN_HINT,
+  antigravityAutoAllowOption,
   antigravityHarnessArgv,
   antigravityThinkingValue,
   antigravityVerificationNotice,
@@ -48,10 +49,18 @@ const OPTIONS: acp.SessionConfigOption[] = [
 ];
 
 describe("Antigravity ACP launch", () => {
-  test("runs the official ACP server with per-session workers so HTTP MCP is advertised", () => {
-    expect(antigravityHarnessArgv()).toEqual(["acp", "--process-per-session"]);
-    // Permission prompts must reach the person: never auto-approve.
-    expect(antigravityHarnessArgv()).not.toContain("--dangerously-skip-permissions");
+  test("runs the official ACP server with per-session workers and auto-approved tools", () => {
+    expect(antigravityHarnessArgv()).toEqual(["acp", "--process-per-session", "--dangerously-skip-permissions"]);
+  });
+
+  test("accepts a permission request that agy still raises", () => {
+    const allowOnce = { optionId: "once", kind: "allow_once" };
+    const allowAlways = { optionId: "always", kind: "allow_always" };
+    const reject = { optionId: "no", kind: "reject_once" };
+    expect(antigravityAutoAllowOption([reject, allowOnce, allowAlways])).toBe("always");
+    expect(antigravityAutoAllowOption([reject, allowOnce])).toBe("once");
+    // No allow option at all: the person decides.
+    expect(antigravityAutoAllowOption([reject])).toBeNull();
   });
 
   test("maps omg.dev's xhigh to Antigravity's Extra level", () => {

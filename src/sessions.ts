@@ -694,7 +694,7 @@ export function managedLaunchRow(
           : agent === "devin"
             ? `devin acp --model ${m.model ?? ""}`.trim()
           : agent === "antigravity"
-            ? "agy acp --process-per-session"
+            ? "agy acp --process-per-session --dangerously-skip-permissions"
           : agent === "jcode"
             ? `jcode --model ${m.model ?? ""} repl`.trim()
           : agent === "hermes"

@@ -167,6 +167,9 @@ describe("usage providers", () => {
     // The default account is asserted to use "token-one". The environment token
     // outranks the stored file, so it would answer for that account instead.
     delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    // The combined feed also reads Antigravity, which spawns agy. A real agy
+    // under this fake HOME waits for a login, so point it at no binary.
+    process.env.LFG_ANTIGRAVITY_PATH = join(root, "no-agy");
     connect(join(process.env.HOME, ".claude"), "token-one");
     const second = createClaudeAccount();
     connect(claudeAccountConfigDir(second.id)!, "token-two");
@@ -181,6 +184,7 @@ describe("usage providers", () => {
     else process.env.LFG_CLAUDE_ACCOUNTS_PATH = originalStore;
     if (originalEnvToken === undefined) delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
     else process.env.CLAUDE_CODE_OAUTH_TOKEN = originalEnvToken;
+    delete process.env.LFG_ANTIGRAVITY_PATH;
     if (root) rmSync(root, { recursive: true, force: true });
     root = "";
   });
@@ -203,6 +207,7 @@ describe("usage providers", () => {
       "grok",
       "opencode",
       "muse",
+      "antigravity",
     ]);
   });
 

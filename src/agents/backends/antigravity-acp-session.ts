@@ -4,11 +4,15 @@
 // official, unmodified binary with its own Google sign-in. omg.dev never reads,
 // copies or forwards the Google OAuth credentials. `agy` owns them.
 //
+// Tool permissions are accepted automatically, like every other managed
+// backend (Claude and the ai-sdk harnesses use `bypassPermissions`, Cursor
+// `--force`, Grok `bypassPermissions`). This uses agy's own documented
+// `--dangerously-skip-permissions` flag, so the binary stays unmodified, and a
+// person still starts every turn. Auto agents stay off this agent.
+//
 // What omg.dev does NOT do here, on purpose:
-// - no `--dangerously-skip-permissions`: every tool permission the agent asks
-//   for goes to the person through the normal question flow;
-// - no `agy -p` print-mode wrapping and no direct Cloud Code API calls, which
-//   Google says are unsupported on consumer plans.
+// - no `agy -p` print-mode wrapping of prompts and no direct Cloud Code API
+//   calls, which Google says are unsupported on consumer plans.
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -40,9 +44,25 @@ export function antigravityHarnessPath(): string {
  * `--process-per-session` is what makes `agy acp` advertise
  * `mcpCapabilities.http` (verified against agy 1.5.9), and the omg.dev MCP
  * endpoint is HTTP. Without it the agent would have no omg.dev tools.
+ * `--dangerously-skip-permissions` makes agy approve its own tool calls, so a
+ * managed session does not stop on a question for each command or edit.
  */
 export function antigravityHarnessArgv(): string[] {
-  return ["acp", "--process-per-session"];
+  return ["acp", "--process-per-session", "--dangerously-skip-permissions"];
+}
+
+type PermissionOption = { optionId: string; kind?: string | null };
+
+/**
+ * The option to pick when agy still raises a permission request despite the
+ * flag: an "allow always" option first, then "allow once". Null when agy
+ * offers no allow option, so the request goes to the person instead.
+ */
+export function antigravityAutoAllowOption(options: readonly PermissionOption[]): string | null {
+  const always = options.find((option) => option.kind === "allow_always");
+  if (always) return always.optionId;
+  const once = options.find((option) => option.kind === "allow_once");
+  return once ? once.optionId : null;
 }
 
 /** omg.dev's "xhigh" is the level Antigravity names "Extra". */
@@ -107,6 +127,8 @@ export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
       const state: AcpUpdateState = { draft: "", thought: "", replaying: false };
       const app = acp.client({ name: "omg.dev" })
         .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {
+          const allow = antigravityAutoAllowOption(params.options);
+          if (allow) return { outcome: { outcome: "selected", optionId: allow } };
           const selected = await sink.ask(
             params.toolCall.title ?? "Antigravity tool permission",
             params.options.map((option) => ({ label: option.name ?? option.optionId, description: option.kind })),

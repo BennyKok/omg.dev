@@ -14,6 +14,8 @@
 //               dashboard calls. Auth is the access token the CLI stores in
 //               ~/.config/cursor/auth.json after `cursor-agent login`.
 //   - OpenCode: estimated from local opencode.db spend vs Go plan caps.
+//   - Antigravity: agy's own read-only `/usage` command (no model turn). One
+//               run spawns agy, so it is cached for minutes, not seconds.
 //
 // Every source is fetched and cached independently (60s TTL, keyed by provider
 // id), so a caller that only needs one ring — the composer, or a single-account
@@ -34,6 +36,8 @@ import {
 import { defaultModelForAgent } from "./agent-catalog.ts";
 import { PATHS } from "./config.ts";
 import { museFetchInit } from "./muse-proxy.ts";
+import { antigravityHarnessPath } from "./agents/backends/antigravity-acp-session.ts";
+import { readAntigravityUsage } from "./agents/backends/antigravity-usage.ts";
 
 export type UsageWindow = {
   label: string;
@@ -929,6 +933,21 @@ async function museUsage(ref: UsageProviderRef, force = false): Promise<Provider
 
 const CACHE_TTL_MS = 60_000;
 
+/**
+ * Sources that are expensive to read keep their answer longer. Antigravity
+ * spawns agy (about 4 s and 230 MB) for each reading. A forced refresh still
+ * reads again, but not more often than the minimum interval.
+ */
+const SLOW_SOURCE_TTL_MS: Record<string, { ttl: number; forceMin: number }> = {
+  antigravity: { ttl: 5 * 60_000, forceMin: 30_000 },
+};
+
+async function antigravityUsage(ref: UsageProviderRef): Promise<ProviderUsage> {
+  const reading = await readAntigravityUsage(antigravityHarnessPath());
+  if (!reading.ok) return { ...ref, available: false, plan: null, note: reading.note };
+  return { ...ref, available: true, plan: null, windows: reading.windows };
+}
+
 /** Sources that are always present, whatever is signed in. */
 const STATIC_PROVIDERS: UsageProviderRef[] = [
   { id: "codex", kind: "codex", label: "Codex" },
@@ -936,6 +955,7 @@ const STATIC_PROVIDERS: UsageProviderRef[] = [
   { id: "grok", kind: "grok", label: "Grok" },
   { id: "opencode", kind: "opencode", label: "OpenCode" },
   { id: "muse", kind: "muse", label: "Muse" },
+  { id: "antigravity", kind: "antigravity", label: "Antigravity" },
 ];
 
 /**
@@ -967,6 +987,7 @@ function collect(ref: UsageProviderRef, force = false): Promise<ProviderUsage> {
   if (ref.kind === "grok") return grokUsage(ref);
   if (ref.kind === "opencode") return opencodeUsage(ref);
   if (ref.kind === "muse") return museUsage(ref, force);
+  if (ref.kind === "antigravity") return antigravityUsage(ref);
   return Promise.resolve(staticProvider(ref, "Usage is unavailable for this provider"));
 }
 
@@ -978,9 +999,14 @@ export function invalidateProviderUsage(id: string): void {
 }
 
 function loadProvider(ref: UsageProviderRef, force: boolean): Promise<ProviderUsage> {
+  const slow = SLOW_SOURCE_TTL_MS[ref.kind];
+  if (force && slow) {
+    const hit = cache.get(ref.id);
+    if (hit && Date.now() - hit.at < slow.forceMin) force = false;
+  }
   if (!force) {
     const hit = cache.get(ref.id);
-    if (hit && Date.now() - hit.at < CACHE_TTL_MS) return Promise.resolve(hit.data);
+    if (hit && Date.now() - hit.at < (slow?.ttl ?? CACHE_TTL_MS)) return Promise.resolve(hit.data);
     // Two clients opening the campfire at once should share one round-trip.
     const pending = inflight.get(ref.id);
     if (pending) return pending;
