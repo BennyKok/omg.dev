@@ -6,6 +6,7 @@ import { PATHS } from "./config.ts";
 import type { CodingAgentKind } from "./coding-agents.ts";
 import { isRunnableCommand, whichRunnable } from "./runnable-bin.ts";
 import { getGlobalSettingsSync } from "./settings.ts";
+import { antigravityEnv } from "./agents/backends/antigravity-env.ts";
 
 type ProviderKey = CodingAgentKind;
 
@@ -36,7 +37,7 @@ export type ModelDiscoveryCache = {
 const CACHE_PATH = join(PATHS.data, "model-catalog.json");
 const DEFAULT_REFRESH_CRON = "0 8 * * *";
 /** Every provider a full refresh probes. `codex-aisdk` is mirrored from `codex`. */
-const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor", "fx", "opencode", "jcode", "muse"];
+const REFRESH_KEYS: ProviderKey[] = ["claude", "aisdk", "codex", "grok", "cursor", "fx", "opencode", "jcode", "muse", "antigravity"];
 /**
  * Providers whose failure is structural rather than transient: they expose no
  * model-list command at all, so every attempt returns the same error. Retrying
@@ -160,6 +161,12 @@ function fxPath(): string | null {
   return which("fx", [`${home}/.local/bin/fx`, `${home}/.bun/bin/fx`, "/usr/local/bin/fx"]);
 }
 
+function antigravityPath(): string | null {
+  if (process.env.LFG_ANTIGRAVITY_PATH) return process.env.LFG_ANTIGRAVITY_PATH;
+  const home = userHome();
+  return which("agy", [`${home}/.local/bin/agy`, "/usr/local/bin/agy"]);
+}
+
 function jcodePath(): string | null {
   if (process.env.LFG_JCODE_PATH) return process.env.LFG_JCODE_PATH;
   const home = userHome();
@@ -193,6 +200,11 @@ function commandFor(key: ProviderKey): string[] | null {
     const bin = jcodePath();
     return bin ? [bin, "--no-update", "model", "list", "--json"] : null;
   }
+  if (key === "antigravity") {
+    // Lists the models of the signed-in Google plan; exits 1 when signed out.
+    const bin = antigravityPath();
+    return bin ? [bin, "models"] : null;
+  }
   return null;
 }
 
@@ -216,6 +228,43 @@ function addModel(
   ids.push(id);
   const cleanLabel = label?.trim();
   if (cleanLabel && cleanLabel !== id) labels[id] = cleanLabel;
+}
+
+const ANTIGRAVITY_EFFORT_SUFFIX = /-(?:low|medium|high|xhigh|max)$/;
+
+/**
+ * `agy models` prints one `<id>\t<name>` line per model and effort level,
+ * e.g. `gemini-4-argon-high\tGemini 4 Argon (High)`. An ACP session names the
+ * model without the level (`gemini-4-argon`) and sets the level through its
+ * own Thinking option, so a family that comes in several levels collapses to
+ * its base id. A model with a single variant keeps its id as printed, because
+ * that is also how ACP names it (`gpt-oss-120b-medium`). "default" stays first
+ * so the account's own choice is still selectable.
+ */
+export function parseAntigravityModels(text: string): { models: string[]; labels: Record<string, string> } {
+  const rows: Array<{ id: string; name: string }> = [];
+  for (const raw of cleanText(text).split("\n")) {
+    const [id, ...rest] = raw.trim().split("\t");
+    if (!id || !MODEL_ID_RE.test(id) || !rest.length) continue;
+    rows.push({ id, name: rest.join(" ").trim() });
+  }
+  const variants = new Map<string, number>();
+  for (const row of rows) {
+    const base = row.id.replace(ANTIGRAVITY_EFFORT_SUFFIX, "");
+    if (base !== row.id) variants.set(base, (variants.get(base) ?? 0) + 1);
+  }
+  const models: string[] = [];
+  const labels: Record<string, string> = {};
+  addModel(models, labels, "default");
+  for (const row of rows) {
+    const base = row.id.replace(ANTIGRAVITY_EFFORT_SUFFIX, "");
+    if (base !== row.id && (variants.get(base) ?? 0) > 1) {
+      addModel(models, labels, base, row.name.replace(/\s*\([^)]*\)\s*$/, ""));
+    } else {
+      addModel(models, labels, row.id, row.name);
+    }
+  }
+  return { models, labels };
 }
 
 export function parseCodexModels(text: string): { models: string[]; labels: Record<string, string> } {
@@ -350,10 +399,15 @@ function parseModels(key: ProviderKey, text: string): {
   if (key === "opencode") return parseOpenCodeModels(text);
   if (key === "fx") return parseFxModels(text);
   if (key === "jcode") return parseJcodeModels(text);
+  if (key === "antigravity") return parseAntigravityModels(text);
   return { models: [], labels: {} };
 }
 
-async function runCommand(argv: string[], timeoutMs = DEFAULT_TIMEOUT_MS): Promise<{
+async function runCommand(
+  argv: string[],
+  timeoutMs = DEFAULT_TIMEOUT_MS,
+  env: Record<string, string | undefined> = process.env,
+): Promise<{
   ok: boolean;
   stdout: string;
   stderr: string;
@@ -363,7 +417,7 @@ async function runCommand(argv: string[], timeoutMs = DEFAULT_TIMEOUT_MS): Promi
   const proc = Bun.spawn(argv, {
     stdout: "pipe",
     stderr: "pipe",
-    env: { ...process.env },
+    env: { ...env },
   });
   let timedOut = false;
   const timer = setTimeout(() => {
@@ -484,7 +538,8 @@ async function discoverProvider(key: ProviderKey): Promise<DiscoveredModelProvid
     };
   }
   try {
-    const out = await runCommand(command);
+    // agy takes the same network path as its sessions (antigravity-env.ts).
+    const out = await runCommand(command, DEFAULT_TIMEOUT_MS, key === "antigravity" ? antigravityEnv() : process.env);
     if (!out.ok) {
       if (key === "grok") {
         const cached = readGrokModelsCache();

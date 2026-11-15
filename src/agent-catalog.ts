@@ -138,10 +138,10 @@ export const DEEPSEEK_MODELS: string[] = ["deepseek-v4-flash", "deepseek-v4-pro"
 // vocabulary; `devin models list --format json` can widen it later via model
 // discovery.
 export const DEVIN_MODELS: string[] = ["adaptive", "swe", "opus", "gpt", "sonnet", "gemini", "codex"];
-// Antigravity reports the models of the signed-in Google plan as an ACP session
-// option, so the real list is only known inside a session. "default" keeps the
-// account's own choice. Google offers only Gemini models to general ACP
-// clients. A typed model name is matched against the advertised option values.
+// Fallback until model discovery has run `agy models` (model-discovery.ts),
+// which lists the signed-in Google plan's models. "default" keeps the
+// account's own choice. A chosen id is matched against the ACP session's
+// model option values.
 export const ANTIGRAVITY_MODELS: string[] = ["default"];
 // Static fallback until model discovery (GET api.meta.ai/muse-code/models, the
 // document the CLI itself reads) has answered; discovery is authoritative and

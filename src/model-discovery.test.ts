@@ -10,6 +10,7 @@ import {
   type ModelDiscoveryCache,
   type DiscoveredModelProvider,
   parseMuseModels,
+  parseAntigravityModels,
 } from "./model-discovery.ts";
 
 function provider(
@@ -48,6 +49,7 @@ function cache(
       opencode: provider("opencode"),
       jcode: provider("jcode"),
       muse: provider("muse"),
+      antigravity: provider("antigravity"),
       ...providers,
     },
   };
@@ -104,7 +106,7 @@ describe("model discovery retry policy", () => {
       timeZone: "UTC",
       providers: { codex: provider("codex") },
     };
-    expect(providersDueForRetry(older, 0)).toEqual(["grok", "cursor", "fx", "opencode", "jcode", "muse"]);
+    expect(providersDueForRetry(older, 0)).toEqual(["grok", "cursor", "fx", "opencode", "jcode", "muse", "antigravity"]);
   });
 
   test("no cache means the initial full refresh owns it, not the retry path", () => {
@@ -234,5 +236,52 @@ describe("modelDiscoveryKeysForAgent", () => {
   test("Claude has no model-list command", () => {
     expect(modelDiscoveryKeysForAgent("claude")).toEqual([]);
     expect(modelDiscoveryKeysForAgent("aisdk")).toEqual([]);
+  });
+});
+
+describe("parseAntigravityModels", () => {
+  // Real `agy models` 1.5.9 output, spinner included. The ACP session on the
+  // same account offered exactly: gemini-4-argon, gemini-4-hydrogen,
+  // gemini-pro-orchestrator-g1-pro, gemini-3.8-flash, claude-opus-5-5,
+  // claude-sonnet-5-5, gpt-oss-120b-medium.
+  const OUT = [
+    "\u280b Fetching available models...\u001b[K",
+    "gemini-4-argon-medium\tGemini 4 Argon (Medium)",
+    "gemini-4-argon-high\tGemini 4 Argon (High)",
+    "gemini-4-argon-low\tGemini 4 Argon (Low)",
+    "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)",
+    "gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)",
+    "gemini-pro-orchestrator-g1-pro\tOrchestrator (Argon)",
+    "gemini-3.8-flash-high\tGemini 3.8 Flash (High)",
+    "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)",
+    "claude-opus-5-5-low\tClaude Opus 5.5 (Low)",
+    "claude-opus-5-5-high\tClaude Opus 5.5 (High)",
+    "claude-sonnet-5-5-medium\tClaude Sonnet 5.5 (Medium)",
+    "claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)",
+    "gpt-oss-120b-medium\tGPT-OSS 120B (Medium)",
+  ].join("\n");
+
+  test("collapses effort levels to the ids an ACP session accepts", () => {
+    const parsed = parseAntigravityModels(OUT);
+    expect(parsed.models).toEqual([
+      "default",
+      "gemini-4-argon",
+      "gemini-4-hydrogen",
+      "gemini-pro-orchestrator-g1-pro",
+      "gemini-3.8-flash",
+      "claude-opus-5-5",
+      "claude-sonnet-5-5",
+      "gpt-oss-120b-medium",
+    ]);
+    expect(parsed.labels["gemini-4-argon"]).toBe("Gemini 4 Argon");
+    expect(parsed.labels["gpt-oss-120b-medium"]).toBe("GPT-OSS 120B (Medium)");
+  });
+
+  test("a signed-out or empty answer lists only the account default", () => {
+    expect(parseAntigravityModels("Please sign in").models).toEqual(["default"]);
+  });
+
+  test("an agy update re-runs Antigravity discovery", () => {
+    expect(modelDiscoveryKeysForAgent("antigravity")).toEqual(["antigravity"]);
   });
 });
