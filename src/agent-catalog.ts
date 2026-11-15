@@ -21,7 +21,7 @@ export type SkillCatalogItem = {
    * that one `.includes()` could run in the browser.
    */
   keywords?: string;
-  source: "codex" | "claude" | "agent";
+  source: "codex" | "claude" | "grok" | "agent";
   path: string;
 };
 
