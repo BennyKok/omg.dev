@@ -111,11 +111,8 @@ export function PeoplePanel() {
       {error ? <p role="alert" className="px-1 text-sm text-destructive">{error}</p> : null}
       <SettingsGroup
         label="People on this computer"
-        footer={
-          answer?.identityMode === "tailscale"
-            ? "A person signs in with Tailscale. Only the people in this list can open this computer from the tailnet."
-            : "Each person picks their profile in the browser. To sign people in with Tailscale, see docs/user-accounts.md."
-        }
+        // One short note, and only when it changes what the list means.
+        footer={answer?.identityMode === "tailscale" ? "Only these people can open this computer from the tailnet." : undefined}
       >
         {answer === null && !error ? (
           // The list's place is kept while it loads, so the note under it does not jump.

@@ -133,10 +133,7 @@ export function RemoteAccessPage() {
   const access = useServerAccess();
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
-      <div className="px-1">
-        <h1 className="text-lg font-semibold leading-tight max-md:hidden">Open from phone</h1>
-        <p className="text-sm text-muted-foreground">Use this computer from your phone or another browser.</p>
-      </div>
+      <h1 className="px-1 text-lg font-semibold leading-tight max-md:hidden">Open from phone</h1>
       {offersRemoteAccess(access) ? <RemoteAccessGroups access={access} /> : null}
     </div>
   );
@@ -162,10 +159,7 @@ export function MyComputersPage() {
   const access = useServerAccess();
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
-      <div className="px-1">
-        <h1 className="text-lg font-semibold leading-tight max-md:hidden">My computers</h1>
-        <p className="text-sm text-muted-foreground">See and use chats on your other computers from this one.</p>
-      </div>
+      <h1 className="px-1 text-lg font-semibold leading-tight max-md:hidden">My computers</h1>
       {offersRemoteAccess(access) ? <LinkedMachinesGroup /> : null}
     </div>
   );

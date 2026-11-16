@@ -91,10 +91,8 @@ export function ConnectorsPage() {
   const [tab, setTab] = useState<Tab>("people");
   return (
     <div className="mx-auto max-w-2xl space-y-6 pb-10" data-lfg-page-column>
-      <div>
-        <h1 className="text-lg font-semibold max-md:hidden">People &amp; roles</h1>
-        <p className="text-sm text-muted-foreground">Who uses this computer, and which tools they can use.</p>
-      </div>
+      {/* The title names the page. A sentence under it repeated the title. */}
+      <h1 className="text-lg font-semibold max-md:hidden">People &amp; roles</h1>
       <div role="tablist" className="flex gap-1 rounded-xl bg-muted p-1 text-sm">
         {(
           [

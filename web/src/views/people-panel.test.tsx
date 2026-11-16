@@ -57,7 +57,7 @@ test("lists each person with their Tailscale name and their role", async () => {
   expect(ui.text()).toContain("benny@example.com · Tailscale: you");
   expect((ui.query('select[aria-label="Role of Angel"]') as HTMLSelectElement).value).toBe("guest");
   expect((ui.query('select[aria-label="Role of Benny"]') as HTMLSelectElement).value).toBe("owner");
-  expect(ui.text()).toContain("Only the people in this list can open this computer from the tailnet");
+  expect(ui.text()).toContain("Only these people can open this computer from the tailnet.");
 });
 
 test("picking a role edits that role's member list, the one owner of the mapping", async () => {
@@ -85,10 +85,11 @@ test("a Tailscale login seen on the main address is marked as not checked", () =
   expect(personDetail(me, null)).toBe("benny@example.com");
 });
 
-test("without Tailscale identity the note says how people are told apart today", async () => {
+test("without Tailscale identity the list has no note under it", async () => {
   answer.identityMode = "profile";
   answer.viewer = null;
   ui.render(<PeoplePanel />);
   await settle();
-  expect(ui.text()).toContain("Each person picks their profile in the browser");
+  expect(ui.queryAll("[data-person]")).toHaveLength(2);
+  expect(ui.text()).not.toContain("tailnet");
 });

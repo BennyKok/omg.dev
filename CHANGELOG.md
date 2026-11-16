@@ -2,6 +2,19 @@
 
 Recent product updates and deployment notes.
 
+## November 16, 2026 - One menu on the phone, one-page Settings (v0.7.9)
+
+- Phone navigation has one menu. The Menu page lists every page (Chats, Dashboard, Schedules, Inbox, Artifacts, Computer, Settings), then your five most recent folders and one "All folders" row. The Chats header keeps the menu and the Inbox.
+- Every other phone page has one header: a Back arrow, the page name, and the page's actions. Back returns to where you opened the page from.
+- Settings is one page. The "More" page is gone, and its switches (dark mode, notifications, sound, view, voice) are on Settings. Rows keep their place while their values load.
+- Settings > Other computers has three pages named by what they do: My computers (use chats on your other computers), Agent access (was Linked devices), and Open from phone (was Remote access). Agent access shows one row per computer, with its permissions inside the row.
+- Settings > People & roles (was Roles & tool access) opens on a People tab: each person on this computer and their role.
+- The phone chat list groups chats by computer when it holds chats from more than one. The Inbox is a flat list on a phone. Project favicons show in the compact chat list.
+- New, off by default: with `LFG_TAILNET_IDENTITY=1`, the gated tailnet listener (`LFG_TAILNET_PORT`) admits a person whose Tailscale login is on this computer's user list, and refuses any other login. See `docs/user-accounts.md` before you turn it on.
+- A Dashboard page shows views that an agent builds and refreshes, with one Edit button that opens the chat composer.
+- Google Antigravity is available as a coding agent, with its plan's models in the picker.
+- A link to another session shows as a small pill with a way to open it and to go back.
+
 ## November 13, 2026 - Open a linked machine's session in place (v0.7.8)
 
 - A session from a linked machine opens in place from the unified sidebar. The page does not reload, and this computer's own connection stays up.
