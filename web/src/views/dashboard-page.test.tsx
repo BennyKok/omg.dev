@@ -140,3 +140,16 @@ test("Updating… follows the dashboard's own agent session, not any busy agent"
   );
   expect(ui.text()).toContain("Updating…");
 });
+
+test("opens on the first tab, not always on Today", async () => {
+  const revenueFirst: DashboardPayload = {
+    ...SAMPLE_PAYLOAD,
+    views: [
+      { id: "revenue", title: "Revenue", order: 0, updatedAt: 1, kpis: [{ label: "MRR", value: "$262.62" }] },
+      ...SAMPLE_PAYLOAD.views,
+    ],
+  };
+  ui.render(<DashboardPage active={false} initialData={revenueFirst} />);
+  expect(ui.text()).toContain("$262.62");
+  expect(ui.text()).not.toContain("High memory alert");
+});

@@ -619,7 +619,8 @@ export default function DashboardPage({
   onOpenEditorSession?: (sessionId: string) => void;
 }) {
   const [data, setData] = useState<DashboardPayload | null>(initialData);
-  const [selectedViewId, setSelectedViewId] = useState<string>(() => initialData?.views[0]?.id ?? "today");
+  // Null until a tab is picked: the first view (lowest order) opens by default.
+  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [sending, setSending] = useState(false);
