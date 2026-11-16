@@ -52,7 +52,7 @@ export function DeviceReceiverSettings() {
 
       {!state.deviceId ? <SettingsGroup label="Connect">
         <form className="space-y-3 px-4 py-3" onSubmit={(e) => { e.preventDefault(); void act("connect", { server: server.trim(), code: code.trim() }); }}>
-          <p className="text-xs text-muted-foreground">On the other computer, open Linked devices and choose “Add a computer”. Enter its address and code here.</p>
+          <p className="text-xs text-muted-foreground">On the other computer, open Agent access and choose “Add a computer”. Enter its address and code here.</p>
           <label className="block space-y-1 text-xs">Address of the other computer<input aria-label="Address of the other computer" type="url" required placeholder="https://other-computer.example.ts.net" value={server} onChange={(e) => setServer(e.target.value)} className={inputClass} /></label>
           <label className="block space-y-1 text-xs">Pairing code<input aria-label="Pairing code" required autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} className={inputClass} /></label>
           <button type="submit" disabled={busy || !server.trim() || !code.trim()} className={buttonClass}>Connect</button>

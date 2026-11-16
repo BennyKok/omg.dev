@@ -47,7 +47,7 @@ export class DeviceNotifications {
       const phase = status === "waiting-approval" ? "approval" : "request";
       if (this.seen.get(id) === phase || (this.seen.has(id) && phase === "request")) continue;
       const options: NotificationOptions = {
-        body: phase === "approval" ? "Review this request on this computer. No answer means deny." : "Open Linked devices to review incoming activity and access.",
+        body: phase === "approval" ? "Review this request on this computer. No answer means deny." : "Open Agent access to review incoming activity and access.",
         tag: `omg-device-${id}`, data: { url: "/devices?receive=1" },
       };
       const title = phase === "approval" ? "Device request needs approval" : "Incoming device request";

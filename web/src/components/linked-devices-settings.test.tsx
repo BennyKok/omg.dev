@@ -60,7 +60,7 @@ describe("LinkedDevicesPage", () => {
     ui.render(<LinkedDevicesPage />);
     await ui.flushAsync();
 
-    expect(ui.text()).toContain("Linked devices");
+    expect(ui.text()).toContain("Agent access");
     expect(ui.text()).toContain("@test-mac");
     expect(ui.text()).toContain("Connected now");
     expect(ui.text()).toContain("Connected now · 2 actions");
@@ -132,7 +132,7 @@ describe("LinkedDevicesRow", () => {
     let opened = 0;
     ui.render(<LinkedDevicesRow onOpen={() => opened++} />);
     await ui.flushAsync();
-    expect(ui.text()).toContain("Linked devices");
+    expect(ui.text()).toContain("Agent access");
     expect(ui.text()).toContain("@test-mac");
     await ui.flushAsync(() => (ui.query("button") as HTMLButtonElement).click());
     expect(opened).toBe(1);
@@ -143,6 +143,6 @@ describe("LinkedDevicesRow", () => {
     await refreshLinkedDevices();
     ui.render(<LinkedDevicesRow onOpen={() => {}} />);
     await ui.flushAsync();
-    expect(ui.text()).not.toContain("Linked devices");
+    expect(ui.text()).not.toContain("Agent access");
   });
 });

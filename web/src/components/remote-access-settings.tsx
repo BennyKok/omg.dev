@@ -12,8 +12,7 @@ import {
   Server,
   ShieldCheck,
   TerminalSquare,
-  Trash2,
-} from "lucide-react";
+  Trash2, MonitorSmartphone } from "lucide-react";
 import { LOCAL_MACHINE_ID, selectMachine, usePeerMachines } from "../lib/machines";
 import { cn } from "../lib/utils";
 import { SettingsGroup, SettingsIcon, SettingsRow } from "./settings-ui";
@@ -106,7 +105,7 @@ export function RemoteAccessRow({ onOpen }: { onOpen: () => void }) {
     <SettingsRow
       onClick={onOpen}
       icon={<SettingsIcon><Globe2 /></SettingsIcon>}
-      title="Remote access"
+      title="Open from phone"
       description={
         tailscale.serveEnabled && tailscale.serveUrl
           ? tailscale.serveUrl.replace(/^https?:\/\//, "")
@@ -117,21 +116,57 @@ export function RemoteAccessRow({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-/** Settings > Remote access: the local address and private Tailscale access. */
+/**
+ * THREE PAGES, NAMED BY WHO ACTS. They used to be two rows, "Linked devices"
+ * and "Remote access", over three features, with "Linked machines" inside
+ * the second one. "Device", "machine" and "computer" all meant a computer,
+ * and "linked" meant two different things.
+ *
+ *   My computers     YOU use several computers from this one UI.
+ *   Agent access     AGENTS on one computer ask another to act
+ *                    (components/linked-devices-settings.tsx).
+ *   Open from phone  You open THIS computer from another browser.
+ */
+
+/** Settings > Open from phone: the local address and private Tailscale access. */
 export function RemoteAccessPage() {
   const access = useServerAccess();
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
       <div className="px-1">
-        <h1 className="text-lg font-semibold leading-tight max-md:hidden">Remote access</h1>
-        <p className="text-sm text-muted-foreground">Open omg.dev from your phone or another computer.</p>
+        <h1 className="text-lg font-semibold leading-tight max-md:hidden">Open from phone</h1>
+        <p className="text-sm text-muted-foreground">Use this computer from your phone or another browser.</p>
       </div>
-      {offersRemoteAccess(access) ? (
-        <>
-          <RemoteAccessGroups access={access} />
-          <LinkedMachinesGroup />
-        </>
-      ) : null}
+      {offersRemoteAccess(access) ? <RemoteAccessGroups access={access} /> : null}
+    </div>
+  );
+}
+
+/** The Settings row that opens My computers. The caller owns the card. */
+export function MyComputersRow({ onOpen }: { onOpen: () => void }) {
+  const access = useServerAccess();
+  if (!offersRemoteAccess(access)) return null;
+  return (
+    <SettingsRow
+      onClick={onOpen}
+      icon={<SettingsIcon><MonitorSmartphone /></SettingsIcon>}
+      title="My computers"
+      description="See and use chats on your other computers"
+      descriptionClassName="truncate"
+    />
+  );
+}
+
+/** Settings > My computers: other omg.dev computers whose chats show here. */
+export function MyComputersPage() {
+  const access = useServerAccess();
+  return (
+    <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
+      <div className="px-1">
+        <h1 className="text-lg font-semibold leading-tight max-md:hidden">My computers</h1>
+        <p className="text-sm text-muted-foreground">See and use chats on your other computers from this one.</p>
+      </div>
+      {offersRemoteAccess(access) ? <LinkedMachinesGroup /> : null}
     </div>
   );
 }
@@ -276,13 +311,13 @@ export function LinkedMachinesGroup() {
       >
         <SettingsRow
           icon={<SettingsIcon><KeyRound /></SettingsIcon>}
-          title="Allow linking from other machines"
+          title="Let other computers add this one"
           description={self.inboundEnabled ? "Other omg.dev computers can link with the pairing code." : "Off"}
           trailing={
             <Switch
               checked={self.inboundEnabled}
               disabled={togglingInbound}
-              aria-label="Allow linking from other machines"
+              aria-label="Let other computers add this one"
               onCheckedChange={async (checked) => {
                 setTogglingInbound(true);
                 try {
@@ -322,20 +357,20 @@ export function LinkedMachinesGroup() {
       </SettingsGroup>
 
       <SettingsGroup
-        label="Linked machines"
+        label="Computers"
         labelId="linked-machines-heading"
         footer="Paste the pairing code from another omg.dev computer. This computer keeps its token and connects for you, so the token never reaches the browser."
       >
         {peers.length > 0 ? (
           <SettingsRow
             icon={<SettingsIcon><Layers /></SettingsIcon>}
-            title="Unified session sidebar"
+            title="Show their chats in my list"
             description="Show sessions from every linked machine in the sidebar."
             trailing={
               <Switch
                 checked={unified}
                 onCheckedChange={(checked) => setUnified(Boolean(checked))}
-                aria-label="Unified session sidebar"
+                aria-label="Show their chats in my list"
               />
             }
           />

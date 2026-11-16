@@ -30,6 +30,8 @@ import { MobileHomeComposer } from "./components/mobile-home-composer";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
+import { ComputerGroupSection } from "./components/computer-group";
+import { groupByComputer, hasSeveralComputers, LOCAL_COMPUTER_ID, readClosedComputers, writeClosedComputers } from "./lib/computer-groups";
 import { PhoneHeaderActions, PhoneHeaderSlotContext, usePhoneHeaderSlot } from "./components/phone-header-actions";
 import { mobileHeader, sideNavRows, tabFallsToSettings, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
@@ -699,7 +701,7 @@ import {
   CustomInstructionsPage,
   CustomInstructionsRow,
 } from "./views/custom-instructions-page";
-import { RemoteAccessPage, RemoteAccessRow } from "./components/remote-access-settings";
+import { MyComputersPage, MyComputersRow, RemoteAccessPage, RemoteAccessRow } from "./components/remote-access-settings";
 import { DeviceReceiverMonitor } from "./components/device-receiver-monitor";
 import { LinkedDevicesPage, LinkedDevicesRow } from "./components/linked-devices-settings";
 import { SETTINGS_STAGE_SUBPAGES, SettingsStageSubpage } from "./components/settings-stage-subpage";
@@ -9154,6 +9156,7 @@ export function App() {
       onOpenStorage={() => setTab("storage")}
       onOpenDevices={() => setTab("devices")}
       onOpenRemoteAccess={() => setTab("remote-access")}
+      onOpenComputers={() => setTab("computers")}
       onOpenCustomInstructions={() => setTab("instructions")}
       onOpenConnectors={() => setTab("connectors")}
       onOpenTerminal={() => setTab("term")}
@@ -9188,6 +9191,7 @@ export function App() {
     if (page === "storage") return <StoragePage />;
     if (page === "devices") return <LinkedDevicesPage />;
     if (page === "remote-access") return <RemoteAccessPage />;
+    if (page === "computers") return <MyComputersPage />;
     if (page === "instructions")
       return (
         <CustomInstructionsPage
@@ -12019,12 +12023,34 @@ function LiveView({
   // Same grouping the rail uses, from the same helper, so the two lists cannot
   // drift apart again.
   // Memoized by React Compiler on tree, topPinned and folderOrder.
+  const listRoots = tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item));
   const projectGroups = groupNodesByProject(
-    tree.roots.filter((item) => !nodeContainsPin(item) && !nodeIsBot(item)),
+    listRoots,
     (node) => tree.flatten([node]).length,
     shortProject,
     folderOrder,
   );
+  // With chats from more than one computer, the computer is a level above
+  // the folders (lib/computer-groups.ts). One computer: the list is as it was.
+  const computerGroups = groupByComputer(
+    listRoots,
+    // The fleet tags this computer's own chats with the "local" id.
+    (node) =>
+      node.session.peerId && node.session.peerId !== LOCAL_COMPUTER_ID
+        ? { id: node.session.peerId, name: node.session.peerName ?? "" }
+        : null,
+    LOCAL_MACHINE.name,
+  );
+  const severalComputers = hasSeveralComputers(computerGroups);
+  const [closedComputers, setClosedComputers] = useState(() => readClosedComputers(window.localStorage));
+  const toggleComputer = (id: string) =>
+    setClosedComputers((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      writeClosedComputers(window.localStorage, next);
+      return next;
+    });
 
   const pinnedNodes = tree.roots.filter(
     (node) => nodeContainsPin(node) && (shouldShowBotsInSessionList() || !nodeIsBot(node)),
@@ -12320,7 +12346,9 @@ function LiveView({
         {/* Threads are people chats, not work on this app. */}
         {!showThreads ? null : <ThreadRailGroup threads={threads} activeId={openThreadId} collapsed={false} onOpen={(id) => onOpenThread?.(id)} />}
         <SessionGroups
-          groups={projectGroups}
+          // Pinned chats stay above every computer. The folders move under
+          // their computer when there is more than one.
+          groups={severalComputers ? [] : projectGroups}
           pinnedNodes={pinnedNodes}
           pinnedCount={pinned.length}
           projectFilter={projectFilter}
@@ -12328,6 +12356,38 @@ function LiveView({
           renderItem={renderMobileItem}
           card={listStyle === "compact"}
         />
+        {severalComputers
+          ? computerGroups.map((computer) => {
+              const sessionsHere = tree.flatten(computer.items);
+              return (
+                <ComputerGroupSection
+                  key={computer.id}
+                  id={computer.id}
+                  name={computer.name}
+                  local={computer.id === LOCAL_COMPUTER_ID}
+                  chats={sessionsHere.length}
+                  working={sessionsHere.filter((session) => !!busyBySid[session.sessionId ?? ""]).length}
+                  open={!closedComputers.has(computer.id)}
+                  onToggle={() => toggleComputer(computer.id)}
+                >
+                  <SessionGroups
+                    groups={groupNodesByProject(
+                      computer.items,
+                      (node) => tree.flatten([node]).length,
+                      shortProject,
+                      folderOrder,
+                    )}
+                    pinnedNodes={[]}
+                    pinnedCount={0}
+                    projectFilter={projectFilter}
+                    onProjectChange={onProjectChange}
+                    renderItem={renderMobileItem}
+                    card={listStyle === "compact"}
+                  />
+                </ComputerGroupSection>
+              );
+            })
+          : null}
         {/* Threads alone (or a project chip with nothing in it) used to leave
             the rest of the phone blank above the composer. */}
         {!pinned.length && !botSessions.length && !working.length && !idle.length ? (
@@ -30121,6 +30181,7 @@ function SettingsView({
   onOpenStorage,
   onOpenDevices,
   onOpenRemoteAccess,
+  onOpenComputers,
   onOpenCustomInstructions,
   onOpenConnectors,
   onOpenTerminal,
@@ -30143,6 +30204,7 @@ function SettingsView({
   onOpenStorage: () => void;
   onOpenDevices: () => void;
   onOpenRemoteAccess: () => void;
+  onOpenComputers: () => void;
   onOpenCustomInstructions: () => void;
   onOpenConnectors: () => void;
   onOpenTerminal: () => void;
@@ -30223,8 +30285,6 @@ function SettingsView({
           descriptionClassName="truncate tabular-nums"
           reserveDescription
         />
-        <LinkedDevicesRow onOpen={onOpenDevices} />
-        <RemoteAccessRow onOpen={onOpenRemoteAccess} />
         <SettingsRow onClick={onOpenTerminal} icon={<SettingsIcon><TerminalSquare /></SettingsIcon>} title="Terminal" />
         {/* One row for what used to be three (Frontend, Computer, Updates):
             which UI build is rendering, what the selected Computer is
@@ -30237,6 +30297,15 @@ function SettingsView({
           versionSkew={versionSkew}
           versionNote={versionNote}
         />
+      </SettingsGroup>
+
+      {/* One row per question, named by who acts: you on several computers,
+          agents on another computer, you on this computer from elsewhere
+          (see components/remote-access-settings.tsx). */}
+      <SettingsGroup label="Other computers">
+        <MyComputersRow onOpen={onOpenComputers} />
+        <LinkedDevicesRow onOpen={onOpenDevices} />
+        <RemoteAccessRow onOpen={onOpenRemoteAccess} />
       </SettingsGroup>
 
       {/* This device — browser-local, never synced to the server. */}

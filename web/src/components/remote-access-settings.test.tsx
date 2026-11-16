@@ -37,7 +37,7 @@ describe("RemoteAccessPage", () => {
     ui.render(<RemoteAccessPage />);
     await ui.flushAsync();
 
-    expect(ui.text()).toContain("Remote access");
+    expect(ui.text()).toContain("Open from phone");
     expect(ui.text()).toContain("http://127.0.0.1:8766");
     expect(ui.text()).toContain("https://computer.example.ts.net");
     expect(ui.text()).toContain("Active");
@@ -109,7 +109,7 @@ describe("RemoteAccessRow", () => {
     ui.render(<RemoteAccessRow onOpen={() => opened++} />);
     await ui.flushAsync();
 
-    expect(ui.text()).toContain("Remote access");
+    expect(ui.text()).toContain("Open from phone");
     expect(ui.text()).toContain("computer.example.ts.net");
     ui.flush(() => (ui.query("button") as HTMLElement).click());
     expect(opened).toBe(1);

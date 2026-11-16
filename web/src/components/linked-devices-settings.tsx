@@ -62,7 +62,7 @@ export function LinkedDevicesRow({ onOpen }: { onOpen: () => void }) {
       reserveDescription
       onClick={onOpen}
       icon={<SettingsIcon><Laptop /></SettingsIcon>}
-      title="Linked devices"
+      title="Agent access"
       description={[devices.map((d) => `@${d.id}`).join(", "), receiver?.deviceId ? `Receiving as @${receiver.deviceId}${receiver.pending ? " · Approval needed" : ""}` : ""].filter(Boolean).join(" · ") || "No devices linked"}
       descriptionClassName="truncate"
     />
@@ -130,7 +130,7 @@ export function LinkedDevicesPage() {
   return (
     <div className="mx-auto max-w-xl space-y-6 pb-10" data-lfg-page-column>
       <div className="px-1">
-        <h1 className="text-lg font-semibold leading-tight max-md:hidden">Linked devices</h1>
+        <h1 className="text-lg font-semibold leading-tight max-md:hidden">Agent access</h1>
         <p className="text-sm text-muted-foreground">
           {role === "receiver"
             ? "Agents on another computer can ask this one to do an action. You approve it here."
@@ -217,7 +217,7 @@ export function LinkedDevicesPage() {
                 {pairing ? (
                   <div data-pairing-code className="space-y-1">
                     <p className="text-xs text-muted-foreground">
-                      On the other computer, open Linked devices, then “Share this computer”. This code works once, until {new Date(pairing.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
+                      On the other computer, open Agent access, then “Share this computer”. This code works once, until {new Date(pairing.expiresAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}.
                     </p>
                     <p className="break-all text-sm">Address: {pairing.server || "Use this computer’s Tailscale HTTPS address."}</p>
                     <p className="text-sm">Pairing code: <code className="font-semibold">{pairing.code}</code></p>

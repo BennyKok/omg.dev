@@ -31,7 +31,7 @@ function watch() {
         events.onmessage = (event) => {
           if (abort.signal.aborted) return;
           try { publish({ state: JSON.parse(event.data), error: null }); }
-          catch { publish({ state: null, error: "Cannot read device activity. Reopen Linked devices." }); }
+          catch { publish({ state: null, error: "Cannot read device activity. Reopen Agent access." }); }
         };
         events.onerror = () => {
           if (!abort.signal.aborted) publish({ state: null, error: "Device connection lost. Reconnecting…" });

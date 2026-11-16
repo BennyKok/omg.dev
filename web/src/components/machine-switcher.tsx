@@ -203,7 +203,7 @@ function PeerActionsDialog({
                 placeholder="https://studio.tailnet.ts.net#omg_peer_..."
               />
               <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Copy the pairing code from the remote machine’s Settings &gt; Remote access, or enter its direct URL.
+                Copy the pairing code from the other computer’s Settings &gt; My computers, or enter its direct URL.
               </p>
             </div>
 

@@ -52,13 +52,13 @@ describe("LinkedMachinesGroup", () => {
     ui.render(<LinkedMachinesGroup />);
     await ui.flushAsync();
 
-    expect(ui.text()).toContain("Allow linking from other machines");
+    expect(ui.text()).toContain("Let other computers add this one");
     expect(ui.query('[data-testid="peer-pairing-code"]')).toBeNull();
     expect(ui.text()).not.toContain("omg_peer_");
     // Outbound linking works with inbound access off.
     expect(ui.query('[data-testid="peer-link-form"]')).not.toBeNull();
 
-    const toggle = ui.query('[aria-label="Allow linking from other machines"]') as HTMLElement;
+    const toggle = ui.query('[aria-label="Let other computers add this one"]') as HTMLElement;
     expect(toggle).not.toBeNull();
     await act(async () => {
       toggle.click();

@@ -147,9 +147,9 @@ These rules come from the first user's answers and from IR-2026-11-01.
 
 With omg.dev running on both computers:
 
-1. On the controller, open Settings → Linked devices → Use another computer.
+1. On the controller, open Settings → Agent access → Use another computer.
    Open Add a computer, enter a device name and select Get code.
-2. On the receiving computer, open its own localhost UI. Select Linked devices
+2. On the receiving computer, open its own localhost UI. Select Agent access
    → Share this computer. Enter the controller's Tailscale HTTPS address and
    code, and select Connect.
 3. Review the action permissions. The installed `~/.omg-device/config.json`
