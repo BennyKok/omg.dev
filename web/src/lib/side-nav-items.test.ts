@@ -10,6 +10,7 @@ describe("sideNavRows", () => {
     // both gone, so a page missing here is a page with no route to it.
     expect(keys(sideNavRows({ tab: "live" }))).toEqual([
       "live",
+      "dashboard",
       "auto",
       "notifications",
       "artifacts",
@@ -28,7 +29,7 @@ describe("sideNavRows", () => {
   });
 
   test("marks exactly one row, and marks the tab you are on", () => {
-    for (const tab of ["live", "auto", "notifications", "artifacts"]) {
+    for (const tab of ["live", "dashboard", "auto", "notifications", "artifacts"]) {
       const rows = sideNavRows({ tab });
       const current = rows.filter((row) => row.current);
       expect(current.map((row) => row.key)).toEqual([tab]);
@@ -51,6 +52,7 @@ describe("sideNavRows", () => {
   test("the Schedules View switch drops its row, as it dropped a dock segment", () => {
     expect(keys(sideNavRows({ tab: "live", showSchedules: false }))).toEqual([
       "live",
+      "dashboard",
       "notifications",
       "artifacts",
       "computer",
@@ -82,26 +84,28 @@ describe("sideNavRows", () => {
 });
 
 describe("mobileHeaderControl", () => {
-  test("every page the drawer lists shows the drawer button", () => {
-    for (const tab of ["live", "notifications", "auto", "artifacts", "computer", "settings", "board", "ext-anything"]) {
-      expect(mobileHeaderControl(tab)).toBe("menu");
-    }
-  });
-
-  test("Folders, where the drawer button goes, has no control of its own", () => {
+  test("Chats shows the menu button, and Folders has no header control", () => {
+    expect(mobileHeaderControl("live")).toBe("menu");
     expect(mobileHeaderControl("folders")).toBe("none");
   });
 
-  test("a page inside Settings shows Back to Settings instead", () => {
-    for (const tab of ["usage", "coding-agents", "storage", "instructions", "connectors", "changelog", "more"]) {
+  test("top-level pages show Back to Chats instead of jumping to Folders", () => {
+    for (const tab of ["dashboard", "notifications", "settings", "bots", "board", "ext-anything"]) {
+      expect(mobileHeaderControl(tab)).toBe("back-to-chats");
+    }
+  });
+
+  test("Artifacts shows Back to Inbox, and Schedules + Settings sub-pages show Back to Settings", () => {
+    expect(mobileHeaderControl("artifacts")).toBe("back-to-inbox");
+    for (const tab of ["auto", "usage", "coding-agents", "storage", "instructions", "connectors", "changelog", "more"]) {
       expect(mobileHeaderControl(tab)).toBe("back-to-settings");
     }
   });
 });
 
 describe("tabFallsToSettings", () => {
-  test("the Folders page and every page with its own view do not draw Settings under them", () => {
-    for (const tab of ["folders", "live", "notifications", "computer", "artifacts", "usage", "auto"]) {
+  test("the Folders page, Dashboard, and every page with its own view do not draw Settings under them", () => {
+    for (const tab of ["folders", "live", "dashboard", "notifications", "computer", "artifacts", "usage", "auto"]) {
       expect(tabFallsToSettings(tab)).toBe(false);
     }
   });

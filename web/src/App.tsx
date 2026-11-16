@@ -420,6 +420,7 @@ import {
   Archive,
   ArrowDown,
   ArrowUp,
+  BarChart3,
   Bot,
   BrainCircuit,
   CalendarClock,
@@ -597,6 +598,7 @@ const TermView = lazyWithReload("TermView", () =>
   import("@/components/terminal-panel").then((m) => ({ default: m.TermView })),
 );
 const ShippedPage = lazyWithReload("ShippedPage", () => import("./views/shipped-page"));
+const DashboardPage = lazyWithReload("DashboardPage", () => import("./views/dashboard-page"));
 const SessionTokenUsageDialog = lazyWithReload("SessionTokenUsageDialog", () =>
   import("./views/session-token-usage"),
 );
@@ -9055,7 +9057,7 @@ export function App() {
   // keeps the pushed page. Terminal and Computer stay full-screen surfaces.
   const settingsSubpageInWorkspace = SETTINGS_STAGE_SUBPAGES.has(tab) && isWide && !bare;
   const pageInWorkspace =
-    ((tab === "notifications" || tab === "artifacts") && isWide) ||
+    ((tab === "dashboard" || tab === "notifications" || tab === "artifacts") && isWide) ||
     settingsInWorkspace ||
     codingAgentsInWorkspace ||
     settingsSubpageInWorkspace;
@@ -9063,6 +9065,77 @@ export function App() {
     liveSessions.flatMap((s) =>
       [s.sessionId, s.nativeSessionId].filter((x): x is string => !!x),
     ),
+  );
+  const askDashboardAgent = async (promptText: string, activeView: { id: string; title: string } | null) => {
+    const cwd = resolveAutoTriageCwd({
+      sources: [],
+      projectFilter,
+      repos: repos.map((repo) => ({ cwd: repo.cwd, project: repoProject(repo) })),
+      fallbackCwd: localStorage.getItem("lfg_v2_repo"),
+    });
+    const launchAgent =
+      knownAgentKind(localStorage.getItem("lfg_v2_agent")) ??
+      knownAgentKind(settings.lastAgent) ??
+      resolveInitialAgent(settings.defaultAgent, "aisdk");
+    const launchModel =
+      localStorage.getItem(`lfg_model_${launchAgent}`) ||
+      (launchAgent === settings.lastAgent ? settings.lastModel : "") ||
+      (launchAgent === settings.defaultAgent ? settings.defaultModel : "") ||
+      localStorage.getItem("lfg_model") ||
+      modelCatalog.defaults[launchAgent] ||
+      AGENT_DEFAULT_MODEL[launchAgent];
+    const owner =
+      userFilter === "__unassigned"
+        ? ""
+        : resolveRosterUser(
+            userFilter !== "__all" ? userFilter : localStorage.getItem("lfg_user"),
+            users,
+          );
+    const fullPrompt = [
+      `Update the local omg.dev Dashboard (active view: "${activeView?.title ?? "Today"}", id: "${activeView?.id ?? "today"}") using the \`omg_dashboard\` MCP tool.`,
+      "First call `omg_dashboard` with `action: \"get\"` to inspect current views, then call `omg_dashboard` with `action: \"upsert_view\"` to apply the requested changes.",
+      "Follow omg-admin rules: show labels and numbers only, no prose explanations or subtitles.",
+      "",
+      `Request: ${promptText}`,
+    ].join("\n");
+    const res = await api<{ sessionId?: string }>("/api/sessions/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd,
+        prompt: fullPrompt,
+        title: `Dashboard: ${promptText.slice(0, 48)}`,
+        user: owner || undefined,
+        agent: launchAgent,
+        model: launchModel,
+        thinkingLevel: thinkingLevelsForSelection(modelCatalog, launchAgent, launchModel).length
+          ? savedThinkingLevel()
+          : undefined,
+      }),
+    });
+    if (res.sessionId) {
+      markCreatedSid(res.sessionId);
+      await api("/api/dashboard/editor-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: res.sessionId }),
+      }).catch(() => {});
+    }
+    await refreshSessions();
+    toast.success("Agent is updating the dashboard");
+  };
+  const dashboardPage = (active: boolean) => (
+    <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
+      <DashboardPage
+        active={active}
+        agentBusy={Object.values(liveStream.busyBySid).some(Boolean)}
+        onAskAgent={askDashboardAgent}
+        onOpenEditorSession={(sid) => {
+          setTab("live");
+          openSessionPage(sid);
+        }}
+      />
+    </Suspense>
   );
   const notificationsPage = (active: boolean) => (
     <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
@@ -9351,18 +9424,7 @@ export function App() {
           isMobile && "mobile-scroll-header-fade",
         )}
       >
-      {isMobile && isPrimarySurfaceTab(tab) ? (
-        /* Live, Bots and Scheduled share one mobile header. They are the same
-           surface with a different list in it — the switch bar below picks
-           which — so swapping the entire top of the screen between them read as
-           changing app rather than changing list. Scheduled used to do exactly
-           that: it took the secondary-page header, so moving between two
-           segments of one switch bar swapped the welcome for a back button
-           pointing at Settings. The
-           host still owns the right-side account/settings island; its inset
-           narrows this shared welcome instead of selecting a different header
-           implementation. That keeps welcome, activity, and Ask transitions
-           identical everywhere LFG's Live view is mounted. */
+      {isMobile && tab === "live" ? (
         <header
           className={cn(
             "z-40 flex min-w-0 shrink-0 items-center gap-2 pb-1 pt-[calc(0.5rem+env(safe-area-inset-top))]",
@@ -9371,10 +9433,8 @@ export function App() {
               : "px-2 md:px-3",
           )}
         >
-          {/* Top left on mobile: the drawer, where the machine chip used to
-              be. The chip moved inside the drawer as its first row, and its
-              status dot moved onto this button, so the one thing the chip
-              told you at a glance still does. */}
+          {/* Top left on mobile: the menu & folders page, with the machine's
+              online status dot. */}
           {pageNavigation}
           <LiveHeaderContext
             intro={showHeaderBrandIntro && !error}
@@ -9390,68 +9450,55 @@ export function App() {
             onOpenFolders={() => setTab("folders")}
           />
           {embedded ? (
-            // The host owns identity/settings chrome here, but the machine's
-            // shared roster is session data and stays in this surface. Pages
-            // also has no other entry point on mobile, so the island carries
-            // the roster filter, host actions, then our overflow menu.
             <NavIsland
               className={cn(
                 "shrink-0",
-                // The frame follows the card: none while the slot is empty.
                 "[&:not(:has([data-lfg-host-slot]:not(:empty)))]:bg-none [&:not(:has([data-lfg-host-slot]:not(:empty)))]:p-0 [&:not(:has([data-lfg-host-slot]:not(:empty)))]:shadow-none",
               )}
             >
-              {/* A card only while the host has docked something into the
-                  slot below. Current hosts put nothing here on a phone (the
-                  machine switcher and upgrade chip moved into the drawer), so
-                  the avatar stands alone, as in the unhosted header. An older
-                  host that still docks gets the card back: see
-                  .lfg-dock-island in index.css. */}
               <div className="glass-island lfg-dock-island flex h-11 items-center gap-1.5 rounded-full">
-                {tab === "auto" ? null : (
+                {users.length > 1 ? (
                   <UserFilterMenu
                     value={userFilter}
                     users={users}
                     displayUser={headerProfile}
                     onChange={changeUserFilter}
                   />
-                )}
-                {/* The machine roster comes first, then host actions, with our
-                    overflow menu beside the screen edge where it opens. */}
-                {/* Host-owned actions, in OUR island instead of beside it.
-                    The host used to float its own island in this corner and we
-                    slid left by --lfg-host-top-inset to make room, which meant a
-                    width constant in the host's stylesheet had to stay equal to
-                    the real box of a component in the host's tree, across two
-                    independently versioned repos. It drifted, and the two
-                    islands overlapped on a phone. A node the host portals into
-                    cannot drift: there is one island, so there is no gap to
-                    maintain. Same trade the desktop rail-footer slot already
-                    made. Collapses to nothing while unfilled, so an older host
-                    that still floats keeps working exactly as before. */}
-                {/* Out of the flex run while unfilled, so its gap does not
-                    push the avatar off the corner. */}
-
+                ) : null}
               </div>
             </NavIsland>
           ) : (
-            /* No card. The island existed to group the roster filter with the
-               overflow menu; the menu moved into the side navigation, so the
-               card was left drawing a pill around one avatar. */
-            <NavIsland surface={false} className="flex shrink-0 items-center self-center">
-              {/* Not on Scheduled. The roster filter scopes sessions, and
-                  Schedules reads the unscoped list — it groups by OWNER
-                  (Unassigned, then each bot) instead. Carrying the control
-                  onto a page it cannot change would make the shared header
-                  a promise the page does not keep. */}
-              {tab === "auto" ? null : (
+            <NavIsland surface={false} className="flex shrink-0 items-center gap-0.5 self-center">
+              {!hiddenPages.includes("dashboard") ? (
+                <button
+                  type="button"
+                  onClick={() => setTab("dashboard")}
+                  aria-label="Dashboard"
+                  title="Dashboard"
+                  className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <BarChart3 className="size-[18px]" />
+                </button>
+              ) : null}
+              {!hiddenPages.includes("notifications") ? (
+                <button
+                  type="button"
+                  onClick={() => setTab("notifications")}
+                  aria-label="Inbox"
+                  title="Inbox"
+                  className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Bell className="size-[18px]" />
+                </button>
+              ) : null}
+              {users.length > 1 ? (
                 <UserFilterMenu
                   value={userFilter}
                   users={users}
                   displayUser={headerProfile}
                   onChange={changeUserFilter}
                 />
-              )}
+              ) : null}
             </NavIsland>
           )}
         </header>
@@ -9474,25 +9521,41 @@ export function App() {
             sits at the same height on a page with no pills around it. */}
         <div className="flex min-h-11 min-w-0 items-center gap-2">
         {/* A phone has ONE control in this corner (lib/side-nav-items.ts,
-            mobileHeaderControl): the drawer button on a page the drawer
-            lists, or Back to Settings on a page inside Settings. */}
+            mobileHeaderControl): the menu button on Chats, or a direct Back
+            button on every other page. */}
         {isMobile ? (
-          mobileHeaderControl(tab) === "none" ? null : mobileHeaderControl(tab) === "menu" ? pageNavigation : (
-            <button
-              type="button"
-              onClick={() => setTab(embedded ? "live" : "settings")}
-              aria-label={embedded ? "Back to Chats" : "Back to Settings"}
-              className="flex h-11 items-center gap-1 rounded-full pl-1 pr-3 text-[15px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
-            >
-              <ChevronLeft className="size-5" />
-              {/* Embedded has no Settings page of its own to go back to. */}
-              <span>{embedded ? "Chats" : "Settings"}</span>
-            </button>
-          )
+          (() => {
+            const ctrl = mobileHeaderControl(tab);
+            if (ctrl === "none") return null;
+            if (ctrl === "menu") return pageNavigation;
+            const target =
+              ctrl === "back-to-inbox"
+                ? "notifications"
+                : ctrl === "back-to-settings" && !embedded
+                  ? "settings"
+                  : "live";
+            const label =
+              ctrl === "back-to-inbox"
+                ? "Inbox"
+                : ctrl === "back-to-settings" && !embedded
+                  ? "Settings"
+                  : "Chats";
+            return (
+              <button
+                type="button"
+                onClick={() => setTab(target)}
+                aria-label={`Back to ${label}`}
+                className="flex h-11 items-center gap-1 rounded-full pl-1 pr-3 text-[15px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+              >
+                <ChevronLeft className="size-5" />
+                <span>{label}</span>
+              </button>
+            );
+          })()
         ) : (
         <NavIsland className="shrink-0">
           <div className="glass-island flex h-11 items-center rounded-full px-1.5">
-            {isPrimarySurfaceTab(tab) || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
+            {isPrimarySurfaceTab(tab) || tab === "dashboard" || tab === "notifications" || tab === "artifacts" || tab === "board" ? (
               <button
                 type="button"
                 onClick={() => setTab("live")}
@@ -9573,7 +9636,7 @@ export function App() {
 
       {/* The desktop workspace shows this in the rail's brand row instead, so
           the line does not sit unaligned above the layout and push it down. */}
-      {(isMobile && isPrimarySurfaceTab(tab)) || liveDesktopWorkspace || hostOwnsConnection ? null : <RuntimeRecovery />}
+      {(isMobile && tab === "live") || liveDesktopWorkspace || hostOwnsConnection ? null : <RuntimeRecovery />}
 
       </div>
       )}
@@ -9673,19 +9736,21 @@ export function App() {
                   : boardInWorkspace
                     ? boardStageView
                     : pageInWorkspace
-                      ? tab === "notifications"
-                        ? notificationsPage(true)
-                        : tab === "artifacts"
-                          ? artifactsPage(true)
-                          : tab === "coding-agents"
-                            ? codingAgentsPage(true)
-                            : settingsSubpageInWorkspace
-                              ? (
-                                  <SettingsStageSubpage onBack={() => setTab("settings")}>
-                                    {settingsSubpage(tab)}
-                                  </SettingsStageSubpage>
-                                )
-                              : settingsPage
+                      ? tab === "dashboard"
+                        ? dashboardPage(true)
+                        : tab === "notifications"
+                          ? notificationsPage(true)
+                          : tab === "artifacts"
+                            ? artifactsPage(true)
+                            : tab === "coding-agents"
+                              ? codingAgentsPage(true)
+                              : settingsSubpageInWorkspace
+                                ? (
+                                    <SettingsStageSubpage onBack={() => setTab("settings")}>
+                                      {settingsSubpage(tab)}
+                                    </SettingsStageSubpage>
+                                  )
+                                : settingsPage
                       : null
               }
               stageSheet={openFinding || openReport ? autoSheet : null}
@@ -9828,6 +9893,9 @@ export function App() {
         {tab === "auto" && !autoInWorkspace ? autoManageView : null}
         {!settingsSubpageInWorkspace ? settingsSubpage(tab) : null}
         {tab === "coding-agents" && !codingAgentsInWorkspace ? codingAgentsPage(false) : null}
+        {!isWide && tab === "dashboard" ? (
+          <div>{dashboardPage(true)}</div>
+        ) : null}
         {!isWide && (keepShipped || tab === "notifications") ? (
           <div className={tab === "notifications" ? undefined : "hidden"} aria-hidden={tab !== "notifications"}>
             {notificationsPage(tab === "notifications")}
@@ -9839,11 +9907,8 @@ export function App() {
           </div>
         ) : null}
         {isMobile && tab === "folders" ? (
-          // The phone's Folders page: the leftmost of its flat pages, and where
-          // the menu button goes. Only folders. Settings is the gear in the
-          // title row; Inbox and Computer are swipes away; Schedules is in
-          // Settings and Artifacts in the Inbox. No header bar above it
-          // (chromelessSurface), so the title row starts under the status bar.
+          // The phone's Folders & Navigation page: quick destinations at the top,
+          // folders below, and Settings in the title row.
           <div className="mx-auto max-w-xl pb-10 pt-[calc(0.5rem+env(safe-area-inset-top))]">
             <PhoneFolders
               value={projectFilter}
@@ -9865,6 +9930,7 @@ export function App() {
               onNewFolder={() => setMobileFolderBrowser("new")}
               onCloneGitHub={() => setImportGitHubOpen(true)}
               onOpenSettings={() => setTab("settings")}
+              onNavigate={(nextTab) => setTab(nextTab)}
             />
           </div>
         ) : null}
@@ -10480,6 +10546,7 @@ export function PagesMenu({
   // Artifacts render no title chrome of their own in the rail layout.
   const known =
     isPrimarySurfaceTab(tab) ||
+    tab === "dashboard" ||
     tab === "notifications" ||
     tab === "artifacts" ||
     tab === "computer" ||
@@ -10523,6 +10590,12 @@ export function PagesMenu({
               control for that choice — repeating the destinations here made one
               decision reachable two ways, with the menu's version giving no
               hint that the faster one was inches below it. */}
+          {hiddenPages.includes("dashboard") ? null : (
+            <DropdownMenuRadioItem value="dashboard">
+              <BarChart3 className="size-5 shrink-0 text-muted-foreground" />
+              Dashboard
+            </DropdownMenuRadioItem>
+          )}
           {hiddenPages.includes("notifications") ? null : (
             <DropdownMenuRadioItem value="notifications">
               <Bell className="size-5 shrink-0 text-muted-foreground" />
@@ -31935,12 +32008,7 @@ function AutoManageView({
           about them was the loudest thing on a page that is meant to be a
           list of schedules. The per-row "N open" badge still points at them. */}
       <div className="flex items-end justify-between gap-3 px-1 pb-2">
-        {/* Below md the switch bar is on screen with "Schedules" lit, so a
-            title that repeats it is two answers to a question nobody asked
-            twice — and it costs a row of the list on the smallest screen.
-            From md there is no switch bar and the Pages menu does not list
-            this page, so the heading is the only thing that names it. */}
-        <div className="hidden min-w-0 items-center gap-2 md:flex">
+        <div className="flex min-w-0 items-center gap-2">
           {onBack ? (
             <button
               type="button"
@@ -31954,8 +32022,6 @@ function AutoManageView({
           ) : null}
           <h1 className="text-lg font-semibold leading-tight">Schedules</h1>
         </div>
-        {/* ml-auto, not justify-between: with the heading hidden this is the
-            only child, and justify-between would park it on the left. */}
         <Button size="sm" variant="tint" className="ml-auto shrink-0" onClick={() => onEdit("new")}>
           <Plus className="size-4" /> New
         </Button>

@@ -602,7 +602,7 @@ export default function ShippedPage({
                         </span>
                       ) : null}
                     </GalleryTilePreview>
-                    <div className="px-2.5 py-2 pr-9">
+                    <div className={cn("px-2.5 py-2", a.refreshEnabled !== undefined ? "pr-14" : "pr-9")}>
                       <div className="truncate text-xs font-medium">{a.title || a.caption || a.name}</div>
                       <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
                         {a.lastRefreshedAt
@@ -626,7 +626,7 @@ export default function ShippedPage({
                       <ChevronRight className="size-3 shrink-0" aria-hidden />
                     </button>
                   ) : null}
-                  <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 rounded-full bg-background/80 backdrop-blur">
+                  <div className="absolute right-1.5 top-[8.35rem] flex items-center gap-0.5">
                     {a.refreshEnabled !== undefined ? (
                       <button
                         type="button"

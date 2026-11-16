@@ -47,6 +47,12 @@ export const OMG_CAPABILITIES = [
       "Set a one-line headline, optional short markdown, up to 8 key numbers and one chart. Each call replaces the whole status; update it when something meaningful changes, not every step, and clear it when the work is done. Questions go through omg_input, not the panel.",
   },
   {
+    tool: "omg_dashboard",
+    useWhen: "The user asks to view, customize, or add analytics, metrics, charts, tables, or status views to the local omg.dev Dashboard page (/dashboard).",
+    guidance:
+      "Use action 'get' to inspect current views and 'upsert_view' to create or update a view (KPI tiles, bar/line/breakdown charts, tables, and 'Needs you' lists). Show labels and numbers only — no prose explanations. Optionally attach an executable refresh script inside the session cwd.",
+  },
+  {
     tool: "omg_input",
     useWhen: "You are blocked on a decision only the human can make: an irreversible or external action, or intent you cannot resolve from the request, the code, or a sensible default.",
     guidance:

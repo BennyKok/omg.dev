@@ -11,7 +11,7 @@
  * row under a long folder list is a row nobody scrolls to.
  */
 import { useState, type ReactNode } from "react";
-import { Folder, FolderPlus, MessagesSquare, Plus, Settings } from "lucide-react";
+import { BarChart3, Bell, Folder, FolderPlus, MessageSquare, MessagesSquare, Monitor, Plus, Settings } from "lucide-react";
 import { Github } from "./icons/github";
 import { cn } from "@/lib/utils";
 import { arrangeFolders, useFolderMenuPrefs, type ArrangedFolder } from "../lib/folder-menu-prefs";
@@ -67,6 +67,7 @@ export function PhoneFolders({
   onNewFolder,
   onCloneGitHub,
   onOpenSettings,
+  onNavigate,
   trailing,
 }: {
   /** The current project filter. "__all" is every chat. */
@@ -89,6 +90,8 @@ export function PhoneFolders({
   onCloneGitHub?: () => void;
   /** The gear beside the title. Settings is one tap from here, always. */
   onOpenSettings?: () => void;
+  /** Quick page navigation strip at the top of the phone's menu page. */
+  onNavigate?: (tab: string) => void;
   /** Beside the gear: the host's header slot, since this page has no header bar. */
   trailing?: ReactNode;
 }) {
@@ -160,6 +163,33 @@ export function PhoneFolders({
           {onNewFolder ? <ActionRow icon={<FolderPlus className="size-4" />} label="New empty folder" onClick={onNewFolder} /> : null}
           {onCloneGitHub ? <ActionRow icon={<Github className="size-4" />} label="Clone from GitHub" onClick={onCloneGitHub} /> : null}
         </div>
+      ) : null}
+      {onNavigate ? (
+        <nav
+          aria-label="Pages"
+          data-testid="phone-nav-strip"
+          className="grid grid-cols-4 gap-1.5 px-2 pb-2 pt-0.5"
+        >
+          {(
+            [
+              { key: "live", label: "Chats", icon: <MessageSquare className="size-4" /> },
+              { key: "dashboard", label: "Dashboard", icon: <BarChart3 className="size-4" /> },
+              { key: "notifications", label: "Inbox", icon: <Bell className="size-4" /> },
+              { key: "computer", label: "Computer", icon: <Monitor className="size-4" /> },
+            ] as const
+          ).map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              data-testid={`phone-nav-${item.key}`}
+              onClick={() => onNavigate(item.key)}
+              className="flex flex-col items-center justify-center gap-1 rounded-xl border border-border/60 bg-card/50 py-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted active:scale-[0.98]"
+            >
+              <span className="text-muted-foreground">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
       ) : null}
       <div className="flex items-center justify-between px-2 pb-1">
         <div role="radiogroup" aria-label="Sort folders" className="flex rounded-full bg-muted p-0.5">

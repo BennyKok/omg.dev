@@ -101,3 +101,20 @@ test("Edit opens folder management in place, and Back returns to the list", () =
   ui.flush(() => (ui.query('button[aria-label="Back to folders"]') as HTMLElement).click());
   expect(rows()).toEqual(["All chats", "lfg"]);
 });
+
+test("offers quick destination tiles for Chats, Dashboard, Inbox, and Computer when onNavigate is provided", () => {
+  const visited: string[] = [];
+  ui.render(
+    <PhoneFolders
+      value="__all"
+      projects={["lfg"]}
+      labelFor={labelFor}
+      onPick={() => {}}
+      onNavigate={(tab) => visited.push(tab)}
+    />,
+  );
+  for (const key of ["live", "dashboard", "notifications", "computer"]) {
+    ui.flush(() => (ui.query(`[data-testid="phone-nav-${key}"]`) as HTMLElement).click());
+  }
+  expect(visited).toEqual(["live", "dashboard", "notifications", "computer"]);
+});

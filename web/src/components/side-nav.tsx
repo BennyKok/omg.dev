@@ -10,6 +10,7 @@
  */
 import { type ReactNode, useEffect, useRef } from "react";
 import {
+  BarChart3,
   Bell,
   Bot,
   CalendarClock,
@@ -27,6 +28,7 @@ import type { SideNavIcon, SideNavRow } from "../lib/side-nav-items";
 
 const GLYPH: Record<SideNavIcon, typeof Bell> = {
   chat: MessageSquare,
+  dashboard: BarChart3,
   bots: Bot,
   schedules: CalendarClock,
   notifications: Bell,

@@ -2,6 +2,15 @@ import { cleanupSessionMcpConfigs } from "../private-mcp-config.ts";
 import { deviceRuntime } from "../devices/runtime.ts";
 import { readSessionView, summarizeSessionPlan, type SessionPlanSummary } from "../session-plan.ts";
 import { handlePanelRequest } from "../session-panel.ts";
+import {
+  DashboardInputError,
+  deleteDashboardView,
+  refreshDashboardView,
+  resetDashboardBuiltinViews,
+  resolveDashboardResponse,
+  setDashboardEditorSession,
+  upsertDashboardView,
+} from "../dashboard.ts";
 import { endedTeam } from "../session-team-history.ts";
 import { existingNoProjectWorkspace, NO_PROJECT, noProjectWorkspacePath, prepareNoProjectWorkspace } from "../no-project-chat.ts";
 import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app-builder.ts";
@@ -10544,6 +10553,103 @@ a{color:#60a5fa}
         const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/panel$/);
         if (m && (req.method === "PUT" || req.method === "DELETE")) {
           return handlePanelRequest(req, m[1], callerSessionHeader(req));
+        }
+      }
+
+      // The local generative dashboard (src/dashboard.ts, omg_dashboard).
+      {
+        const buildDashboardState = async () => {
+          const [sessions, findings, autoAgents, repos] = await Promise.all([
+            listSessionsCached().catch(() => [] as Session[]),
+            listFindings("open").catch(() => []),
+            listAutoAgents().catch(() => []),
+            listRepos().catch(() => []),
+          ]);
+          const shipped = listShipPosts(200, 0).posts;
+          const diskReport = hostDiskReport();
+          return resolveDashboardResponse({
+            sessions: sessions.map((s) => ({
+              sessionId: s.sessionId ?? undefined,
+              project: s.project,
+              agent: s.agent,
+              busy: s.busy,
+              lastActivityAt: s.lastActivityAt,
+            })),
+            findings,
+            autoAgents,
+            shippedPosts: shipped,
+            reposCount: repos.length,
+            diskFreeBytes: diskReport.disk.free,
+            diskTotalBytes: diskReport.disk.total,
+          });
+        };
+
+        if (path === "/api/dashboard" && req.method === "GET") {
+          return json(await buildDashboardState());
+        }
+        if (path === "/api/dashboard/views" && (req.method === "POST" || req.method === "PUT")) {
+          const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+          if (!body) return err(400, "request body required");
+          const hasScriptChanges = [
+            "refreshScriptPath",
+            "refreshArgv",
+            "refreshIntervalSeconds",
+            "refreshTimeoutSeconds",
+            "refreshEnabled",
+          ].some((key) => Object.prototype.hasOwnProperty.call(body, key));
+          const callerSid = callerSessionHeader(req);
+          if (hasScriptChanges && !callerSid) {
+            return err(403, "refreshScriptPath requires an authenticated omg.dev session");
+          }
+          try {
+            const scopeRoot = callerSid ? (await artifactOwnerCwd(callerSid)) ?? undefined : undefined;
+            const view = upsertDashboardView(body.view ?? body, {
+              scopeRoot,
+              refreshScriptPath: body.refreshScriptPath as string | null | undefined,
+              refreshArgv: Array.isArray(body.refreshArgv) ? (body.refreshArgv as string[]) : undefined,
+              refreshIntervalSeconds: typeof body.refreshIntervalSeconds === "number" ? body.refreshIntervalSeconds : undefined,
+              refreshTimeoutSeconds: typeof body.refreshTimeoutSeconds === "number" ? body.refreshTimeoutSeconds : undefined,
+              refreshEnabled: typeof body.refreshEnabled === "boolean" ? body.refreshEnabled : undefined,
+            });
+            if (callerSid) setDashboardEditorSession(callerSid);
+            return json({ ok: true, view, dashboard: await buildDashboardState() });
+          } catch (e) {
+            if (e instanceof DashboardInputError) return err(400, e.message);
+            return err(400, e instanceof Error ? e.message : "could not save dashboard view");
+          }
+        }
+        const viewMatch = path.match(/^\/api\/dashboard\/views\/([a-z0-9-]+)$/);
+        if (viewMatch && req.method === "DELETE") {
+          const deleted = deleteDashboardView(viewMatch[1]);
+          return json({ ok: true, deleted, dashboard: await buildDashboardState() });
+        }
+        if (path === "/api/dashboard/refresh" && req.method === "POST") {
+          const body = (await req.json().catch(() => ({}))) as { id?: string } | null;
+          try {
+            if (body?.id) {
+              const view = await refreshDashboardView(body.id);
+              return json({ ok: true, view, dashboard: await buildDashboardState() });
+            }
+            const current = await buildDashboardState();
+            for (const v of current.views) {
+              if (v.source?.enabled) {
+                await refreshDashboardView(v.id).catch(() => {});
+              }
+            }
+            return json({ ok: true, dashboard: await buildDashboardState() });
+          } catch (e) {
+            if (e instanceof DashboardInputError) return err(400, e.message);
+            return err(400, e instanceof Error ? e.message : "could not refresh dashboard");
+          }
+        }
+        if (path === "/api/dashboard/editor-session" && req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as { sessionId?: string | null } | null;
+          setDashboardEditorSession(typeof body?.sessionId === "string" ? body.sessionId : null);
+          return json({ ok: true, dashboard: await buildDashboardState() });
+        }
+        if (path === "/api/dashboard/reset" && req.method === "POST") {
+          resetDashboardBuiltinViews();
+          return json({ ok: true, dashboard: await buildDashboardState() });
         }
       }
 

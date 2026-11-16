@@ -14,6 +14,7 @@
  *  typed as `string`, not this union. These values document the known set. */
 export const TAB_VALUES = [
   "live",
+  "dashboard",
   "notifications",
   "artifacts",
   "settings",

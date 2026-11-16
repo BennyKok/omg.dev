@@ -1103,6 +1103,129 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_dashboard",
+    {
+      title: "Read Or Update The Local omg.dev Dashboard",
+      description:
+        "Read, create, update, delete, or refresh views on the local omg.dev Dashboard page (/dashboard). The dashboard is information-first (labels and numbers only, no prose explanations): each view has top KPI tiles (with optional deltas and sparklines) and sections (charts: bar, line, or breakdown; tables; and 'Needs you' status lists). Optionally attach an executable server-side refresh script inside your session cwd that prints `{ kpis, sections }` JSON so the view refreshes live.",
+      inputSchema: {
+        action: z
+          .enum(["get", "upsert_view", "delete_view", "refresh", "reset_builtins"])
+          .default("get")
+          .describe("Action to run: get (read all views), upsert_view (create or update one view), delete_view (remove a view), refresh (run refresh scripts now), or reset_builtins."),
+        id: z
+          .string()
+          .optional()
+          .describe("View id (3-64 lowercase letters, digits, or dashes), e.g. 'today', 'analytics', 'growth', 'system'. Required for upsert_view and delete_view."),
+        title: z
+          .string()
+          .optional()
+          .describe("Short view tab title, e.g. 'Today', 'Analytics', 'Growth'."),
+        order: z.number().optional().describe("Tab sort order (lower numbers appear first)."),
+        kpis: z
+          .array(
+            z.object({
+              label: z.string().min(1).max(48),
+              value: z.union([z.string().min(1).max(48), z.number()]),
+              sub: z.string().max(80).optional(),
+              delta: z.string().max(24).optional(),
+              deltaTone: z.enum(["good", "warn", "bad", "neutral"]).optional(),
+              tone: z.enum(["good", "warn", "bad", "neutral"]).optional(),
+              spark: z.array(z.number()).max(60).optional(),
+            }),
+          )
+          .max(12)
+          .optional()
+          .describe("Top KPI tiles for this view."),
+        sections: z
+          .array(z.record(z.string(), z.unknown()))
+          .max(16)
+          .optional()
+          .describe(
+            "Sections in display order. Each section has `kind`: 'chart' ({kind:'chart', chart:{title, value?, kind:'bar'|'line'|'breakdown', unit?, points:[{label, value, detail?, tone?}]}}), 'charts' ({kind:'charts', title?, charts:[...]}), 'table' ({kind:'table', table:{title, columns:[{key, label, align?:'left'|'right'}], rows:[{id?, tone?, cells:{...}}]}}), 'list' ({kind:'list', list:{title, count?, emptyText?, items:[{title, detail?, value?, when?, badge?, tone?}]}}), or 'kpis' ({kind:'kpis', title?, items:[...]}).",
+          ),
+        refreshScriptPath: z
+          .string()
+          .nullable()
+          .optional()
+          .describe("Absolute path to an executable script inside the session cwd that prints `{ kpis, sections }` JSON on stdout. Pass null to remove."),
+        refreshArgv: z.array(z.string()).max(32).optional(),
+        refreshIntervalSeconds: z.number().int().min(10).max(604800).optional(),
+        refreshTimeoutSeconds: z.number().int().min(1).max(300).optional(),
+        refreshEnabled: z.boolean().optional(),
+      },
+    },
+    async ({
+      action = "get",
+      id,
+      title,
+      order,
+      kpis,
+      sections,
+      refreshScriptPath,
+      refreshArgv,
+      refreshIntervalSeconds,
+      refreshTimeoutSeconds,
+      refreshEnabled,
+    }) => {
+      if (action === "get") {
+        const data = await api<{ updatedAt: number; editorSessionId: string | null; views: unknown[] }>("/api/dashboard");
+        return result(data);
+      }
+      if (action === "reset_builtins") {
+        const data = await api<{ ok: boolean; dashboard: unknown }>("/api/dashboard/reset", { method: "POST" });
+        return result(data);
+      }
+      if (action === "delete_view") {
+        if (!id?.trim()) throw new Error("id is required for delete_view");
+        const data = await api<{ ok: boolean; deleted: boolean; dashboard: unknown }>(
+          `/api/dashboard/views/${encodeURIComponent(id.trim().toLowerCase())}`,
+          { method: "DELETE" },
+        );
+        return result(data);
+      }
+      if (action === "refresh") {
+        const data = await api<{ ok: boolean; dashboard: unknown }>("/api/dashboard/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(id ? { id: id.trim().toLowerCase() } : {}),
+        });
+        return result(data);
+      }
+      if (!id?.trim()) throw new Error("id is required for upsert_view");
+      const hasScriptChanges =
+        refreshScriptPath !== undefined ||
+        refreshArgv !== undefined ||
+        refreshIntervalSeconds !== undefined ||
+        refreshTimeoutSeconds !== undefined ||
+        refreshEnabled !== undefined;
+      const sid = hasScriptChanges ? await ownedSessionId() : await activeSessionId().catch(() => null);
+      const data = await api<{ ok: boolean; view: unknown; dashboard: unknown }>("/api/dashboard/views", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(sid ? { "X-OMG-Session-ID": sid } : {}),
+        },
+        body: JSON.stringify({
+          view: {
+            id: id.trim().toLowerCase(),
+            ...(title ? { title } : {}),
+            ...(order !== undefined ? { order } : {}),
+            ...(kpis !== undefined ? { kpis } : {}),
+            ...(sections !== undefined ? { sections } : {}),
+          },
+          ...(refreshScriptPath !== undefined ? { refreshScriptPath } : {}),
+          ...(refreshArgv !== undefined ? { refreshArgv } : {}),
+          ...(refreshIntervalSeconds !== undefined ? { refreshIntervalSeconds } : {}),
+          ...(refreshTimeoutSeconds !== undefined ? { refreshTimeoutSeconds } : {}),
+          ...(refreshEnabled !== undefined ? { refreshEnabled } : {}),
+        }),
+      });
+      return result(data);
+    },
+  );
+
+  server.registerTool(
     "omg_publish_artifact",
     {
       title: "Publish HTML Artifact In omg.dev",

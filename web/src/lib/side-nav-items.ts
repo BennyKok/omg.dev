@@ -8,6 +8,7 @@
 /** Which glyph a row draws. The component owns the actual icon components. */
 export type SideNavIcon =
   | "chat"
+  | "dashboard"
   | "bots"
   | "schedules"
   | "notifications"
@@ -55,6 +56,7 @@ const PAGES: { key: string; label: string; icon: SideNavIcon }[] = [
   // surface, and a second entry here made the drawer longer for a page most
   // people never open.
   { key: "live", label: "Chat", icon: "chat" },
+  { key: "dashboard", label: "Dashboard", icon: "dashboard" },
   { key: "auto", label: "Schedules", icon: "schedules" },
   // Then the destinations that used to be behind the overflow menu.
   // The Inbox: questions, findings and finished work. On a phone it is also
@@ -119,25 +121,39 @@ export function sideNavRows(input: {
   return rows;
 }
 
+export type MobileHeaderControl =
+  | "menu"
+  | "back-to-chats"
+  | "back-to-inbox"
+  | "back-to-settings"
+  | "none";
+
 /**
  * The one control in a phone header's top-left corner.
  *
- * A page the drawer lists (Chats, Inbox, Schedules, Artifacts, Computer,
- * Settings, an extension) is a place you go to, so it shows the drawer
- * button. A page inside Settings is a place you went down into, so it shows
- * Back to Settings instead. Never both: two controls in one corner were two
- * answers to "how do I leave", and the back one was labelled with the internal
- * name "Live".
+ * - Chats (`live`) is home and shows the menu button (`SideNavButton`).
+ * - Folders (`folders`) is chromeless and draws its own top row.
+ * - Pages reached from Settings (`auto` / Schedules and Settings sub-pages)
+ *   show Back to Settings (`< Settings`).
+ * - Artifacts is reached from Inbox on a phone and shows Back to Inbox (`< Inbox`).
+ * - Top-level pages (`dashboard`, `notifications`, `settings`, `bots`, `board`,
+ *   extensions) show Back to Chats (`< Chats`), so tapping the top-left corner
+ *   always returns where you came from instead of jumping to Folders.
  */
-export function mobileHeaderControl(tab: string): "menu" | "back-to-settings" | "none" {
-  // Folders is where the menu button goes, so it needs none of its own.
+export function mobileHeaderControl(tab: string): MobileHeaderControl {
   if (tab === "folders") return "none";
-  return SETTINGS_TABS.has(tab) && tab !== "settings" ? "back-to-settings" : "menu";
+  if (tab === "live") return "menu";
+  if (tab === "artifacts") return "back-to-inbox";
+  if (tab === "auto" || (SETTINGS_TABS.has(tab) && tab !== "settings")) {
+    return "back-to-settings";
+  }
+  return "back-to-chats";
 }
 
 /** Tabs that draw their own page in the shell. Anything else falls to Settings. */
 const OWN_PAGE_TABS = new Set([
   "live",
+  "dashboard",
   "folders",
   "auto",
   "usage",
