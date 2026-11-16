@@ -725,13 +725,20 @@ export default function ShippedPage({
       {/* One compact row per notification, grouped by day. Leading dot for
           unread, avatar, agent · project · time, title, two-line body, and the
           media as a trailing thumbnail. No action buttons at rest: tapping the
-          row opens the session, which is where following up actually belongs. */}
+          row opens the session, which is where following up actually belongs.
+          On a phone the list is flat: no card around each day, only a
+          hairline between rows and the day as a quiet label. A bordered,
+          shadowed box per day put the rows two levels inside the page, and
+          cost each row the card's inset on a narrow screen. */}
       {postGroups.map((group) => (
-        <section key={group.label} className="space-y-1.5">
-          <h2 className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <section key={group.label} className="space-y-1.5 max-md:space-y-0">
+          <h2 className="px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground max-md:pb-1">
             {group.label}
           </h2>
-          <div className="overflow-hidden rounded-2xl border border-border bg-card/40 shadow-sm">
+          <div
+            data-testid="inbox-day-list"
+            className="overflow-hidden rounded-2xl border border-border bg-card/40 shadow-sm max-md:rounded-none max-md:border-x-0 max-md:border-b-0 max-md:border-border/50 max-md:bg-transparent max-md:shadow-none"
+          >
             {group.items.map((post) => {
               const live = !!post.sessionId && liveSessionIds.has(post.sessionId);
               const unread = notificationIsUnread(notificationReads, {
@@ -753,8 +760,8 @@ export default function ShippedPage({
                       else if (live) onOpenSession(post.sessionId);
                     }}
                     className={cn(
-                      "flex w-full items-start gap-2.5 py-2.5 pl-2.5 text-left transition-colors hover:bg-foreground/[0.02]",
-                      hasThumb ? "pr-[4.75rem]" : "pr-3.5",
+                      "flex w-full items-start gap-2.5 py-2.5 pl-2.5 text-left transition-colors hover:bg-foreground/[0.02] max-md:py-3 max-md:pl-0",
+                      hasThumb ? "pr-[4.75rem] max-md:pr-[4.25rem]" : "pr-3.5 max-md:pr-1",
                     )}
                   >
                     {/* Fixed gutter whether or not the dot is there, so every
@@ -806,7 +813,7 @@ export default function ShippedPage({
                     </div>
                   </button>
                   {hasThumb ? (
-                    <div className="absolute right-3.5 top-2.5">
+                    <div className="absolute right-3.5 top-2.5 max-md:right-1 max-md:top-3">
                       <ShipMediaThumb
                         items={post.mediaItems}
                         total={post.mediaTotal ?? post.mediaItems.length}
