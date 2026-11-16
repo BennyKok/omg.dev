@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { changeDeviceReceiver, controllerSessionUrl, useDeviceReceiver } from "../lib/device-receiver";
 import { DeviceNotificationSettings } from "./device-receiver-monitor";
 import { DevicePermissions } from "./device-activity";
-import { SettingsGroup } from "./settings-ui";
+import { SettingsFold, SettingsGroup } from "./settings-ui";
 
 const inputClass = "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm";
 const buttonClass = "rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50";
@@ -27,8 +27,14 @@ export function DeviceReceiverSettings() {
   };
 
   const pending = state?.pending;
+  const requestCount = state?.requests?.length ?? 0;
+
+  // ORDER BY WHAT NEEDS YOU. An approval first, then one card that says
+  // whether this computer is linked and whether access is on, with the one
+  // button that changes it. Everything else (open requests, the permission
+  // list, notifications, the log) is a closed row under it. It used to be
+  // seven open sections, and Start access was the sixth.
   return <div className="space-y-6">
-    <p className="px-1 text-sm text-muted-foreground">This instance receives requests. Its local config sets the permissions. Approve requests here on this computer.</p>
     {(error || connectionError) && <p role="alert" className="px-1 text-sm text-destructive">{error || connectionError}</p>}
     {!state && !error && !connectionError && <p className="px-1 text-sm text-muted-foreground">Loading device access…</p>}
     {state && <>
@@ -44,87 +50,96 @@ export function DeviceReceiverSettings() {
         </div>
       </section>}
 
-      {state.deviceId && <SettingsGroup label="Active requests and sessions" footer="These sessions requested work from the controller. Session links open that computer. Clearing requests keeps the audit log and leaves coding sessions open.">
+      {!state.deviceId ? <SettingsGroup label="Connect">
+        <form className="space-y-3 px-4 py-3" onSubmit={(e) => { e.preventDefault(); void act("connect", { server: server.trim(), code: code.trim() }); }}>
+          <p className="text-xs text-muted-foreground">On the other computer, open Linked devices and choose “Add a computer”. Enter its address and code here.</p>
+          <label className="block space-y-1 text-xs">Address of the other computer<input aria-label="Address of the other computer" type="url" required placeholder="https://other-computer.example.ts.net" value={server} onChange={(e) => setServer(e.target.value)} className={inputClass} /></label>
+          <label className="block space-y-1 text-xs">Pairing code<input aria-label="Pairing code" required autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} className={inputClass} /></label>
+          <button type="submit" disabled={busy || !server.trim() || !code.trim()} className={buttonClass}>Connect</button>
+        </form>
+      </SettingsGroup> : <SettingsGroup label="Access">
         <div className="space-y-3 px-4 py-3">
-          {state.queueError && <p role="alert" className="text-sm text-destructive">{state.queueError}</p>}
-          {!state.queueError && !state.requests?.length && <p className="text-sm text-muted-foreground">No active requests. New requests appear here even when access is stopped.</p>}
-          {state.requests?.map((request) => {
-            const href = controllerSessionUrl(state.server, request.requestedBy);
-            return <div key={request.id} className="space-y-1 rounded-lg border border-border p-3 text-sm">
-              <p className="font-medium">{request.action} <span className="font-normal text-muted-foreground">· {request.status.replaceAll("-", " ")}</span></p>
-              <p className="break-all text-xs text-muted-foreground">{request.id}</p>
-              <p className="break-all text-xs">{request.requestedBy ? `Session ${request.requestedBy}` : "Request from the controller"}</p>
-              <div className="flex flex-wrap gap-3 text-xs">
-                {href && <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Open requesting session</a>}
-                {state.pending?.request.id === request.id && <button type="button" className="underline underline-offset-4" onClick={() => {
-                  const approval = document.getElementById("device-approval");
-                  approval?.scrollIntoView?.({ block: "center", behavior: "smooth" }); approval?.focus();
-                }}>Review approval</button>}
-              </div>
-            </div>;
-          })}
-          {(state.active || !!state.requests?.length || !!state.queueError) && <button type="button" disabled={busy || state.otherProcess} className="rounded-lg bg-destructive px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => void act("clear")}>Stop and clear requests</button>}
-          <p className="text-xs text-muted-foreground">Stop and clear ends access, stops the running action, and cancels open requests. New requests cannot run until you start access again.</p>
-        </div>
-      </SettingsGroup>}
-
-      <SettingsGroup label="Notifications on this computer"><DeviceNotificationSettings /></SettingsGroup>
-
-      <SettingsGroup label="Controller">
-        <div className="space-y-3 px-4 py-3">
-          {state.deviceId ? <>
-            <p className="text-sm">Linked as <strong>@{state.deviceId}</strong></p>
-            <p className="break-all text-xs text-muted-foreground">{state.server}</p>
-            <button type="button" disabled={busy} className="text-sm text-destructive disabled:opacity-50" onClick={() => {
-              if (window.confirm("Disconnect this controller and stop incoming access?")) void act("disconnect");
-            }}>Disconnect controller</button>
-          </> : <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); void act("connect", { server: server.trim(), code: code.trim() }); }}>
-            <p className="text-xs text-muted-foreground">Create a pairing code under “Send requests” on the controller. Enter its address and code here.</p>
-            <label className="block space-y-1 text-xs">Controller address<input aria-label="Controller address" type="url" required placeholder="https://controller.example.ts.net" value={server} onChange={(e) => setServer(e.target.value)} className={inputClass} /></label>
-            <label className="block space-y-1 text-xs">Pairing code<input aria-label="Pairing code" required autoComplete="off" value={code} onChange={(e) => setCode(e.target.value)} className={inputClass} /></label>
-            <button type="submit" disabled={busy || !server.trim() || !code.trim()} className={buttonClass}>Connect controller</button>
-          </form>}
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup label="Permissions on this computer" footer="Actions come from ~/.omg-device/config.json. The controller cannot add actions or change these rules.">
-        <DevicePermissions actions={state.actions} />
-      </SettingsGroup>
-
-      {state.deviceId && <SettingsGroup label="Incoming access">
-        <div className="space-y-3 px-4 py-3">
-          <p className="text-sm font-medium" role="status">{state.active ? "Access is active" : state.otherProcess ? "Access is managed by another process" : "Access is stopped"}</p>
+          <div>
+            <p className="text-sm font-medium" role="status">{state.active ? "Access is active" : state.otherProcess ? "Access is managed by another process" : "Access is stopped"}</p>
+            <p className="break-all text-xs text-muted-foreground">Linked as <strong>@{state.deviceId}</strong> to {state.server}</p>
+          </div>
           {state.otherProcess && <p className="text-xs text-muted-foreground">Stop the other device process before starting access here. An old lock after a crash also blocks access.</p>}
           {state.active ? <>
             <p className="text-xs text-muted-foreground">Ends at {state.endsAt && new Date(state.endsAt).toLocaleTimeString()}. Stops after {state.idleMinutes} idle minutes.</p>
             <button type="button" disabled={busy} className="rounded-lg bg-destructive px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => void act("stop")}>Stop access</button>
           </> : <>
-            <p className="text-xs text-muted-foreground">Starting access allows actions marked “Allowed during access” to run without another prompt. Other actions ask below.</p>
-            <label className="flex items-center gap-3 text-sm">Access duration<select aria-label="Access duration" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="rounded-lg border border-border bg-background p-2">
-              {[15, 30, 60, 120].map((n) => <option key={n} value={n}>{n} minutes</option>)}
-            </select></label>
-            <button type="button" disabled={busy || !state.actions.length || state.otherProcess} className={buttonClass} onClick={() => void act("start", { minutes, idle: 15 })}>Start access</button>
+            <p className="text-xs text-muted-foreground">Starting access allows actions marked “Allowed during access” to run without another prompt. Other actions ask first.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" disabled={busy || !state.actions.length || state.otherProcess} className={buttonClass} onClick={() => void act("start", { minutes, idle: 15 })}>Start access</button>
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">for<select aria-label="Access duration" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="rounded-lg border border-border bg-background p-2 text-foreground">
+                {[15, 30, 60, 120].map((n) => <option key={n} value={n}>{n} minutes</option>)}
+              </select></label>
+            </div>
           </>}
           {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
         </div>
       </SettingsGroup>}
 
+      <SettingsGroup>
+        {state.deviceId && <SettingsFold
+          title="Active requests"
+          description={state.queueError ? "Could not read the queue" : requestCount ? `${requestCount} active` : "None"}
+          open={requestCount > 0 || !!state.queueError}
+        >
+          <div className="space-y-3 px-4 py-3">
+            {state.queueError && <p role="alert" className="text-sm text-destructive">{state.queueError}</p>}
+            {!state.queueError && !requestCount && <p className="text-sm text-muted-foreground">No active requests. New requests appear here even when access is stopped.</p>}
+            {state.requests?.map((request) => {
+              const href = controllerSessionUrl(state.server, request.requestedBy);
+              return <div key={request.id} className="space-y-1 rounded-lg border border-border p-3 text-sm">
+                <p className="font-medium">{request.action} <span className="font-normal text-muted-foreground">· {request.status.replaceAll("-", " ")}</span></p>
+                <p className="break-all text-xs text-muted-foreground">{request.id}</p>
+                <p className="break-all text-xs">{request.requestedBy ? `Session ${request.requestedBy}` : "Request from the other computer"}</p>
+                <div className="flex flex-wrap gap-3 text-xs">
+                  {href && <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Open requesting session</a>}
+                  {state.pending?.request.id === request.id && <button type="button" className="underline underline-offset-4" onClick={() => {
+                    const approval = document.getElementById("device-approval");
+                    approval?.scrollIntoView?.({ block: "center", behavior: "smooth" }); approval?.focus();
+                  }}>Review approval</button>}
+                </div>
+              </div>;
+            })}
+            {(state.active || !!requestCount || !!state.queueError) && <>
+              <button type="button" disabled={busy || state.otherProcess} className="rounded-lg bg-destructive px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => void act("clear")}>Stop and clear requests</button>
+              <p className="text-xs text-muted-foreground">Stop and clear ends access, stops the running action, and cancels open requests. New requests cannot run until you start access again.</p>
+            </>}
+          </div>
+        </SettingsFold>}
 
+        <SettingsFold
+          title="Allowed actions"
+          description={state.actions.length ? `${state.actions.length} set on this computer` : "None configured"}
+        >
+          <DevicePermissions actions={state.actions} />
+          <p className="border-t border-border/50 px-4 py-2.5 text-xs text-muted-foreground">Actions come from ~/.omg-device/config.json. The other computer cannot add actions or change these rules.</p>
+        </SettingsFold>
 
-      <SettingsGroup label="Activity on this computer">
-        <div className="divide-y divide-border/50 px-4">
-          {!state.activity.length && <p className="py-3 text-sm text-muted-foreground">No activity yet.</p>}
-          {state.activity.map((entry, i) => <details key={`${entry.at}-${i}`} className="py-3 text-xs">
-            <summary className="cursor-pointer">{entry.request?.action && <strong>{entry.request.action} · </strong>}{entry.kind.replaceAll("-", " ")}<span className="ml-2 text-muted-foreground">{new Date(entry.at).toLocaleTimeString()}</span></summary>
-            <div className="mt-2 space-y-2">
-              {entry.request && <pre className="whitespace-pre-wrap break-all">{JSON.stringify(entry.request.args, null, 2)}</pre>}
-              {(entry.reason || entry.update?.reason) && <p>{entry.reason || entry.update?.reason}</p>}
-              {entry.update?.exitCode !== undefined && <p>Exit code: {entry.update.exitCode}</p>}
-              {entry.update?.logTail && <><p className="text-muted-foreground">Action output · untrusted text</p><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3">{entry.update.logTail}</pre></>}
-            </div>
-          </details>)}
-        </div>
+        <SettingsFold title="Notifications"><DeviceNotificationSettings /></SettingsFold>
+
+        <SettingsFold title="Activity" description={state.activity.length ? `${state.activity.length} entries` : "None yet"}>
+          <div className="divide-y divide-border/50 px-4">
+            {!state.activity.length && <p className="py-3 text-sm text-muted-foreground">No activity yet.</p>}
+            {state.activity.map((entry, i) => <details key={`${entry.at}-${i}`} className="py-3 text-xs">
+              <summary className="cursor-pointer">{entry.request?.action && <strong>{entry.request.action} · </strong>}{entry.kind.replaceAll("-", " ")}<span className="ml-2 text-muted-foreground">{new Date(entry.at).toLocaleTimeString()}</span></summary>
+              <div className="mt-2 space-y-2">
+                {entry.request && <pre className="whitespace-pre-wrap break-all">{JSON.stringify(entry.request.args, null, 2)}</pre>}
+                {(entry.reason || entry.update?.reason) && <p>{entry.reason || entry.update?.reason}</p>}
+                {entry.update?.exitCode !== undefined && <p>Exit code: {entry.update.exitCode}</p>}
+                {entry.update?.logTail && <><p className="text-muted-foreground">Action output · untrusted text</p><pre className="max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-lg bg-muted p-3">{entry.update.logTail}</pre></>}
+              </div>
+            </details>)}
+          </div>
+        </SettingsFold>
       </SettingsGroup>
+
+      {state.deviceId && <button type="button" disabled={busy} className="px-4 text-sm text-destructive disabled:opacity-50" onClick={() => {
+        if (window.confirm("Disconnect the other computer and stop incoming access?")) void act("disconnect");
+      }}>Disconnect</button>}
     </>}
   </div>;
 }

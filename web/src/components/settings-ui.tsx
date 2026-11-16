@@ -225,3 +225,45 @@ export function SettingsDisclosure({
     </div>
   );
 }
+
+/**
+ * A row that opens in place to show its detail: a permission list, a log, a
+ * form. Closed, it is one line with a count. A page that drew every list in
+ * full (24 permission rows, a request log, a pairing form) gave the reader
+ * all of it at once, and the one control they came for was somewhere in it.
+ *
+ * A native `details`, so the content stays in the document for search and
+ * for a screen reader, and opening it needs no state.
+ */
+export function SettingsFold({
+  icon,
+  title,
+  description,
+  open,
+  children,
+  ...rest
+}: {
+  icon?: ReactNode;
+  title: ReactNode;
+  description?: ReactNode;
+  /** Open on first paint, and again each time this turns true. */
+  open?: boolean;
+  children: ReactNode;
+  "data-testid"?: string;
+}) {
+  return (
+    <details className="group/fold" open={open} {...rest}>
+      <summary
+        className={cn(
+          ROW_CLASS,
+          PRESSABLE_CLASS,
+          "cursor-pointer list-none outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden",
+        )}
+      >
+        <RowBody icon={icon} title={title} description={description} descriptionClassName="truncate" />
+        <ChevronRight className="size-4 shrink-0 text-muted-foreground/60 transition-transform duration-150 group-open/fold:rotate-90" />
+      </summary>
+      <div className="border-t border-border/50">{children}</div>
+    </details>
+  );
+}

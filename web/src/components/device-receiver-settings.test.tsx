@@ -48,9 +48,9 @@ async function fill(label: string, value: string) {
 test("connecting uses the controller address and code, without starting access", async () => {
   state.deviceId = null;
   await render();
-  await fill("Controller address", "https://controller.example");
+  await fill("Address of the other computer", "https://controller.example");
   await fill("Pairing code", "ABCDE-FGHJK");
-  await click("Connect controller");
+  await click("Connect");
   expect(calls).toEqual([{ action: "connect", body: { server: "https://controller.example", code: "ABCDE-FGHJK" } }]);
   expect(ui.text()).toContain("Access is stopped");
 });

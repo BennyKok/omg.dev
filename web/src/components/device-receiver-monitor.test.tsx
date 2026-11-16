@@ -63,7 +63,7 @@ test("incoming work reaches the shell on another page and opens its receiving vi
   expect(streams[0].closed).toBe(true);
 });
 
-test("a paired receiver opens Receive requests and the Settings row identifies it", async () => {
+test("a paired receiver opens Share this computer and the Settings row identifies it", async () => {
   pending();
   await refreshLinkedDevices();
   ui.render(<><LinkedDevicesRow onOpen={() => {}} /><LinkedDevicesPage /></>);
@@ -71,11 +71,11 @@ test("a paired receiver opens Receive requests and the Settings row identifies i
   expect(ui.text()).toContain("Receiving as @mac");
   expect(ui.text()).toContain("Approve inspect");
   expect(streams).toHaveLength(1);
-  const send = ui.queryAll("button").find((b) => b.textContent?.startsWith("Send requests")) as HTMLButtonElement;
+  const send = ui.queryAll("button").find((b) => b.textContent?.startsWith("Use another computer")) as HTMLButtonElement;
   await ui.flushAsync(() => send.click());
-  expect(ui.text()).toContain("Pair a device");
+  expect(ui.text()).toContain("Add a computer");
   await ui.flushAsync(() => streams[0].send());
-  expect(ui.text()).toContain("Pair a device");
+  expect(ui.text()).toContain("Add a computer");
   await ui.flushAsync(() => window.dispatchEvent(new window.Event("omg-device-open")));
   expect(ui.text()).toContain("Approve inspect");
 });

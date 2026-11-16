@@ -68,8 +68,12 @@ describe("LinkedDevicesPage", () => {
     expect(ui.text()).toContain("Ask every time");
     expect(ui.text()).toContain("Waiting for approval on the device");
     expect(ui.query("details[open]")?.textContent).toContain("check");
-    expect(ui.text()).toContain("Send requests");
-    expect(ui.text()).toContain("Receive requests");
+    expect(ui.text()).toContain("Use another computer");
+    expect(ui.text()).toContain("Share this computer");
+    // One row per computer. Its permissions and Unlink are inside the row,
+    // closed until it is opened; the log opens by itself for an approval.
+    expect(ui.query('[data-linked-device="test-mac"] details')?.hasAttribute("open")).toBe(false);
+    expect(ui.query('[data-testid="device-requests-fold"]')?.hasAttribute("open")).toBe(true);
   });
 
   test("pairing shows the one-use command with this box's address", async () => {

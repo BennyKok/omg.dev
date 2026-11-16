@@ -99,8 +99,9 @@ These rules come from the first user's answers and from IR-2026-11-01.
 - `omg_pair_device(name)` makes a pairing code. Only the person at the device
   can use it.
 - In the web composer, `@` offers linked devices next to bots. Picking one
-  inserts plain `@name` text. Settings has two views: Send requests (controller)
-  and Receive requests (controlled instance). Approval stays on the device.
+  inserts plain `@name` text. Settings has two views: Use another computer
+  (controller) and Share this computer (controlled instance). Approval stays
+  on the device.
 
 ## Code
 
@@ -146,10 +147,11 @@ These rules come from the first user's answers and from IR-2026-11-01.
 
 With omg.dev running on both computers:
 
-1. On the controller, open Settings → Linked devices → Send requests. Enter
-   a device name and select Pair.
+1. On the controller, open Settings → Linked devices → Use another computer.
+   Open Add a computer, enter a device name and select Get code.
 2. On the receiving computer, open its own localhost UI. Select Linked devices
-   → Receive requests. Enter the controller's Tailscale HTTPS address and code.
+   → Share this computer. Enter the controller's Tailscale HTTPS address and
+   code, and select Connect.
 3. Review the action permissions. The installed `~/.omg-device/config.json`
    is still required. Pairing does not start access or install actions.
 4. Select an access duration and Start access. Pending requests show the exact
@@ -164,7 +166,7 @@ With omg.dev running on both computers:
    open requests for this device on the controller. It preserves the audit log
    and coding sessions. If the controller cannot be reached, local access still
    stops and the UI reports that clearing failed. New requests can queue, but
-   cannot run until access starts again. Disconnect controller removes the
+   cannot run until access starts again. Disconnect removes the
    local key. Output appears as plain text.
 
 The roles describe each link. The same instance can send requests to devices
