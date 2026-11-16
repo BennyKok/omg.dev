@@ -39,7 +39,7 @@ describe("sideNavRows", () => {
   test("a settings sub-page keeps Settings marked", () => {
     // Opening Settings > Usage used to leave nothing marked, so the drawer
     // looked like it had lost its place.
-    for (const tab of ["usage", "coding-agents", "connectors", "changelog", "more"]) {
+    for (const tab of ["usage", "coding-agents", "connectors", "changelog"]) {
       expect(sideNavCurrentKey(tab)).toBe("settings");
       expect(sideNavRows({ tab }).find((row) => row.current)?.key).toBe("settings");
     }
@@ -113,7 +113,7 @@ describe("mobileHeader", () => {
   });
 
   test("a page only Settings lists returns to Settings, wherever Settings was opened from", () => {
-    for (const tab of ["usage", "coding-agents", "storage", "instructions", "connectors", "changelog", "more"]) {
+    for (const tab of ["usage", "coding-agents", "storage", "instructions", "connectors", "changelog"]) {
       for (const fromMenu of [false, true]) {
         expect(mobileHeader(tab, { fromMenu })).toMatchObject({ control: "back", target: "settings" });
       }
@@ -140,6 +140,9 @@ describe("tabFallsToSettings", () => {
 
   test("Settings itself and an unknown tab show Settings", () => {
     expect(tabFallsToSettings("settings")).toBe(true);
+    // The old "More" page is part of Settings now. An old link to it opens
+    // Settings.
+    expect(tabFallsToSettings("more")).toBe(true);
     expect(tabFallsToSettings("no-such-page")).toBe(true);
   });
 });

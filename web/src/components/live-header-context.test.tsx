@@ -7,20 +7,20 @@ let ui: Mounted;
 beforeEach(() => { ui = mount(); globalThis.fetch = (async () => Response.json({ questions: [] })) as typeof fetch; });
 afterEach(() => { ui.cleanup(); globalThis.fetch = originalFetch; });
 
-test("keeps the same header control when loading ends and shows the known name", () => {
+test("keeps the same header control when loading ends and names the page", () => {
   const props = { brand: <span>omg</span>, viewerName: "Benny Kok", busyCount: 0, onOpenNotifications: () => {} };
   ui.render(<AskProvider><LiveHeaderContext {...props} intro /></AskProvider>);
   const button = ui.query("button");
   expect(button?.getAttribute("aria-label")).toBe("omg.dev");
   ui.render(<AskProvider><LiveHeaderContext {...props} intro={false} /></AskProvider>);
   expect(ui.query("button")).toBe(button);
-  expect(button?.getAttribute("aria-label")).toBe("Welcome, Benny");
+  expect(button?.getAttribute("aria-label")).toBe("Chats");
 });
 
-test("keeps the welcome readable without an identity and opens notifications", () => {
+test("names the page without an identity and opens notifications", () => {
   let opened = 0;
   ui.render(<AskProvider><LiveHeaderContext brand={<span>omg</span>} intro={false} busyCount={0} onOpenNotifications={() => opened++} /></AskProvider>);
-  expect(ui.query("button")?.getAttribute("aria-label")).toBe("Welcome");
+  expect(ui.query("button")?.getAttribute("aria-label")).toBe("Chats");
   expect(ui.text()).not.toContain("Unassigned");
   ui.flush(() => (ui.query("button") as HTMLElement).click());
   expect(opened).toBe(1);
@@ -28,7 +28,7 @@ test("keeps the welcome readable without an identity and opens notifications", (
 
 const { RuntimeAvailabilityContext } = await import("../lib/runtime-availability");
 
-test("connection state never replaces the greeting; the overlay owns it", () => {
+test("connection state never replaces the title; the overlay owns it", () => {
   let notifications = 0;
   const props = { brand: <span>omg</span>, viewerName: "Benny", busyCount: 0, onOpenNotifications: () => notifications++ };
   const states = [
@@ -39,7 +39,7 @@ test("connection state never replaces the greeting; the overlay owns it", () => 
   ] as const;
   for (const state of states) {
     ui.render(<RuntimeAvailabilityContext.Provider value={{ ...state, retry: () => {} }}><AskProvider><LiveHeaderContext {...props} intro={false} /></AskProvider></RuntimeAvailabilityContext.Provider>);
-    expect(ui.text()).toContain("Welcome, Benny");
+    expect(ui.text()).toContain("Chats");
     expect(ui.text()).not.toMatch(/Reconnecting|Connecting|unavailable|Waking/);
   }
   ui.flush(() => (ui.query("button") as HTMLElement).click());
@@ -63,8 +63,15 @@ test("inside a folder the title names it and opens Folders, until a question nee
     </AskProvider>,
   );
   expect(ui.text()).toContain("lfg");
-  expect(ui.text()).not.toContain("Welcome");
+  expect(ui.text()).not.toContain("Chats");
   ui.flush(() => (ui.query("button") as HTMLElement).click());
   expect(folders).toBe(1);
   expect(inbox).toBe(0);
+});
+
+test("the title does not change while agents work; only the accessible name says so", () => {
+  ui.render(<AskProvider><LiveHeaderContext brand={<span>omg</span>} intro={false} viewerName="Benny" busyCount={2} onOpenNotifications={() => {}} /></AskProvider>);
+  expect(ui.text()).toContain("Chats");
+  expect(ui.text()).not.toMatch(/building|Welcome/);
+  expect(ui.query("button")?.getAttribute("aria-label")).toBe("Chats. 2 agents working");
 });

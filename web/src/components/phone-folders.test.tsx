@@ -135,7 +135,7 @@ test("every page is one row above the folders, Settings included, and a tap open
   expect(ui.query('button[aria-label="Settings"]')).toBeNull();
 });
 
-test("Recent puts the newest folder first and folds idle folders into Inactive", async () => {
+test("Recent puts the newest folder first and folds idle folders into All folders", async () => {
   const { resetFolderActivityForTests } = await import("../lib/folder-activity");
   const now = Date.now();
   const day = 24 * 60 * 60 * 1000;
@@ -154,11 +154,35 @@ test("Recent puts the newest folder first and folds idle folders into Inactive",
     // Live activity (lfg) and history (vibes) both count. Old and never-used
     // folders are folded away.
     expect(rows()).toEqual(["All chats", "lfg", "vibes"]);
-    const toggle = ui.query('[data-testid="phone-folders-inactive"]') as HTMLElement;
-    expect(toggle.textContent).toContain("Inactive · 2");
+    const toggle = ui.query('[data-testid="phone-folders-all"]') as HTMLElement;
+    expect(toggle.textContent).toContain("All folders · 4");
     ui.flush(() => toggle.click());
     expect(rows()).toEqual(["All chats", "lfg", "vibes", "old", "alpha"]);
   } finally {
     resetFolderActivityForTests();
   }
+});
+
+test("the menu shows five folders, then one row for all of them, and keeps the folder in view", () => {
+  window.localStorage.setItem("lfg_phone_folder_sort", "name");
+  const projects = ["a", "b", "c", "d", "e", "f", "g"];
+  try {
+    ui.render(<PhoneFolders value="__all" projects={projects} labelFor={labelFor} onPick={() => {}} />);
+    expect(rows()).toEqual(["All chats", "a", "b", "c", "d", "e"]);
+    const toggle = ui.query('[data-testid="phone-folders-all"]') as HTMLElement;
+    expect(toggle.textContent).toContain("All folders · 7");
+    ui.flush(() => toggle.click());
+    expect(rows()).toEqual(["All chats", "a", "b", "c", "d", "e", "f", "g"]);
+    ui.remount();
+    // The folder in view is never behind the row.
+    ui.render(<PhoneFolders value="g" projects={projects} labelFor={labelFor} onPick={() => {}} />);
+    expect(rows()).toEqual(["All chats", "a", "b", "c", "d", "g"]);
+  } finally {
+    window.localStorage.removeItem("lfg_phone_folder_sort");
+  }
+});
+
+test("five folders or fewer show no All folders row", () => {
+  ui.render(<PhoneFolders value="__all" projects={["a", "b", "c", "d", "e"]} labelFor={labelFor} onPick={() => {}} />);
+  expect(ui.query('[data-testid="phone-folders-all"]')).toBeNull();
 });

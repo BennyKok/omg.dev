@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
+import { PhoneHeaderActions, usePhoneHeaderSlot } from "@/components/phone-header-actions";
 import {
   Check,
   ChevronDown,
@@ -289,9 +290,12 @@ export default function CodingAgentsPage({
     }
   }
 
+  // On a phone the header bar names the page and carries its two actions.
+  const phoneHeaderSlot = usePhoneHeaderSlot();
+
   return (
     <div className="mx-auto w-full max-w-xl space-y-3 pb-10" data-lfg-page-column>
-      <div className="flex items-center justify-between gap-3 px-4">
+      <div className={cn("flex items-center justify-between gap-3 px-4", phoneHeaderSlot && !onBack && "hidden")}>
         <div className="flex min-w-0 items-center gap-2">
           {onBack ? (
             <button
@@ -308,7 +312,8 @@ export default function CodingAgentsPage({
             Coding agents
           </h2>
         </div>
-        <div className="flex items-center gap-3">
+        <PhoneHeaderActions>
+        <div className="flex items-center gap-3 max-md:pr-2">
         {canUpdateAll ? (
           <button
             type="button"
@@ -332,9 +337,11 @@ export default function CodingAgentsPage({
           className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
         >
           <RotateCcw className={cn("size-3.5", refreshing && "animate-spin")} />
-          Refresh models
+          {/* The phone header has room for the icon, not for the words. */}
+          <span className="max-md:sr-only">Refresh models</span>
         </button>
         </div>
+        </PhoneHeaderActions>
       </div>
 
       {setupChecks.length ? (

@@ -713,8 +713,7 @@ import {
   SettingsGroup,
   SettingsIcon,
   SettingsRow,
-  SettingsSelect,
-} from "./components/settings-ui";
+  SettingsSelect, SettingsGroupLabel } from "./components/settings-ui";
 import {
   UpdateNavButton,
   UpdateProvider,
@@ -9125,9 +9124,6 @@ export function App() {
     <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
       <ShippedPage
         active={active}
-        // The phone's Folders page lists only folders, so the Inbox is the
-        // way to Artifacts there.
-        onOpenArtifacts={isMobile && !hiddenPages.includes("artifacts") ? () => setTab("artifacts") : undefined}
         notificationIdentity={identity}
         liveSessionIds={liveSessionIdSet}
         onOpenSession={(sid) => {
@@ -9155,16 +9151,27 @@ export function App() {
     <SettingsView
       user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
       onOpenCodingAgents={() => setTab("coding-agents")}
-      onOpenAuto={() => setTab("auto")}
       onOpenStorage={() => setTab("storage")}
       onOpenDevices={() => setTab("devices")}
       onOpenRemoteAccess={() => setTab("remote-access")}
-      onOpenMore={() => setTab("more")}
       onOpenCustomInstructions={() => setTab("instructions")}
       onOpenConnectors={() => setTab("connectors")}
+      onOpenTerminal={() => setTab("term")}
+      onOpenUsage={() => setTab("usage")}
+      onOpenChangelog={() => setTab("changelog")}
+      // A hosted Computer must not be able to reset the open-source
+      // walkthrough, and a self-hosted box has no hosted tour to replay, so
+      // the shell picks the flow.
+      onRedoOnboarding={redoOnboarding}
+      dark={dark}
+      toggleTheme={toggleTheme}
+      managedComputer={managedComputer}
+      extTabs={extNavTabs}
+      onOpenExt={(id) => setTab(id)}
       settings={settings}
       onSettingsChange={updateSettings}
       connection={useWsLive ? wsLiveStream.connection : null}
+      latency={useWsLive ? wsLiveStream.latency : null}
       computerVersionReport={computerVersionReport}
     />
   );
@@ -9193,32 +9200,6 @@ export function App() {
         <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
           <ConnectorsPage />
         </Suspense>
-      );
-    if (page === "more")
-      return (
-        <MoreView
-          // Same source the Settings root used before Ping moved here.
-          connection={useWsLive ? wsLiveStream.connection : null}
-          latency={useWsLive ? wsLiveStream.latency : null}
-          dark={dark}
-          toggleTheme={toggleTheme}
-          user={userFilter !== "__all" && userFilter !== "__unassigned" ? userFilter : null}
-          onOpenTerminal={() => setTab("term")}
-          onOpenComputer={() => setTab("computer")}
-          onOpenUsage={() => setTab("usage")}
-          onOpenChangelog={() => setTab("changelog")}
-          // Same row, different flow per surface — which is the whole point
-          // of keeping the two first runs separate. A hosted Computer must
-          // not be able to reset the open-source walkthrough (it never ran
-          // it, and doing so would demand a profile and a repo it doesn't
-          // need), and a self-hosted box has no hosted tour to replay.
-          onRedoOnboarding={redoOnboarding}
-          managedComputer={managedComputer}
-          extTabs={extNavTabs}
-          onOpenExt={(id) => setTab(id)}
-          settings={settings}
-          onSettingsChange={updateSettings}
-        />
       );
     return null;
   };
@@ -29536,21 +29517,26 @@ function UsageLimitsSection() {
     }
   }, [appDialog, refresh, usingCreditId]);
 
+  // On a phone the header bar names the page and carries Refresh.
+  const phoneHeaderSlot = usePhoneHeaderSlot();
+
   return (
     <section className="space-y-2">
-      <div className="flex items-center justify-between px-4">
+      <div className={cn("flex items-center justify-between px-4", phoneHeaderSlot && "hidden")}>
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Usage &amp; limits
         </h2>
-        <button
-          type="button"
-          onClick={refresh}
-          disabled={refreshing}
-          className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-        >
-          <RotateCcw className={cn("size-3.5", refreshing && "animate-spin")} />
-          Refresh
-        </button>
+        <PhoneHeaderActions>
+          <button
+            type="button"
+            onClick={refresh}
+            disabled={refreshing}
+            className="flex items-center gap-1 text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50 max-md:h-9 max-md:px-2 max-md:text-[13px]"
+          >
+            <RotateCcw className={cn("size-3.5", refreshing && "animate-spin")} />
+            Refresh
+          </button>
+        </PhoneHeaderActions>
       </div>
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
         {refs == null && !error ? (
@@ -29876,8 +29862,10 @@ function IdentitySettingsHeader({ user }: { user: string | null }) {
         <div className="truncate text-lg font-semibold leading-tight">
           {user ?? "No user selected"}
         </div>
+        {/* omg.dev is local software: there is no account to sign in to.
+            The name is the profile that owns the chats you start here. */}
         <div className="text-sm text-muted-foreground">
-          {user ? "Signed in on this device" : "Pick your name in the top filter"}
+          {user ? "Your profile on this computer" : "Pick your name in the top filter"}
         </div>
         <div className="mt-1.5 flex gap-2">
           <Button
@@ -29888,14 +29876,21 @@ function IdentitySettingsHeader({ user }: { user: string | null }) {
             onClick={() => fileInputRef.current?.click()}
           >
             <Camera className="size-3.5" />
-            {state?.hasCustomIcon ? "Replace" : "Upload"}
+            Change photo
           </Button>
-          {state?.hasCustomIcon ? (
-            <Button type="button" variant="outline" size="sm" disabled={busy} onClick={() => void remove()}>
-              <Trash2 className="size-3.5" />
-              Remove
-            </Button>
-          ) : null}
+          {/* Always drawn, and disabled until there is a photo to remove.
+              It used to appear when the icon state loaded and pushed the
+              page down a moment after it opened. */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || !state?.hasCustomIcon}
+            onClick={() => void remove()}
+          >
+            <Trash2 className="size-3.5" />
+            Remove
+          </Button>
         </div>
         {error ? <p className="mt-1 text-xs text-destructive">{error}</p> : null}
       </div>
@@ -30039,14 +30034,14 @@ function VersionUpdatesRow({
           </SettingsIcon>
           <div className="min-w-0">
             <div className="text-sm font-medium">Version</div>
-            {subtitle ? (
-              <div className={cn(
-                "text-xs text-pretty",
-                mismatch ? "font-medium text-warning" : "text-muted-foreground",
-              )}>
-                {subtitle}
-              </div>
-            ) : null}
+            {/* The line is kept while the Computer's version loads, so the
+                row has its final height from the first paint. */}
+            <div className={cn(
+              "text-xs text-pretty",
+              mismatch ? "font-medium text-warning" : "text-muted-foreground",
+            )}>
+              {subtitle ? <span>{subtitle}</span> : <span aria-hidden="true">&nbsp;</span>}
+            </div>
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
@@ -30100,33 +30095,51 @@ function SettingsView({
   settings,
   onSettingsChange,
   onOpenCodingAgents,
-  onOpenAuto,
   onOpenStorage,
   onOpenDevices,
   onOpenRemoteAccess,
-  onOpenMore,
   onOpenCustomInstructions,
   onOpenConnectors,
+  onOpenTerminal,
+  onOpenUsage,
+  onOpenChangelog,
+  onRedoOnboarding,
+  dark,
+  toggleTheme,
+  managedComputer,
+  extTabs,
+  onOpenExt,
   connection,
+  latency,
   computerVersionReport,
 }: {
   user: string | null;
   settings: GlobalSettings;
   onSettingsChange: (patch: Partial<GlobalSettings>) => Promise<void>;
   onOpenCodingAgents: () => void;
-  onOpenAuto: () => void;
   onOpenStorage: () => void;
   onOpenDevices: () => void;
   onOpenRemoteAccess: () => void;
-  onOpenMore: () => void;
   onOpenCustomInstructions: () => void;
   onOpenConnectors: () => void;
+  onOpenTerminal: () => void;
+  onOpenUsage: () => void;
+  onOpenChangelog: () => void;
+  onRedoOnboarding: () => Promise<void>;
+  dark: boolean;
+  toggleTheme: () => void;
+  /** A hosted omg.dev Computer: its server keeps Bots off (src/settings.ts). */
+  managedComputer: boolean;
+  extTabs: ExtensionNavTab[];
+  onOpenExt: (id: string) => void;
   connection: ConnectionState | null;
+  latency?: LatencySource | null;
   computerVersionReport: { version: string | null; generation: number } | null;
 }) {
-  const bare = false;
   const diskStats = useServerStats(true);
   const diskLine = diskFreeLine(diskStats);
+  const uiFeedback = useUiFeedbackPrefs();
+  const latencyMs = useLatencyMs(latency);
 
   // The two halves of "what am I actually looking at", resolved from two
   // independent sources: FRONTEND_VERSION is stamped into this bundle at build
@@ -30145,47 +30158,56 @@ function SettingsView({
   const versionSkew = versionRelation(FRONTEND_VERSION, computerVersion);
   const versionNote = versionMismatchNote(versionSkew);
 
+  // ONE PAGE. Settings used to be two levels of lists: this page, and a
+  // "More" page behind its last row that held the switches people change
+  // most (dark mode, notifications, voice, what the lists show), one of them
+  // inside a closed group. A switch was three taps away. Every switch is on
+  // this page now, and a row with a chevron always opens a page with real
+  // content of its own, never another list of rows.
+  //
   // One column on every screen (cbdc5d816). Every group goes through
   // settings-ui, so labels, cards, rows and icons stay the same.
+  //
+  // Rows keep their place while their values load (reserveDescription, the
+  // Version line, the profile's Remove button), so the page does not move
+  // after it opens.
   return (
     <div className="mx-auto w-full max-w-xl space-y-8 pb-10" data-lfg-page-column>
-      {bare ? <UserIconSettingsSection identityEmail={user} /> : <IdentitySettingsHeader user={user} />}
+      <IdentitySettingsHeader user={user} />
 
-      {/* Computer — in standalone LFG this box IS the computer, so the row is
-          static. When these sections are mounted by a host (omg) this is the
-          slot that becomes a machine switcher. */}
+      <SettingsGroup label="Agents">
+        <SettingsRow
+          onClick={onOpenCodingAgents}
+          icon={<SettingsIcon><Bot /></SettingsIcon>}
+          title="Coding agents"
+        />
+        <SettingsRow onClick={onOpenUsage} icon={<SettingsIcon><Activity /></SettingsIcon>} title="Provider limits" />
+        <CustomInstructionsRow
+          value={settings.customInstructions}
+          onOpen={onOpenCustomInstructions}
+        />
+      </SettingsGroup>
+
+      {/* Computer — in standalone LFG this box IS the computer. Schedules and
+          the Computer screen are not listed: each has a row in the menu, and
+          a second way in from here made Back ambiguous. */}
       <SettingsGroup label="Computer">
-        {/* A host lists these three pages in its own settings, so on a
-            host-mounted surface this group is the version row alone. */}
-        {bare ? null : (
-          <>
-            <SettingsRow
-              onClick={onOpenCodingAgents}
-              icon={<SettingsIcon><Bot /></SettingsIcon>}
-              title="Coding agents"
-            />
-            <SettingsRow
-              onClick={onOpenAuto}
-              icon={<SettingsIcon><CalendarClock /></SettingsIcon>}
-              title="Schedules"
-            />
-            <SettingsRow
-              onClick={onOpenStorage}
-              icon={<SettingsIcon><HardDrive /></SettingsIcon>}
-              title="Storage & performance"
-              description={diskLine}
-              descriptionClassName="truncate tabular-nums"
-            />
-            <LinkedDevicesRow onOpen={onOpenDevices} />
-            <RemoteAccessRow onOpen={onOpenRemoteAccess} />
-          </>
-        )}
+        <SettingsRow
+          onClick={onOpenStorage}
+          icon={<SettingsIcon><HardDrive /></SettingsIcon>}
+          title="Storage & performance"
+          description={diskLine}
+          descriptionClassName="truncate tabular-nums"
+          reserveDescription
+        />
+        <LinkedDevicesRow onOpen={onOpenDevices} />
+        <RemoteAccessRow onOpen={onOpenRemoteAccess} />
+        <SettingsRow onClick={onOpenTerminal} icon={<SettingsIcon><TerminalSquare /></SettingsIcon>} title="Terminal" />
         {/* One row for what used to be three (Frontend, Computer, Updates):
             which UI build is rendering, what the selected Computer is
             really executing, and whether either has an update. A skew
             between the first two is still legible collapsed — see
             VersionUpdatesRow's own comment. */}
-        {bare ? <DiskMeters stats={diskStats} /> : null}
         <VersionUpdatesRow
           frontendVersion={FRONTEND_VERSION}
           computerVersion={computerVersion}
@@ -30194,128 +30216,8 @@ function SettingsView({
         />
       </SettingsGroup>
 
-      {/* More — the long tail lives on its own page so this one stays
-          scannable. Hidden on a host-mounted surface: everything behind it
-          (push, appearance, sound, haptics, install) describes the DEVICE,
-          and the host already owns those for its own app. Showing ours put
-          a second set of switches next to the host's, and ours were the
-          ones that could not work — the push toggle would have had to
-          borrow a service worker from an origin we do not own. `bare` is
-          true only for OmgSettingsSurface, which is exactly the
-          host-mounted case. */}
-      <SettingsGroup label="Preferences">
-        <CustomInstructionsRow
-          value={settings.customInstructions}
-          onOpen={onOpenCustomInstructions}
-        />
-        {bare ? null : (
-          <SettingsRow
-            onClick={onOpenMore}
-            icon={<SettingsIcon><Ellipsis /></SettingsIcon>}
-            title="More"
-            description="Tools, appearance, notifications, voice, help"
-          />
-        )}
-      </SettingsGroup>
-
-      {/* Tool access and agent limits are for people tuning the box. A host
-          mounts this page as its own "Advanced" page, so it shows them open;
-          standalone keeps them one click away so the page stays short. It is
-          last, so opening it pushes nothing else down. */}
-      <AdvancedSettingsGroup collapsible={!bare}>
-        <SettingsGroup label="Tool access">
-          <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
-        </SettingsGroup>
-
-        <AgentConcurrencySettingsSection
-          settings={settings}
-          onChange={onSettingsChange}
-        />
-
-        <SettingsGroup label="Sessions">
-          <FastModeSettingsSection settings={settings} onChange={onSettingsChange} />
-          <SnapshotWorkspacesSettingsSection settings={settings} onChange={onSettingsChange} />
-        </SettingsGroup>
-      </AdvancedSettingsGroup>
-    </div>
-  );
-}
-
-/* Everything that doesn't need to be on the settings root. Same sections as
-   before, regrouped by who they belong to: the computer, this device, or help. */
-function MoreView({
-  dark,
-  toggleTheme,
-  user,
-  onOpenTerminal,
-  onOpenComputer,
-  onOpenUsage,
-  onOpenChangelog,
-  onRedoOnboarding,
-  managedComputer,
-  extTabs,
-  onOpenExt,
-  connection,
-  latency,
-  settings,
-  onSettingsChange,
-}: {
-  dark: boolean;
-  toggleTheme: () => void;
-  user: string | null;
-  onOpenTerminal: () => void;
-  onOpenComputer: () => void;
-  onOpenUsage: () => void;
-  onOpenChangelog: () => void;
-  onRedoOnboarding: () => Promise<void>;
-  /** A hosted omg.dev Computer: its server keeps Bots off (src/settings.ts). */
-  managedComputer: boolean;
-  extTabs: ExtensionNavTab[];
-  onOpenExt: (id: string) => void;
-  connection: ConnectionState | null;
-  latency?: LatencySource | null;
-  settings: GlobalSettings;
-  onSettingsChange: (patch: Partial<GlobalSettings>) => Promise<void>;
-}) {
-  const uiFeedback = useUiFeedbackPrefs();
-  const latencyMs = useLatencyMs(latency);
-
-  return (
-    <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
-      {/* A phone names the page in its header bar (mobileHeader). */}
-      <div className="px-1 max-md:hidden">
-        <h1 className="text-lg font-semibold leading-tight">More</h1>
-      </div>
-
-      <SettingsGroup label="On this computer">
-        <SettingsRow onClick={onOpenUsage} icon={<SettingsIcon><Activity /></SettingsIcon>} title="Provider limits" />
-        <SettingsRow onClick={onOpenTerminal} icon={<SettingsIcon><TerminalSquare /></SettingsIcon>} title="Open terminal" />
-        {/* The Computer sits next to the Terminal on purpose: both are ways
-            into this box itself rather than into a session. */}
-        <SettingsRow onClick={onOpenComputer} icon={<SettingsIcon><Monitor /></SettingsIcon>} title="Open computer" />
-      </SettingsGroup>
-
-      <ViewSettingsSection settings={settings} onChange={onSettingsChange} hideBots={managedComputer} />
-
-      <VoiceSettingsSection />
-
-      {/* Extension tabs — each opens as its own page. */}
-      {extTabs.length ? (
-        <SettingsGroup label="Extensions">
-          {extTabs.map((t) => (
-            <SettingsRow
-              key={t.id}
-              onClick={() => onOpenExt(t.id)}
-              icon={<SettingsIcon>{t.icon ?? <Flag />}</SettingsIcon>}
-              title={t.label}
-            />
-          ))}
-        </SettingsGroup>
-      ) : null}
-
       {/* This device — browser-local, never synced to the server. */}
       <SettingsGroup label="This device">
-        <PwaInstallSettingsRow />
         <SettingsRow
           icon={<SettingsIcon>{dark ? <Moon /> : <Sun />}</SettingsIcon>}
           title="Dark mode"
@@ -30337,7 +30239,28 @@ function MoreView({
             />
           }
         />
+        {/* Last in the card: it is there only until the app is installed,
+            so nothing sits under it to move when it goes. */}
+        <PwaInstallSettingsRow />
       </SettingsGroup>
+
+      <ViewSettingsSection settings={settings} onChange={onSettingsChange} hideBots={managedComputer} />
+
+      <VoiceSettingsSection />
+
+      {/* Extension tabs — each opens as its own page. */}
+      {extTabs.length ? (
+        <SettingsGroup label="Extensions">
+          {extTabs.map((t) => (
+            <SettingsRow
+              key={t.id}
+              onClick={() => onOpenExt(t.id)}
+              icon={<SettingsIcon>{t.icon ?? <Flag />}</SettingsIcon>}
+              title={t.label}
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
 
       <SettingsGroup label="Help">
         <SettingsRow onClick={onOpenChangelog} icon={<SettingsIcon><ScrollText /></SettingsIcon>} title="Changelog" />
@@ -30348,9 +30271,27 @@ function MoreView({
         />
       </SettingsGroup>
 
+      {/* Tool access and agent limits are for people tuning the box, so they
+          stay one tap away. It is the last group, so opening it pushes
+          nothing else down. */}
+      <AdvancedSettingsGroup collapsible>
+        <SettingsGroup label="Tool access">
+          <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
+        </SettingsGroup>
+
+        <AgentConcurrencySettingsSection
+          settings={settings}
+          onChange={onSettingsChange}
+        />
+
+        <SettingsGroup label="Sessions">
+          <FastModeSettingsSection settings={settings} onChange={onSettingsChange} />
+          <SnapshotWorkspacesSettingsSection settings={settings} onChange={onSettingsChange} />
+        </SettingsGroup>
+      </AdvancedSettingsGroup>
+
       {/* Not a card and not a setting: a footnote you glance at when something
-          feels slow. It used to be a full card at the top of Settings, which
-          gave a number you cannot act on the weight of a control. */}
+          feels slow. */}
       <p className="flex items-center justify-center gap-2 px-4 text-xs text-muted-foreground/70">
         <span
           className={cn(
@@ -30381,9 +30322,9 @@ function MoreView({
 }
 
 /**
- * Settings > More > View. Box-wide switches for what the interface shows,
- * plus the default agent + model a new session starts on. Collapsed by
- * default: most boxes never touch these, and the default is "show everything".
+ * Settings > View. Box-wide switches for what the interface shows, plus the
+ * default agent + model a new session starts on. Open, like every other
+ * group: it was a closed group on a second page, three taps from Settings.
  */
 function ViewSettingsSection({
   settings,
@@ -30395,7 +30336,6 @@ function ViewSettingsSection({
   /** The server keeps Bots off here, so a switch for them would do nothing. */
   hideBots?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
   const codingAgents = useContext(CodingAgentsContext);
   const accessMode = useContext(AgentAccessModeContext);
   const catalog = useAgentModelCatalog();
@@ -30420,18 +30360,10 @@ function ViewSettingsSection({
   ];
   return (
     <section className="space-y-2">
-      <Collapsible open={open} onOpenChange={setOpen}>
-        <CollapsibleTrigger className="flex w-full items-center gap-2 px-4 text-left">
-          <h2 className="text-xs font-semibold text-muted-foreground">View</h2>
-          <ChevronRight
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground transition-transform duration-150",
-              open && "rotate-90",
-            )}
-          />
-        </CollapsibleTrigger>
-        <CollapsibleContent>
-          <div className="mt-2 overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
+      <SettingsGroupLabel>View</SettingsGroupLabel>
+      <div>
+        <div>
+          <div className="overflow-hidden rounded-2xl border border-border bg-card/40 divide-y divide-border">
             {roles.length > 1 && roleViewer.role.id !== "owner" ? (
               <div className="flex items-center justify-between gap-4 px-4 py-2.5">
                 <div className="min-w-0">
@@ -30542,8 +30474,8 @@ function ViewSettingsSection({
               );
             })}
           </div>
-        </CollapsibleContent>
-      </Collapsible>
+        </div>
+      </div>
     </section>
   );
 }

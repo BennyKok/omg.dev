@@ -24,7 +24,19 @@ export function usePhoneHeaderSlot(): HTMLElement | null {
   return useContext(PhoneHeaderSlotContext);
 }
 
-export function PhoneHeaderActions({ children }: { children: ReactNode }) {
+export function PhoneHeaderActions({
+  children,
+  active = true,
+}: {
+  children: ReactNode;
+  /**
+   * False while the page is mounted but not in view. The shell keeps the
+   * Inbox and Artifacts mounted and hidden, and a hidden page must not put
+   * its actions in the header of the page that is in view.
+   */
+  active?: boolean;
+}) {
   const slot = usePhoneHeaderSlot();
-  return slot ? createPortal(children, slot) : <>{children}</>;
+  if (!slot) return <>{children}</>;
+  return active ? createPortal(children, slot) : null;
 }

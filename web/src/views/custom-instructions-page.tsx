@@ -3,6 +3,7 @@ import { ScrollText } from "lucide-react";
 
 import { SettingsIcon, SettingsRow } from "@/components/settings-ui";
 import { Textarea } from "@/components/ui/textarea";
+import { PhoneHeaderActions, usePhoneHeaderSlot } from "@/components/phone-header-actions";
 
 // Mirrors CUSTOM_INSTRUCTIONS_MAX_LENGTH in src/settings.ts. The server
 // enforces it; this copy only stops the typing instead of failing the save.
@@ -78,20 +79,25 @@ export function CustomInstructionsPage({
     }
   }
 
+  const phoneHeaderSlot = usePhoneHeaderSlot();
+
   return (
     <div className="mx-auto max-w-xl space-y-3 pb-10" data-lfg-page-column>
-      <div className="flex items-center justify-between px-4">
+      {/* On a phone the header bar names the page and carries Save. */}
+      <div className={phoneHeaderSlot ? "hidden" : "flex items-center justify-between px-4"}>
         <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           Custom instructions
         </h2>
-        <button
-          type="button"
-          disabled={!dirty || saving}
-          onClick={() => void save()}
-          className="text-xs font-medium text-primary transition-opacity disabled:opacity-40"
-        >
-          {saving ? "Saving…" : "Save"}
-        </button>
+        <PhoneHeaderActions>
+          <button
+            type="button"
+            disabled={!dirty || saving}
+            onClick={() => void save()}
+            className="text-xs font-medium text-primary transition-opacity disabled:opacity-40 max-md:h-9 max-md:px-3 max-md:text-[15px]"
+          >
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </PhoneHeaderActions>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-border bg-card/40">

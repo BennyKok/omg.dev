@@ -53,9 +53,13 @@ function CopyCommand({ value }: { value: string }) {
 export function LinkedDevicesRow({ onOpen }: { onOpen: () => void }) {
   const { devices, loaded, unavailable } = useLinkedDevices();
   const { state: receiver } = useDeviceReceiver();
-  if (!loaded || unavailable) return null;
+  // Drawn while the list loads, with its description line kept, so the rows
+  // under it do not move when the answer arrives. Hidden only once the
+  // server has said it has no device linking.
+  if (loaded && unavailable) return null;
   return (
     <SettingsRow
+      reserveDescription
       onClick={onOpen}
       icon={<SettingsIcon><Laptop /></SettingsIcon>}
       title="Linked devices"

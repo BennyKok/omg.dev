@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { useAppDialog } from "@/components/ui/app-dialog";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
+import { PhoneHeaderActions, usePhoneHeaderSlot } from "@/components/phone-header-actions";
 import {
   ARTIFACTS_GALLERY_KEY,
   SHIPPED_FEED_KEY,
@@ -181,7 +182,6 @@ export default function ShippedPage({
   notificationIdentity,
   artifactsOnly = false,
   active = true,
-  onOpenArtifacts,
 }: {
   onOpenSession: (sessionId: string) => void;
   onOpenArtifactSession?: (artifact: GalleryArtifact) => void;
@@ -190,8 +190,6 @@ export default function ShippedPage({
   notificationIdentity?: string | null;
   artifactsOnly?: boolean;
   active?: boolean;
-  /** The phone has no menu row for Artifacts; the Inbox links to it. */
-  onOpenArtifacts?: () => void;
 }) {
   // Shipped and Artifacts are separate virtual pages. This shared loader keeps
   // their paging/realtime behavior aligned without exposing a nested toggle.
@@ -536,13 +534,8 @@ export default function ShippedPage({
             </p>
           )}
         </div>
+        <PhoneHeaderActions active={active}>
         <div className="flex items-center gap-1">
-        {!artifactsOnly && onOpenArtifacts ? (
-          <Button size="sm" variant="ghost" onClick={onOpenArtifacts}>
-            <LayoutDashboard className="size-4" />
-            Artifacts
-          </Button>
-        ) : null}
         {!artifactsOnly && posts !== null ? (
           // Icon only. It is a rare, undoable housekeeping action — it does not
           // need to be the second-loudest thing on the page.
@@ -562,6 +555,7 @@ export default function ShippedPage({
           </Button>
         ) : null}
         </div>
+        </PhoneHeaderActions>
       </div>
 
       {view === "artifacts" ? (

@@ -64,7 +64,13 @@ function CopyValue({ value, label }: { value: string; label: string }) {
  * guessed network information.
  */
 export function useServerAccess(): ServerAccessInfo | null {
-  const [access, setAccess] = useState<ServerAccessInfo | null>(null);
+  // Starts from the last answer, so the Settings row is in place on every
+  // visit after the first and the rows under it do not move.
+  const [access, setAccessState] = useState<ServerAccessInfo | null>(lastServerAccess);
+  const setAccess = (next: ServerAccessInfo) => {
+    lastServerAccess = next;
+    setAccessState(next);
+  };
   useEffect(() => {
     const controller = new AbortController();
     void fetch("/api/server/access", {
@@ -83,6 +89,8 @@ export function useServerAccess(): ServerAccessInfo | null {
   }, []);
   return access;
 }
+
+let lastServerAccess: ServerAccessInfo | null = null;
 
 /** The desktop app owns a private runtime, so it offers no remote access. */
 function offersRemoteAccess(access: ServerAccessInfo | null): access is ServerAccessInfo {

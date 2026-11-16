@@ -37,3 +37,20 @@ test("on a phone the actions are drawn in the header slot, and still work", () =
     slot.remove();
   }
 });
+
+test("a page that is mounted but not in view puts nothing in the header", () => {
+  const slot = document.createElement("div");
+  document.body.appendChild(slot);
+  try {
+    ui.render(
+      <PhoneHeaderSlotContext.Provider value={slot}>
+        <PhoneHeaderActions active={false}><button type="button">Mark all read</button></PhoneHeaderActions>
+      </PhoneHeaderSlotContext.Provider>,
+    );
+    expect(slot.querySelector("button")).toBeNull();
+    expect(ui.query("button")).toBeNull();
+  } finally {
+    ui.render(<div />);
+    slot.remove();
+  }
+});

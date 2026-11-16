@@ -8,7 +8,6 @@ export const SETTINGS_STAGE_SUBPAGES: ReadonlySet<string> = new Set([
   "remote-access",
   "instructions",
   "connectors",
-  "more",
   "usage",
   "changelog",
 ]);

@@ -28,6 +28,13 @@ import type { SideNavRow } from "../lib/side-nav-items";
 /** How the list is ordered. "custom" is the order set in Edit (folder-menu-prefs). */
 export type FolderSort = "recent" | "name" | "custom";
 
+/**
+ * How many folders the menu shows before "All folders". The page rows above
+ * must stay on the first screen, and a list of every folder pushed the last
+ * ones a long scroll away. The folder in view is always among those shown.
+ */
+export const MENU_FOLDER_LIMIT = 5;
+
 const SORT_KEY = "lfg_phone_folder_sort";
 const SORTS: { id: FolderSort; label: string }[] = [
   { id: "recent", label: "Recent" },
@@ -129,7 +136,18 @@ export function PhoneFolders({
     activity,
   );
   // Folders nobody has used for a while fold into one row at the bottom.
-  const { active, inactive } = splitByActivity(folders, activity, { keep: value });
+  const split = splitByActivity(folders, activity, { keep: value });
+  // The first few folders, then one row for all the rest. The folder in view
+  // takes the last place when it is further down the list.
+  const head = split.active.slice(0, MENU_FOLDER_LIMIT);
+  if (value !== "__all" && !head.some((folder) => folder.value === value)) {
+    const current = split.active.find((folder) => folder.value === value);
+    if (current) head.splice(MENU_FOLDER_LIMIT - 1, 1, current);
+  }
+  const active = head;
+  const more = split.active.filter((folder) => !head.includes(folder));
+  const inactive = split.inactive;
+  const hiddenCount = more.length + inactive.length;
   const total = counts ? [...counts.values()].reduce((sum, n) => sum + n, 0) : 0;
   const canAdd = !!(onAddFolder || onNewFolder || onCloneGitHub);
 
@@ -230,31 +248,33 @@ export function PhoneFolders({
           onClick={() => onPick(NO_PROJECT_FILTER)}
         />
       ) : null}
-      {inactive.length ? (
+      {hiddenCount ? (
         <>
           <button
             type="button"
             aria-expanded={showInactive}
-            data-testid="phone-folders-inactive"
+            data-testid="phone-folders-all"
             onClick={() => setShowInactive((open) => !open)}
             className="mt-1 flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted/60"
           >
-            <span className="min-w-0 flex-1">Inactive · {inactive.length}</span>
+            <span className="min-w-0 flex-1">All folders · {active.length + hiddenCount}</span>
             <ChevronDown className={cn("size-4 shrink-0 transition-transform", showInactive && "rotate-180")} />
           </button>
           {showInactive
-            ? inactive.map((folder) => (
-                <FolderRow
-                  key={folder.value}
-                  icon={<Folder className="size-[18px]" />}
-                  label={labelFor(folder.value)}
-                  running={running?.get(folder.value)}
-                  detail={counts?.get(folder.value)}
-                  current={value === folder.value}
-                  muted
-                  onClick={() => onPick(folder.value)}
-                />
-              ))
+            ? [...more.map((folder) => ({ folder, muted: false })), ...inactive.map((folder) => ({ folder, muted: true }))].map(
+                ({ folder, muted }) => (
+                  <FolderRow
+                    key={folder.value}
+                    icon={<Folder className="size-[18px]" />}
+                    label={labelFor(folder.value)}
+                    running={running?.get(folder.value)}
+                    detail={counts?.get(folder.value)}
+                    current={value === folder.value}
+                    muted={muted}
+                    onClick={() => onPick(folder.value)}
+                  />
+                ),
+              )
             : null}
         </>
       ) : null}

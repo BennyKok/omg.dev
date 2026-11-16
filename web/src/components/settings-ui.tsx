@@ -84,19 +84,28 @@ function RowBody({
   title,
   description,
   descriptionClassName,
+  reserveDescription,
 }: {
   icon?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
   descriptionClassName?: string;
+  reserveDescription?: boolean;
 }) {
+  const hasDescription = description != null && description !== "";
   return (
     <>
       {icon ?? null}
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-medium">{title}</span>
-        {description != null && description !== "" ? (
+        {hasDescription ? (
           <span className={cn("block text-xs text-muted-foreground", descriptionClassName)}>{description}</span>
+        ) : reserveDescription ? (
+          // The line the description will take once it loads, so the row and
+          // everything under it do not move when it does.
+          <span aria-hidden="true" data-reserved-description="" className="block text-xs">
+            &nbsp;
+          </span>
         ) : null}
       </span>
     </>
@@ -113,6 +122,7 @@ export function SettingsRow({
   title,
   description,
   descriptionClassName,
+  reserveDescription,
   trailing,
   onClick,
   className,
@@ -122,6 +132,12 @@ export function SettingsRow({
   title: ReactNode;
   description?: ReactNode;
   descriptionClassName?: string;
+  /**
+   * Keep the description's line while it is empty. For a description that
+   * arrives after the first paint (disk space, a device list), so the row has
+   * its final height from the start.
+   */
+  reserveDescription?: boolean;
   trailing?: ReactNode;
   onClick?: () => void;
   className?: string;
@@ -131,7 +147,7 @@ export function SettingsRow({
   if (onClick) {
     return (
       <button type="button" onClick={onClick} className={cn(ROW_CLASS, PRESSABLE_CLASS, className)} {...rest}>
-        <RowBody icon={icon} title={title} description={description} descriptionClassName={descriptionClassName} />
+        <RowBody icon={icon} title={title} description={description} descriptionClassName={descriptionClassName} reserveDescription={reserveDescription} />
         {trailing ?? null}
         <ChevronRight className="size-4 shrink-0 text-muted-foreground/60" />
       </button>
@@ -139,7 +155,7 @@ export function SettingsRow({
   }
   return (
     <div className={cn(ROW_CLASS, className)} {...rest}>
-      <RowBody icon={icon} title={title} description={description} descriptionClassName={descriptionClassName} />
+      <RowBody icon={icon} title={title} description={description} descriptionClassName={descriptionClassName} reserveDescription={reserveDescription} />
       {trailing ? <span className="flex shrink-0 items-center gap-2">{trailing}</span> : null}
     </div>
   );

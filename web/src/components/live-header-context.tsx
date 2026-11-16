@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { type ReactNode } from "react";
 import { useAsk } from "./ask-center";
 import { MorphText } from "./ui/morph-text";
 import { cn } from "../lib/utils";
@@ -53,10 +53,11 @@ export function LiveHeaderContext({
     : "";
   const questionCount = questions.length;
   const showCard = intro;
-  const actionInMotion = busyCount > 0;
-  const [showAmbientStatus, setShowAmbientStatus] = useState(false);
-  const ambientContext = `${busyCount} agent${busyCount === 1 ? "" : "s"} building`;
-  const welcomeMessage = firstName ? `Welcome, ${firstName}` : "Welcome";
+  // The title names the page: the folder in view, or "Chats". It used to
+  // rotate between a welcome, the folder and a count of working agents, so
+  // the one fixed point of the header kept changing under the reader. The
+  // working agents are already marked in the list below it.
+  const pageTitle = folderName || "Chats";
   const headline = questionCount
     ? questionCount === 1
       ? firstName
@@ -65,32 +66,10 @@ export function LiveHeaderContext({
       : firstName
         ? `${firstName}, ${questionCount} agents need you`
         : `${questionCount} agents need you`
-    : folderName
-      ? folderName
-      : actionInMotion && showAmbientStatus
-        ? ambientContext
-        : welcomeMessage;
+    : pageTitle;
   // A question still opens the Inbox. Otherwise, inside a folder, the title is
-  // the way to Folders.
+  // the way to the menu, where the folders are.
   const opensFolders = !!folderName && !questionCount && !!onOpenFolders;
-
-  useEffect(() => {
-    if (intro || questionCount || !actionInMotion) {
-      setShowAmbientStatus(false);
-      return;
-    }
-
-    // Let the personal welcome breathe. Activity gets a shorter cameo, then
-    // yields back to the welcome instead of competing with it equally. The
-    // swap itself is a short text fade, so there is no exit/enter
-    // choreography to run here: flipping the text is the whole transition.
-    const dwellMs = showAmbientStatus ? 2800 : 8000;
-    const dwellTimer = window.setTimeout(() => {
-      setShowAmbientStatus((current) => !current);
-    }, dwellMs);
-
-    return () => window.clearTimeout(dwellTimer);
-  }, [actionInMotion, intro, questionCount, showAmbientStatus]);
 
   return (
     <div className="min-w-0 flex-1 overflow-hidden">
@@ -107,10 +86,10 @@ export function LiveHeaderContext({
             : opensFolders
               ? `Folder: ${folderName}. Tap to change folder`
               : questionCount
-              ? `${headline}. Tap to open notifications`
-              : actionInMotion
-                ? `${welcomeMessage}. ${ambientContext}`
-                : welcomeMessage
+                ? `${headline}. Tap to open notifications`
+                : busyCount
+                  ? `${pageTitle}. ${busyCount} agent${busyCount === 1 ? "" : "s"} working`
+                  : pageTitle
         }
         title={intro ? "omg.dev" : opensFolders ? "Change folder" : "Open notifications"}
         className={cn(
@@ -138,14 +117,9 @@ export function LiveHeaderContext({
         >
           <span className="min-w-0 leading-none">
             <MorphText
-              shimmer={!questionCount && actionInMotion && showAmbientStatus}
               className={cn(
                 "block max-w-full truncate tracking-[-0.01em]",
-                questionCount
-                  ? "text-[14px] font-semibold"
-                  : actionInMotion && showAmbientStatus
-                    ? "text-[12px] font-medium"
-                    : "text-[16px] font-semibold",
+                questionCount ? "text-[14px] font-semibold" : "text-[17px] font-semibold",
               )}
             >
               {headline}

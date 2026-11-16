@@ -46,7 +46,6 @@ const SETTINGS_TABS = new Set([
   "remote-access",
   "instructions",
   "connectors",
-  "more",
 ]);
 
 const PAGES: { key: string; label: string; icon: SideNavIcon }[] = [
@@ -153,7 +152,6 @@ const PAGE_TITLES: Record<string, string> = {
   "remote-access": "Remote access",
   instructions: "Custom instructions",
   connectors: "Tool access",
-  more: "More",
 };
 
 /**
@@ -217,7 +215,6 @@ const OWN_PAGE_TABS = new Set([
   "board",
   "instructions",
   "connectors",
-  "more",
 ]);
 
 /**

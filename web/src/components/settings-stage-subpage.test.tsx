@@ -24,7 +24,7 @@ describe("SettingsStageSubpage", () => {
   });
 
   test("Terminal and Computer stay full-screen; the Settings pages ride the stage", () => {
-    for (const page of ["storage", "instructions", "connectors", "more", "usage", "changelog"]) {
+    for (const page of ["storage", "instructions", "connectors", "usage", "changelog"]) {
       expect(SETTINGS_STAGE_SUBPAGES.has(page)).toBe(true);
     }
     expect(SETTINGS_STAGE_SUBPAGES.has("term")).toBe(false);
