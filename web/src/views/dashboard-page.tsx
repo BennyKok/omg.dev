@@ -601,14 +601,18 @@ const QUICK_PROMPTS = [
 export default function DashboardPage({
   active = true,
   initialData = null,
-  agentBusy = false,
+  isSessionBusy,
   onAskAgent,
   onOpenEditorSession,
 }: {
   active?: boolean;
   initialData?: DashboardPayload | null;
-  /** True while the dashboard's linked agent session is actively running a turn. */
-  agentBusy?: boolean;
+  /**
+   * Whether a session is running a turn. Only the dashboard's own editing
+   * session (editorSessionId) drives "Updating…"; other agents at work on the
+   * computer do not.
+   */
+  isSessionBusy?: (sessionId: string) => boolean;
   /** Launch or steer an agent session to edit the dashboard. */
   onAskAgent?: (prompt: string, activeView: DashboardView | null) => Promise<void> | void;
   /** Open the chat transcript for the dashboard's editing session. */
@@ -621,6 +625,7 @@ export default function DashboardPage({
   const [sending, setSending] = useState(false);
   const [justSent, setJustSent] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const agentBusy = !!(data?.editorSessionId && isSessionBusy?.(data.editorSessionId));
 
   const load = useCallback(async () => {
     try {

@@ -116,3 +116,27 @@ test("sends agent edit requests for the active view and opens the linked session
   ui.flush(() => openChatBtn.click());
   expect(opened).toEqual(["session-123"]);
 });
+
+test("Updating… follows the dashboard's own agent session, not any busy agent", async () => {
+  const busy = new Set<string>(["some-other-session"]);
+  ui.render(
+    <DashboardPage
+      initialData={SAMPLE_PAYLOAD}
+      active={false}
+      isSessionBusy={(sid) => busy.has(sid)}
+      onOpenEditorSession={() => {}}
+    />,
+  );
+  expect(ui.text()).not.toContain("Updating…");
+  expect(ui.text()).toContain("Agent chat");
+  busy.add("session-123");
+  ui.render(
+    <DashboardPage
+      initialData={SAMPLE_PAYLOAD}
+      active={false}
+      isSessionBusy={(sid) => busy.has(sid)}
+      onOpenEditorSession={() => {}}
+    />,
+  );
+  expect(ui.text()).toContain("Updating…");
+});

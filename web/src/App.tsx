@@ -9128,7 +9128,7 @@ export function App() {
     <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
       <DashboardPage
         active={active}
-        agentBusy={Object.values(liveStream.busyBySid).some(Boolean)}
+        isSessionBusy={(sid) => !!liveStream.busyBySid[sid]}
         onAskAgent={askDashboardAgent}
         onOpenEditorSession={(sid) => {
           setTab("live");
