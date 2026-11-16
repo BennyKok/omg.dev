@@ -26,6 +26,7 @@ import { cn } from "../lib/utils";
 import { useSessionRefLabel } from "../lib/session-ref-link";
 import { openLinkedSession } from "../lib/session-return";
 import { MessageResponse } from "./ai-elements/message";
+import { agentIconAlt, agentIconSrc } from "../lib/session-ui";
 import {
   systemMessageHasPreview,
   systemMessageLinksSession,
@@ -48,7 +49,7 @@ const SYSTEM_ICONS: Record<SystemMessageKind, LucideIcon> = {
   compaction: FoldVertical,
 };
 
-/** The small heading over a linked session's name. */
+/** What the linked session is to this one, for the tooltip. */
 const LINK_EYEBROW: Partial<Record<SystemMessageKind, string>> = {
   "background-task": "Report from",
   fork: "Started from",
@@ -74,88 +75,70 @@ export function SystemMessageLine({
 
 /**
  * A row that names another session: a child's report, a fork's source, a peer
- * write-in. It reads as a card for that session. The name opens it in place
- * (the destination then offers the way back), and the body renders as the
- * agent wrote it, markdown and all, one click below.
+ * write-in. It is one small pill for that session, with its agent's logo when
+ * known, and one muted line of the message under it. The pill opens the
+ * session in place (the destination then offers the way back); the chevron
+ * or the preview line shows the whole message, rendered as markdown.
  */
 function LinkedSessionCard({ system, raw }: { system: SystemMessage; raw: string }) {
   const [open, setOpen] = useState(false);
   const id = system.id!;
   const Icon = SYSTEM_ICONS[system.kind];
-  const resolved = useSessionRefLabel(id);
-  const name = system.source || resolved?.title || "Untitled session";
+  const known = useSessionRefLabel(id);
+  const name = system.source || known?.title || "Untitled session";
+  const agent = known?.agent ?? null;
   const preview = systemMessagePreview(system.body);
   const body = system.body || raw;
+  const verb = LINK_EYEBROW[system.kind] ?? "Session";
   const openLabel = `${LINK_OPEN_LABEL[system.kind] ?? "Open the session"}, ${id}`;
-  const go = () => openLinkedSession(id);
-  const bodyId = `sysmsg-body-${id}-${system.kind}`;
+  const toggle = () => setOpen((value) => !value);
 
   return (
-    <div
-      data-slot="linked-session-card"
-      className="w-[min(40rem,100%)] overflow-hidden rounded-2xl border border-border/70 bg-card/50 text-left shadow-[0_1px_0_0_rgb(0_0_0/0.02)]"
-    >
-      <div className="flex items-start gap-3 px-3.5 pt-3 pb-2.5">
-        <span
-          aria-hidden="true"
-          className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        >
-          <Icon className="size-3.5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 text-[11px] leading-4 text-muted-foreground">
-            <span>{LINK_EYEBROW[system.kind] ?? "Session"}</span>
-            <span aria-hidden="true">·</span>
-            <span className="font-mono opacity-80">{id}</span>
-          </div>
-          <button
-            type="button"
-            onClick={go}
-            title={openLabel}
-            className="block max-w-full truncate rounded text-left text-sm font-medium leading-5 text-foreground underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            {name}
-          </button>
-          {!open && preview ? (
-            <p className="mt-1 line-clamp-2 text-xs leading-[1.125rem] text-muted-foreground">{preview}</p>
-          ) : null}
-        </div>
+    <div data-slot="linked-session-card" className="flex w-full min-w-0 flex-col items-center gap-0.5">
+      <div className="flex h-7 max-w-[min(32rem,100%)] min-w-0 items-center rounded-full border border-border/70 bg-muted/40 text-xs">
         <button
           type="button"
-          onClick={go}
+          onClick={() => openLinkedSession(id)}
           aria-label={openLabel}
-          title={openLabel}
-          className="flex h-7 shrink-0 items-center gap-1 rounded-full border border-border/80 px-2.5 text-xs font-medium text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          title={`${verb} ${name} · ${id}`}
+          className="flex h-full min-w-0 items-center gap-1.5 rounded-l-full pr-1.5 pl-2 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         >
-          Open
-          <ArrowUpRight className="size-3" aria-hidden="true" />
+          {agent ? (
+            <img src={agentIconSrc(agent)} alt={agentIconAlt(agent)} className="size-3.5 shrink-0" />
+          ) : (
+            <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+          )}
+          <span className="min-w-0 truncate font-medium text-foreground">{name}</span>
+          <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground/80">{id}</span>
+          <ArrowUpRight className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
         </button>
-      </div>
-      {body ? (
-        <>
+        {body ? (
           <button
             type="button"
-            onClick={() => setOpen((value) => !value)}
+            onClick={toggle}
             aria-expanded={open}
-            aria-controls={bodyId}
             aria-label={`${system.label}, ${id}. ${open ? "Hide" : "Show"} the full message`}
-            className="flex w-full items-center gap-1 border-t border-border/60 px-3.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors outline-none hover:bg-muted/40 hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+            title={open ? "Hide the message" : "Show the message"}
+            className="flex h-full shrink-0 items-center rounded-r-full border-l border-border/60 px-1.5 text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <ChevronRight
-              className={cn("size-3 shrink-0 transition-transform", open && "rotate-90")}
-              aria-hidden="true"
-            />
-            {open ? "Hide" : "Show full message"}
+            <ChevronRight className={cn("size-3 transition-transform", open && "rotate-90")} aria-hidden="true" />
           </button>
-          {open ? (
-            <div
-              id={bodyId}
-              className="max-h-[28rem] overflow-auto border-t border-border/60 px-4 py-3 text-[13px] leading-relaxed"
-            >
-              <MessageResponse>{body}</MessageResponse>
-            </div>
-          ) : null}
-        </>
+        ) : null}
+      </div>
+      {!open && preview ? (
+        <button
+          type="button"
+          onClick={toggle}
+          tabIndex={-1}
+          className="block max-w-[min(32rem,100%)] truncate px-3 text-[11px] leading-4 text-muted-foreground/70 hover:text-muted-foreground"
+        >
+          {preview}
+        </button>
+      ) : null}
+      {open ? (
+        <div className="mt-1 max-h-80 w-[min(42rem,92%)] overflow-auto rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-left text-[13px] leading-relaxed">
+          <MessageResponse>{body}</MessageResponse>
+        </div>
       ) : null}
     </div>
   );

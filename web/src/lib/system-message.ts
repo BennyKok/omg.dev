@@ -251,6 +251,8 @@ export function systemMessageLinksSession(system: SystemMessage): boolean {
  */
 export function systemMessagePreview(body: string): string {
   return body
+    // A leading wrapper tag (`[subagent progress]`) is the agent's, not news.
+    .replace(/^\s*(?:\[[^\]\n]{1,40}\]\s*)+/, "")
     .split("\n")
     .map((line) => {
       const row = line.trim();

@@ -36,10 +36,10 @@ const RAW =
   "## Done\n\n- Re-rendered the **app screenshots**";
 
 describe("linked session card", () => {
-  test("shows who reported, an Open link, and a preview", () => {
+  test("is one pill with the name, the id and a one-line preview", () => {
     ui.render(<SystemMessageLine system={classifySystemMessage(RAW)!} raw={RAW} />);
     expect(ui.query('[data-slot="linked-session-card"]')).not.toBeNull();
-    expect(ui.text()).toContain("Report from");
+    expect(ui.query('button[aria-label^="Open the session that reported, 6171998d"]')).not.toBeNull();
     expect(ui.text()).toContain("6171998d");
     expect(ui.text()).toContain("i wanted to redesing the landing site. new branding");
     expect(ui.text()).not.toContain("reported in");
@@ -55,7 +55,7 @@ describe("linked session card", () => {
       </>,
     );
     expect(ui.query('[data-slot="return-to-session"]')).toBeNull();
-    const open = ui.queryAll("button").find((b) => b.textContent?.trim() === "Open")!;
+    const open = ui.query('button[aria-label^="Open the session that reported"]') as HTMLButtonElement;
     await act(async () => {
       open.click();
     });
@@ -78,11 +78,25 @@ describe("linked session card", () => {
         <ReturnToSessionPill sid="ffffffff-0000-0000-0000-000000000000" />
       </>,
     );
-    const open = ui.queryAll("button").find((b) => b.textContent?.trim() === "Open")!;
+    const open = ui.query('button[aria-label^="Open the session that reported"]') as HTMLButtonElement;
     await act(async () => {
       open.click();
     });
     await ui.flushAsync();
     expect(ui.query('[data-slot="return-to-session"]')).toBeNull();
+  });
+
+  test("shows the linked session's agent logo when known", () => {
+    const codex = "c0dec0de-1111-2222-3333-444444444444";
+    registerSessionRefHandlers({
+      navigate: () => {},
+      peekSessions: () => [{ sessionId: codex, title: "Chat polish", agent: "codex" }],
+    });
+    const raw = "[Background task Chat polish · c0dec0de]\n\n[subagent progress] Started on chat.";
+    ui.render(<SystemMessageLine system={classifySystemMessage(raw)!} raw={raw} />);
+    const logo = ui.query('[data-slot="linked-session-card"] img') as HTMLImageElement;
+    expect(logo?.getAttribute("alt")).toBe("Codex");
+    expect(ui.text()).toContain("Started on chat.");
+    expect(ui.text()).not.toContain("[subagent progress]");
   });
 });

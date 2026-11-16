@@ -47,8 +47,8 @@ export const INTERRUPTED_PX = 20;
 /** Compact machine-written user turn: icon+label row + two-line preview + py. */
 export const SYSTEM_LINE_PX = 64;
 
-/** A machine-written turn that links a session: the card with its footer. */
-export const SYSTEM_CARD_PX = 112;
+/** A machine-written turn that links a session: the h-7 pill + one preview line. */
+export const SYSTEM_CARD_PX = 50;
 
 function systemTurnPx(rawText: string): number | null {
   const system = classifyUserTurn(rawText);
