@@ -1292,7 +1292,7 @@ type ModelCatalogItem = {
   configured?: boolean;
 };
 
-const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
+export const ViewPrefsContext = createContext<ViewPrefs>(DEFAULT_VIEW_PREFS);
 
 /**
  * Write a box-level setting from a surface that is not the Settings page.
@@ -15044,6 +15044,13 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
   dense?: boolean;
 }) {
   const { unread: unreadSessions } = useContext(SessionUnreadContext);
+  // "Project favicons" in Settings > View. The compact row never read the
+  // switch, so with session details off (the phone's default list) turning
+  // it on changed nothing. The status mark stays first: it is what the row
+  // is scanned for. The favicon follows it at the size of the text.
+  const { showSidebarFavicons: showFavicons } = useContext(ViewPrefsContext);
+  const faviconSrc = projectFaviconSrc(session.project);
+  const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
   const title = titleForSession(session);
   const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
   return (
@@ -15062,6 +15069,22 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
       )}
     >
       {busy ? <Spinner /> : <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden="true" />}
+      {/* Every row keeps the slot while the switch is on, so titles line up
+          when a chat has no project or its logo does not load. */}
+      {showFavicons ? (
+        <span data-session-favicon="" className="flex size-4 shrink-0 items-center justify-center">
+          {faviconSrc && failedFaviconSrc !== faviconSrc ? (
+            <img
+              src={faviconSrc}
+              alt=""
+              aria-hidden="true"
+              loading="lazy"
+              className="size-4 rounded-[4px] object-contain"
+              onError={() => setFailedFaviconSrc(faviconSrc)}
+            />
+          ) : null}
+        </span>
+      ) : null}
       {/* Whose session it is, while the list shows everyone's. Every row keeps
           the slot, so titles line up when a session has no owner. */}
       {users.length > 1 && userFilter === "__all" ? (
