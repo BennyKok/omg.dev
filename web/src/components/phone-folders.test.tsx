@@ -73,11 +73,11 @@ test("Settings is the gear in the title row, not a row under the folders", () =>
 
 test("the sort is the reader's choice and survives a reload", () => {
   window.localStorage.removeItem("lfg_phone_folder_sort");
-  const lastActivity = new Map([["zeta", 300], ["alpha", 100]]);
+  const lastActivity = new Map([["zeta", Date.now()], ["alpha", Date.now() - 60_000], ["mid", Date.now() - 120_000]]);
   const draw = () =>
     ui.render(<PhoneFolders value="__all" projects={["alpha", "mid", "zeta"]} labelFor={labelFor} lastActivity={lastActivity} onPick={() => {}} />);
   draw();
-  // Recent first by default; a folder with no chats goes last.
+  // Recent first by default.
   expect(rows()).toEqual(["All chats", "zeta", "alpha", "mid"]);
   ui.flush(() => (ui.queryAll('[role="radio"]').find((b) => b.textContent === "A–Z") as HTMLElement).click());
   expect(rows()).toEqual(["All chats", "alpha", "mid", "zeta"]);
@@ -117,4 +117,32 @@ test("offers quick destination tiles for Chats, Dashboard, Inbox, and Computer w
     ui.flush(() => (ui.query(`[data-testid="phone-nav-${key}"]`) as HTMLElement).click());
   }
   expect(visited).toEqual(["live", "dashboard", "notifications", "computer"]);
+});
+
+test("Recent puts the newest folder first and folds idle folders into Inactive", async () => {
+  const { resetFolderActivityForTests } = await import("../lib/folder-activity");
+  const now = Date.now();
+  const day = 24 * 60 * 60 * 1000;
+  resetFolderActivityForTests(new Map([["old", now - 30 * day], ["vibes", now - 2 * day]]));
+  window.localStorage.removeItem("lfg_phone_folder_sort");
+  try {
+    ui.render(
+      <PhoneFolders
+        value="__all"
+        projects={["alpha", "lfg", "old", "vibes"]}
+        labelFor={labelFor}
+        lastActivity={new Map([["lfg", now]])}
+        onPick={() => {}}
+      />,
+    );
+    // Live activity (lfg) and history (vibes) both count. Old and never-used
+    // folders are folded away.
+    expect(rows()).toEqual(["All chats", "lfg", "vibes"]);
+    const toggle = ui.query('[data-testid="phone-folders-inactive"]') as HTMLElement;
+    expect(toggle.textContent).toContain("Inactive · 2");
+    ui.flush(() => toggle.click());
+    expect(rows()).toEqual(["All chats", "lfg", "vibes", "old", "alpha"]);
+  } finally {
+    resetFolderActivityForTests();
+  }
 });

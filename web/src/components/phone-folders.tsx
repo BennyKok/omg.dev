@@ -11,11 +11,12 @@
  * row under a long folder list is a row nobody scrolls to.
  */
 import { useState, type ReactNode } from "react";
-import { BarChart3, Bell, Folder, FolderPlus, MessageSquare, MessagesSquare, Monitor, Plus, Settings } from "lucide-react";
+import { BarChart3, Bell, ChevronDown, Folder, FolderPlus, MessageSquare, MessagesSquare, Monitor, Plus, Settings } from "lucide-react";
 import { Github } from "./icons/github";
 import { cn } from "@/lib/utils";
 import { arrangeFolders, useFolderMenuPrefs, type ArrangedFolder } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER } from "../lib/project-filter";
+import { byRecent, splitByActivity, useFolderActivity } from "../lib/folder-activity";
 import { ManageFolders } from "./project-folder-menu";
 
 /** How the list is ordered. "custom" is the order set in Edit (folder-menu-prefs). */
@@ -50,7 +51,7 @@ export function sortFolders(
   if (sort === "custom") return [...folders];
   const byName = (a: ArrangedFolder, b: ArrangedFolder) => labelFor(a.value).localeCompare(labelFor(b.value));
   if (sort === "name") return [...folders].sort(byName);
-  return [...folders].sort((a, b) => (lastActivity?.get(b.value) ?? 0) - (lastActivity?.get(a.value) ?? 0) || byName(a, b));
+  return byRecent(folders, lastActivity ?? new Map(), labelFor);
 }
 
 export function PhoneFolders({
@@ -99,6 +100,8 @@ export function PhoneFolders({
   const [sort, setSortState] = useState<FolderSort>(readSort);
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
+  const activity = useFolderActivity(lastActivity);
   const setSort = (next: FolderSort) => {
     setSortState(next);
     try {
@@ -115,8 +118,10 @@ export function PhoneFolders({
     arranged.filter((folder) => !folder.hidden || folder.value === value),
     sort,
     labelFor,
-    lastActivity,
+    activity,
   );
+  // Folders nobody has used for a while fold into one row at the bottom.
+  const { active, inactive } = splitByActivity(folders, activity, { keep: value });
   const total = counts ? [...counts.values()].reduce((sum, n) => sum + n, 0) : 0;
   const canAdd = !!(onAddFolder || onNewFolder || onCloneGitHub);
 
@@ -224,7 +229,7 @@ export function PhoneFolders({
         current={value === "__all"}
         onClick={() => onPick("__all")}
       />
-      {folders.map((folder) => (
+      {active.map((folder) => (
         <FolderRow
           key={folder.value}
           icon={<Folder className="size-[18px]" />}
@@ -244,6 +249,34 @@ export function PhoneFolders({
           current={value === NO_PROJECT_FILTER}
           onClick={() => onPick(NO_PROJECT_FILTER)}
         />
+      ) : null}
+      {inactive.length ? (
+        <>
+          <button
+            type="button"
+            aria-expanded={showInactive}
+            data-testid="phone-folders-inactive"
+            onClick={() => setShowInactive((open) => !open)}
+            className="mt-1 flex min-h-11 items-center gap-2 rounded-xl px-3 text-left text-[13px] font-medium text-muted-foreground transition-colors hover:bg-muted/60"
+          >
+            <span className="min-w-0 flex-1">Inactive · {inactive.length}</span>
+            <ChevronDown className={cn("size-4 shrink-0 transition-transform", showInactive && "rotate-180")} />
+          </button>
+          {showInactive
+            ? inactive.map((folder) => (
+                <FolderRow
+                  key={folder.value}
+                  icon={<Folder className="size-[18px]" />}
+                  label={labelFor(folder.value)}
+                  running={running?.get(folder.value)}
+                  detail={counts?.get(folder.value)}
+                  current={value === folder.value}
+                  muted
+                  onClick={() => onPick(folder.value)}
+                />
+              ))
+            : null}
+        </>
       ) : null}
     </section>
   );
@@ -283,6 +316,7 @@ function FolderRow({
   detail,
   running,
   current,
+  muted = false,
   onClick,
 }: {
   icon: ReactNode;
@@ -290,6 +324,8 @@ function FolderRow({
   detail?: number;
   running?: number;
   current: boolean;
+  /** An inactive folder: drawn quieter so the active ones lead. */
+  muted?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -300,7 +336,7 @@ function FolderRow({
       data-folder-row=""
       className={cn(
         "relative flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-[15px] transition-colors",
-        current ? "bg-muted font-semibold text-foreground" : "text-foreground hover:bg-muted/60",
+        current ? "bg-muted font-semibold text-foreground" : muted ? "text-muted-foreground hover:bg-muted/60" : "text-foreground hover:bg-muted/60",
       )}
     >
       <span className="shrink-0 text-muted-foreground">{icon}</span>

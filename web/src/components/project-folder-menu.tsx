@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NO_PROJECT_FILTER } from "../lib/project-filter";
+import { byRecent, splitByActivity, useFolderActivity } from "../lib/folder-activity";
 import {
   arrangeFolders,
   setFolderMenuHidden,
@@ -103,6 +104,8 @@ export function ProjectFolderMenu({
   const [open, setOpen] = useState(false);
   const [page, setPage] = useState<"pick" | "manage">("pick");
   const [query, setQuery] = useState("");
+  const [showInactive, setShowInactive] = useState(false);
+  const activity = useFolderActivity();
   const inputRef = useRef<HTMLInputElement>(null);
   const prefs = useFolderMenuPrefs();
 
@@ -120,12 +123,18 @@ export function ProjectFolderMenu({
   const arranged = useMemo(() => arrangeFolders(folders, prefs), [folders, prefs]);
   // The current folder stays in the list even when hidden, so the tick
   // always has a row to sit on.
-  const shown = arranged.filter((folder) => !folder.hidden || folder.value === value);
+  const visible = arranged.filter((folder) => !folder.hidden || folder.value === value);
+  // A custom order set in Manage folders wins. Without one, the most recently
+  // used folders lead.
+  const shown = prefs.order.length ? visible : byRecent(visible, activity, labelFor);
   const needle = query.trim().toLowerCase();
   const searchable = shown.length > 8;
-  const matching = needle
-    ? shown.filter((folder) => labelFor(folder.value).toLowerCase().includes(needle))
-    : shown;
+  // Search reaches every folder. Without a search, folders idle for a while
+  // fold into one row at the bottom.
+  const { active, inactive } = needle
+    ? { active: shown.filter((folder) => labelFor(folder.value).toLowerCase().includes(needle)), inactive: [] }
+    : splitByActivity(shown, activity, { keep: value });
+  const matching = active;
 
   const choose = (next: string) => {
     onChange(next);
@@ -231,6 +240,33 @@ export function ProjectFolderMenu({
                       onClick={() => choose(folder.value)}
                     />
                   ))}
+                  {inactive.length ? (
+                    <button
+                      type="button"
+                      aria-expanded={showInactive}
+                      data-testid="folder-menu-inactive"
+                      onClick={() => setShowInactive((open) => !open)}
+                      className={cn(ROW, touch && "h-11 text-[15px]", "mt-0.5 text-muted-foreground hover:bg-muted focus-visible:bg-muted")}
+                    >
+                      <span className="min-w-0 flex-1 truncate text-[12px] font-medium">Inactive · {inactive.length}</span>
+                      <ChevronDown className={cn("size-3.5 shrink-0 transition-transform", showInactive && "rotate-180")} />
+                    </button>
+                  ) : null}
+                  {showInactive
+                    ? inactive.map((folder) => (
+                        <PickRow
+                          touch={touch}
+                          key={folder.value}
+                          selected={value === folder.value}
+                          icon={<Folder className="size-3.5" />}
+                          label={labelFor(folder.value)}
+                          live={liveProjects?.has(folder.value)}
+                          count={counts?.get(folder.value)}
+                          muted
+                          onClick={() => choose(folder.value)}
+                        />
+                      ))
+                    : null}
                   {needle && !matching.length ? (
                     <p className="px-3 py-6 text-center text-xs text-muted-foreground">No matching folders</p>
                   ) : null}
@@ -318,6 +354,7 @@ function PickRow({
   label,
   live = false,
   count,
+  muted = false,
   onClick,
 }: {
   touch?: boolean;
@@ -326,6 +363,8 @@ function PickRow({
   label: string;
   live?: boolean;
   count?: number;
+  /** An inactive folder: drawn quieter so the active ones lead. */
+  muted?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -337,7 +376,11 @@ function PickRow({
       className={cn(
         ROW,
         touch && "h-11 text-[15px]",
-        selected ? "bg-primary/12 font-medium text-foreground" : "text-foreground hover:bg-muted focus-visible:bg-muted",
+        selected
+          ? "bg-primary/12 font-medium text-foreground"
+          : muted
+            ? "text-muted-foreground hover:bg-muted focus-visible:bg-muted"
+            : "text-foreground hover:bg-muted focus-visible:bg-muted",
       )}
     >
       <span className="shrink-0 text-muted-foreground">{icon}</span>

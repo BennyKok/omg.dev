@@ -204,3 +204,36 @@ test("the phone composer's menu names folders only and offers adding one directl
   ui.flush(() => add!.click());
   expect(added).toBe(1);
 });
+
+test("without a custom order, recent folders lead and idle ones fold into Inactive; search still finds them", async () => {
+  const { resetFolderActivityForTests } = await import("../lib/folder-activity");
+  const now = Date.now();
+  resetFolderActivityForTests(new Map([["gamma", now], ["beta", now - 60_000]]));
+  try {
+    ui.render(<ProjectFolderMenu value="__all" projects={projects} labelFor={labelFor} onChange={() => {}} />);
+    ui.flush(() => byLabel("Folder: All projects")!.click());
+    await ui.flushAsync();
+    expect(menuRows()).toEqual(["All projects", "No project", "gamma", "beta"]);
+    const toggle = body().querySelector('[data-testid="folder-menu-inactive"]') as HTMLButtonElement;
+    expect(toggle.textContent).toContain("Inactive · 1");
+    ui.flush(() => toggle.click());
+    expect(menuRows()).toEqual(["All projects", "No project", "gamma", "beta", "alpha"]);
+  } finally {
+    resetFolderActivityForTests();
+  }
+});
+
+test("a custom order set in Manage folders is kept for active folders", async () => {
+  const { resetFolderActivityForTests } = await import("../lib/folder-activity");
+  const now = Date.now();
+  resetFolderActivityForTests(new Map([["gamma", now], ["beta", now - 60_000], ["alpha", now - 120_000]]));
+  setFolderMenuOrder(["alpha", "beta", "gamma"]);
+  try {
+    ui.render(<ProjectFolderMenu value="__all" projects={projects} labelFor={labelFor} onChange={() => {}} />);
+    ui.flush(() => byLabel("Folder: All projects")!.click());
+    await ui.flushAsync();
+    expect(menuRows()).toEqual(["All projects", "No project", "alpha", "beta", "gamma"]);
+  } finally {
+    resetFolderActivityForTests();
+  }
+});

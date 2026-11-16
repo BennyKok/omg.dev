@@ -424,6 +424,26 @@ export function lastActivityAtForCwd(cwd: string): number | null {
   return row?.m ?? null;
 }
 
+/**
+ * The newest chat activity per project, across every recorded session, live
+ * or ended. The phone's Folders page sorts by it and groups folders nobody
+ * has used for a while.
+ *
+ * Scheduled runs are left out: an auto agent that wakes a folder every hour
+ * is not the person using it.
+ */
+export function lastActivityByProject(): Record<string, number> {
+  const d = init();
+  const rows = d
+    .query<{ project: string; m: number | null }, []>(
+      "SELECT project, MAX(last_activity_at) AS m FROM resumable_sessions WHERE project != '' AND scheduled = 0 GROUP BY project",
+    )
+    .all();
+  const out: Record<string, number> = {};
+  for (const row of rows) if (row.m) out[row.project] = row.m;
+  return out;
+}
+
 export function getCachedResumableSession(sessionId: string): ResumableSession | null {
   const d = init();
   const row = d

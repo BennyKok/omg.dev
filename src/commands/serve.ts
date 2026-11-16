@@ -160,6 +160,7 @@ import * as pwaBootLog from "../pwa-boot-log.ts";
 import { botRuntimeContract, shortSessionId } from "../omg-capabilities.ts";
 import {
   getCachedResumableSession,
+  lastActivityByProject,
   updateResumableUser,
   upsertResumableRows,
   type ResumableCacheRow,
@@ -8975,6 +8976,12 @@ a{color:#60a5fa}
         return json(await runExecCommand({ command, cwd: repo.cwd, timeoutMs }));
       }
 
+      // When each folder was last used, from the session history (live and
+      // ended chats). The Folders page sorts by it and groups idle folders.
+      if (path === "/api/repos/activity" && req.method === "GET") {
+        void refreshResumableCache().catch(() => {});
+        return json({ lastActivity: lastActivityByProject() });
+      }
       if (path === "/api/repos") {
         if (req.method === "POST") {
           const b = (await req.json().catch(() => null)) as {
