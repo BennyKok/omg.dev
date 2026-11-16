@@ -753,6 +753,33 @@ export async function refreshDashboardView(id: string): Promise<DashboardView> {
   return merged;
 }
 
+const refreshing = new Set<string>();
+const lastAttempt = new Map<string, number>();
+
+/**
+ * Start a background refresh for every script-backed view older than its
+ * interval. Called on each dashboard read, so an open dashboard keeps its
+ * views current without a timer of its own. One run per view at a time.
+ */
+export function refreshStaleDashboardViews(now = Date.now()): string[] {
+  const started: string[] = [];
+  for (const view of Object.values(readDashboardStore().views)) {
+    const source = view.source;
+    if (!source?.enabled || refreshing.has(view.id)) continue;
+    const intervalMs = Math.max(10, source.intervalSeconds || 300) * 1000;
+    if (source.lastRefreshedAt && now - source.lastRefreshedAt < intervalMs) continue;
+    // A failing script waits its interval too, rather than running on every poll.
+    if (now - (lastAttempt.get(view.id) ?? 0) < intervalMs) continue;
+    refreshing.add(view.id);
+    lastAttempt.set(view.id, now);
+    started.push(view.id);
+    void refreshDashboardView(view.id)
+      .catch(() => {})
+      .finally(() => refreshing.delete(view.id));
+  }
+  return started;
+}
+
 export type LiveRuntimeDashboardInput = {
   sessions: ReadonlyArray<{
     sessionId?: string;

@@ -6,6 +6,7 @@ import {
   DashboardInputError,
   deleteDashboardView,
   refreshDashboardView,
+  refreshStaleDashboardViews,
   resetDashboardBuiltinViews,
   resolveDashboardResponse,
   setDashboardEditorSession,
@@ -10592,6 +10593,7 @@ a{color:#60a5fa}
         };
 
         if (path === "/api/dashboard" && req.method === "GET") {
+          refreshStaleDashboardViews();
           return json(await buildDashboardState());
         }
         if (path === "/api/dashboard/views" && (req.method === "POST" || req.method === "PUT")) {

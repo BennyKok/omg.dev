@@ -9,12 +9,14 @@ import {
   deleteDashboardView,
   normalizeDashboardView,
   refreshDashboardView,
+  refreshStaleDashboardViews,
   resetDashboardBuiltinViews,
   resolveDashboardResponse,
   upsertDashboardView,
 } from "./dashboard.ts";
 
 const home = mkdtempSync(join(tmpdir(), "omg-dashboard-"));
+const EMPTY_INPUT = { sessions: [], findings: [], autoAgents: [], shippedPosts: [], reposCount: 0 };
 const originalData = PATHS.data;
 
 beforeAll(() => {
@@ -213,6 +215,29 @@ describe("dashboard store and live runtime views", () => {
     const copy = view.source!.scriptPath;
     deleteDashboardView("revenue");
     expect(await Bun.file(copy).exists()).toBe(false);
+  });
+
+  test("a dashboard read refreshes views older than their interval, once", async () => {
+    const workspace = join(home, "stale-ws");
+    mkdirSync(workspace, { recursive: true });
+    const script = join(workspace, "n.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\necho '{"kpis":[{"label":"N","value":"2"}]}'\n`);
+    chmodSync(script, 0o755);
+    upsertDashboardView(
+      { id: "stale", title: "Stale", kpis: [{ label: "N", value: "1" }] },
+      { scopeRoot: workspace, refreshScriptPath: script, refreshIntervalSeconds: 60 },
+    );
+    expect(refreshStaleDashboardViews()).toEqual(["stale"]);
+    // Already running, or just refreshed: no second run.
+    expect(refreshStaleDashboardViews()).toEqual([]);
+    for (let i = 0; i < 50 && !resolveDashboardResponse(EMPTY_INPUT).views.find((v) => v.id === "stale")?.source?.lastRefreshedAt; i++) {
+      await Bun.sleep(20);
+    }
+    const view = resolveDashboardResponse(EMPTY_INPUT).views.find((v) => v.id === "stale");
+    expect(view?.kpis).toEqual([{ label: "N", value: "2" }]);
+    expect(refreshStaleDashboardViews()).toEqual([]);
+    // Past the interval it runs again.
+    expect(refreshStaleDashboardViews(Date.now() + 61_000)).toEqual(["stale"]);
   });
 
   test("rejects a refresh script outside the session workspace", () => {
