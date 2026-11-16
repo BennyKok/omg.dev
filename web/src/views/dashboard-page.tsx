@@ -3,7 +3,7 @@
 // Modelled on omg-admin: labels and numbers only. No subtitles, explanations,
 // or prose filler. Views are stored locally in `<data>/dashboard/dashboard.json`
 // and edited with an agent through the `omg_dashboard` MCP tool or `/api/dashboard`.
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/omg-client";
@@ -194,8 +194,10 @@ export function DashboardKpiGrid({ items }: { items: readonly DashboardKpi[] }) 
           className="flex min-w-0 flex-col justify-between rounded-xl border border-border/70 bg-card/50 px-3 py-2.5"
         >
           <div>
-            <div className="flex items-center justify-between gap-1.5">
-              <span className="truncate text-[11px] font-medium text-muted-foreground">
+            {/* Labels and notes wrap to two lines: a phone tile is too narrow
+                for "Ad spend · USD · 7 calendar days" on one. */}
+            <div className="flex items-start justify-between gap-1.5">
+              <span className="line-clamp-2 break-words text-[11px] font-medium leading-snug text-muted-foreground">
                 {kpi.label}
               </span>
               {kpi.delta ? (
@@ -218,7 +220,7 @@ export function DashboardKpiGrid({ items }: { items: readonly DashboardKpi[] }) 
               {kpi.value}
             </div>
             {kpi.sub ? (
-              <div className="mt-0.5 truncate text-[11px] text-muted-foreground tabular-nums">
+              <div className="mt-0.5 line-clamp-2 break-words text-[11px] leading-snug text-muted-foreground tabular-nums">
                 {kpi.sub}
               </div>
             ) : null}
@@ -230,8 +232,30 @@ export function DashboardKpiGrid({ items }: { items: readonly DashboardKpi[] }) 
   );
 }
 
+// The chart draws in real pixels at the width of its card. A fixed viewBox
+// with the default aspect ratio drew a 400-wide picture in the middle of a
+// wide card, with empty space on both sides.
+function useWidth(fallback: number) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [width, setWidth] = useState(fallback);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const read = () => {
+      const next = Math.round(el.getBoundingClientRect().width);
+      if (next > 0) setWidth(next);
+    };
+    read();
+    const observer = new ResizeObserver(read);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width] as const;
+}
+
 export function DashboardChartBody({ chart }: { chart: DashboardChart }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [frameRef, frameWidth] = useWidth(400);
   const points = chart.points;
   if (!points.length) return null;
 
@@ -268,7 +292,7 @@ export function DashboardChartBody({ chart }: { chart: DashboardChart }) {
     );
   }
 
-  const W = 400;
+  const W = Math.max(240, frameWidth);
   const H = 124;
   const pad = { l: 34, r: 6, t: 8, b: 20 };
   const ih = H - pad.t - pad.b;
@@ -279,14 +303,15 @@ export function DashboardChartBody({ chart }: { chart: DashboardChart }) {
   const span = top - lo || 1;
   const y = (v: number) => pad.t + ih - ((v - lo) / span) * ih;
   const ticks = [lo, lo + span / 2, top];
-  const every = Math.max(1, Math.ceil(points.length / 5));
+  // About one date label per 80 px.
+  const every = Math.max(1, Math.ceil(points.length / Math.max(3, Math.floor(W / 80))));
   const selected = selectedIndex != null ? points[selectedIndex] : null;
   const headlineValue = selected
     ? `${selected.label}: ${formatChartNumber(selected.value, chart.unit)}`
     : chart.value ?? formatChartNumber(points.at(-1)?.value ?? 0, chart.unit);
 
   return (
-    <div data-testid="dashboard-chart" data-kind={chart.kind}>
+    <div ref={frameRef} data-testid="dashboard-chart" data-kind={chart.kind}>
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
         <h3 className="truncate text-xs font-semibold text-muted-foreground">{chart.title}</h3>
         <span className="shrink-0 text-xs font-bold tabular-nums text-foreground">
@@ -297,7 +322,9 @@ export function DashboardChartBody({ chart }: { chart: DashboardChart }) {
         viewBox={`0 0 ${W} ${H}`}
         role="img"
         aria-label={chart.title}
-        className="block h-28 w-full select-none overflow-visible"
+        width={W}
+        height={H}
+        className="block w-full select-none overflow-visible"
         onMouseLeave={() => setSelectedIndex(null)}
       >
         <g className="text-[9px] fill-muted-foreground">
@@ -333,7 +360,7 @@ export function DashboardChartBody({ chart }: { chart: DashboardChart }) {
         {chart.kind === "bar" ? (
           points.map((p, i) => {
             const step = iw / Math.max(1, points.length);
-            const bw = Math.max(3, Math.min(18, step - 3));
+            const bw = Math.max(3, Math.min(24, step - 3));
             const x = pad.l + i * step + (step - bw) / 2;
             const h = Math.max(0, y(0) - y(p.value));
             const active = selectedIndex === i;
@@ -402,6 +429,8 @@ export function DashboardChartBody({ chart }: { chart: DashboardChart }) {
 }
 
 export function DashboardTableCard({ table }: { table: DashboardTable }) {
+  const [first, ...rest] = table.columns;
+  const stacked = !!first && table.columns.length > 3;
   return (
     <section
       data-testid="dashboard-table"
@@ -418,7 +447,33 @@ export function DashboardTableCard({ table }: { table: DashboardTable }) {
       {table.rows.length === 0 ? (
         <div className="px-3 py-6 text-center text-xs text-muted-foreground">No rows</div>
       ) : (
-        <div data-no-page-swipe className="overflow-x-auto">
+        <>
+        {stacked ? (
+          // A phone cannot fit four or more columns. Each row becomes a small
+          // block: the first column is its name, the others are label and
+          // value pairs, so no column is cut off the right edge.
+          <ul data-testid="dashboard-table-stacked" className="divide-y divide-border/50 sm:hidden">
+            {table.rows.map((row, idx) => (
+              <li key={row.id ?? idx} className="px-3 py-2">
+                <div className="flex items-center gap-2 text-[12.5px] font-medium">
+                  {row.tone ? (
+                    <span className={cn("size-1.5 shrink-0 rounded-full", TONE_DOT[row.tone])} />
+                  ) : null}
+                  <span className="min-w-0 break-words">{row.cells[first!.key] ?? "—"}</span>
+                </div>
+                <dl className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[11.5px]">
+                  {rest.map((col) => (
+                    <div key={col.key} className="flex min-w-0 items-baseline justify-between gap-2">
+                      <dt className="truncate text-muted-foreground">{col.label}</dt>
+                      <dd className="shrink-0 tabular-nums text-foreground">{row.cells[col.key] ?? "—"}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        <div data-no-page-swipe className={cn("overflow-x-auto", stacked && "hidden sm:block")}>
           <table className="w-full border-collapse text-left text-[12.5px]">
             <thead>
               <tr className="border-b border-border/60 text-[11px] font-medium text-muted-foreground">
@@ -469,6 +524,7 @@ export function DashboardTableCard({ table }: { table: DashboardTable }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </section>
   );

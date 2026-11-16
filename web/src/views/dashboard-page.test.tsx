@@ -133,3 +133,23 @@ test("opens on the first tab, not always on Today", async () => {
   expect(ui.text()).toContain("$262.62");
   expect(ui.text()).not.toContain("High memory alert");
 });
+
+test("a table with more than three columns also gets a stacked form for phones", async () => {
+  const { DashboardTableCard } = await import("./dashboard-page");
+  const columns = [
+    { key: "campaign", label: "Campaign" },
+    { key: "spend", label: "Spend", align: "right" as const },
+    { key: "clicks", label: "Clicks", align: "right" as const },
+    { key: "cpc", label: "Cost / click", align: "right" as const },
+  ];
+  ui.render(
+    <DashboardTableCard
+      table={{ title: "Ads", columns, rows: [{ cells: { campaign: "YouTube", spend: "35.87", clicks: 47, cpc: "0.76" } }] }}
+    />,
+  );
+  const stacked = ui.query('[data-testid="dashboard-table-stacked"]') as HTMLElement;
+  expect(stacked.textContent).toBe("YouTubeSpend35.87Clicks47Cost / click0.76");
+  // Three columns fit a phone: no second form.
+  ui.render(<DashboardTableCard table={{ title: "Ads", columns: columns.slice(0, 3), rows: [{ cells: { campaign: "YouTube" } }] }} />);
+  expect(ui.query('[data-testid="dashboard-table-stacked"]')).toBeNull();
+});

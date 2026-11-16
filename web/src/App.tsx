@@ -24232,6 +24232,18 @@ function NewSessionDialog({
     if (!promptRequest) return;
     if (appliedPromptNonce.current === promptRequest.nonce) return;
     appliedPromptNonce.current = promptRequest.nonce;
+    // Do not lose an unsent draft. Keep it in the draft list (the resume
+    // sheet), where it can be restored, under a key of its own so the
+    // new text does not overwrite it.
+    const current = promptRef.current;
+    if (current.trim() && current !== promptRequest.text) {
+      stashPromptDraft({
+        contextKey: `new-session:set-aside:${Date.now()}`,
+        source: "new-session",
+        text: current,
+        project: composerProject,
+      });
+    }
     setPrompt(promptRequest.text);
     onPromptRequestApplied?.(promptRequest.nonce);
     // The drawer mounts its field as it opens. Wait a frame, then put the
