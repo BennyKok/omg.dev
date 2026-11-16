@@ -25,6 +25,12 @@ export type Viewer = {
   /** View toggles the role turns off. AND these against the box settings. */
   hide: ViewToggleKey[];
   hiddenPages: string[];
+  /**
+   * Who the server says this is, when it knows: a person admitted by their
+   * Tailscale login (src/tailnet-gate.ts). Absent on the computer itself,
+   * where the profile is the browser's own pick.
+   */
+  identityLogin?: string;
 };
 
 export const OWNER_VIEWER: Viewer = { role: { id: "owner", name: "Owner" }, canSwitchRole: true, hide: [], hiddenPages: [] };
@@ -62,8 +68,10 @@ export async function fetchViewer(
   // dashboard's HTML (143 KB, on every load) and the role never applied.
   const res = await omgFetch(`/api/me${query ? `?${query}` : ""}`, { signal });
   if (!res.ok) return null;
-  const payload = (await res.json()) as Partial<Viewer>;
+  const payload = (await res.json()) as Partial<Viewer> & { identity?: { login?: unknown } | null };
+  const identityLogin = typeof payload.identity?.login === "string" ? payload.identity.login : undefined;
   return {
+    ...(identityLogin ? { identityLogin } : {}),
     role: payload.role ?? OWNER_VIEWER.role,
     canSwitchRole: payload.canSwitchRole !== false,
     hide: Array.isArray(payload.hide) ? payload.hide : [],
@@ -77,4 +85,22 @@ export function applyRoleViews<T extends Record<ViewToggleKey, boolean>>(setting
   const next = { ...settings };
   for (const key of viewer.hide) next[key] = false as T[ViewToggleKey];
   return next;
+}
+
+/**
+ * Make the server's identity the browser's profile. Returns true when the
+ * stored profile changed, so the caller can load the app again as that
+ * person. The server already ignores the pick for a known identity; this
+ * keeps the UI in step with it and skips the "Who are you?" screen.
+ */
+export function adoptServerIdentity(viewer: Viewer | null, storage: Pick<Storage, "getItem" | "setItem"> | null): boolean {
+  const login = viewer?.identityLogin;
+  if (!login || !storage) return false;
+  try {
+    if (storage.getItem("lfg_user") === login) return false;
+    storage.setItem("lfg_user", login);
+    return true;
+  } catch {
+    return false;
+  }
 }

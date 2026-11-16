@@ -93,3 +93,61 @@ describe("tailnet gate", () => {
     expect(() => tailnetPortFromEnv("abc", 8766)).toThrow();
   });
 });
+
+describe("tailnet people (Tailscale identity)", () => {
+  const { tailnetIdentityFromEnv, tailnetPerson, tailnetPersonOf } = require("./tailnet-gate.ts") as typeof import("./tailnet-gate.ts");
+  const roster = new Set(["benny@example.com", "angel@example.com"]);
+  const people = { enabled: true, isMember: (login: string) => roster.has(login) };
+  const as = (login: string, extra: Record<string, string> = {}) =>
+    req("/api/sessions", { headers: { "Tailscale-User-Login": login, ...extra } });
+
+  test("off by default: a login on the list still gets 401, and the switch needs an explicit value", () => {
+    expect(tailnetGateResponse(as("benny@example.com"))?.status).toBe(401);
+    expect(tailnetGateResponse(as("benny@example.com"), { people: { ...people, enabled: false } })?.status).toBe(401);
+    for (const raw of [undefined, "", "0", "false", "yes", "on"]) expect(tailnetIdentityFromEnv(raw)).toBe(false);
+    for (const raw of ["1", "true", " TRUE "]) expect(tailnetIdentityFromEnv(raw)).toBe(true);
+  });
+
+  test("a person on the user list passes, and the request is theirs", () => {
+    const request = as("Benny@Example.com", { "Tailscale-User-Name": "Benny%20Kok", "Tailscale-User-Profile-Pic": "https://pics.example/b.png" });
+    expect(tailnetGateResponse(request, { people })).toBeNull();
+    expect(tailnetPersonOf(request)).toEqual({ login: "benny@example.com", name: "Benny Kok", picture: "https://pics.example/b.png" });
+  });
+
+  test("a tailnet login that the owner has not added gets 403, with no data and no identity", async () => {
+    const request = as("stranger@example.com");
+    const res = tailnetGateResponse(request, { people });
+    expect(res?.status).toBe(403);
+    expect(((await res!.json()) as { error: string }).error).toBe("not on this computer's user list");
+    expect(tailnetPersonOf(request)).toBeNull();
+  });
+
+  test("no login means no person: a tagged device or a Funnel visitor gets 401", () => {
+    expect(tailnetGateResponse(req("/api/sessions"), { people })?.status).toBe(401);
+    for (const login of ["", "   ", "not-an-address", "a@b@c", "x y@example.com", `"benny@example.com"`, "benny@example.com,angel@example.com"]) {
+      expect(tailnetPerson(as(login))).toBeNull();
+      expect(tailnetGateResponse(as(login), { people })?.status).toBe(401);
+    }
+  });
+
+  test("identity cannot be claimed by any other header or by the query string", () => {
+    for (const request of [
+      req("/api/sessions?user=benny@example.com"),
+      req("/api/sessions", { headers: { "X-Forwarded-User": "benny@example.com", "X-Omg-Tailnet-User": "benny@example.com" } }),
+    ]) {
+      expect(tailnetGateResponse(request, { people })?.status).toBe(401);
+      expect(tailnetPersonOf(request)).toBeNull();
+    }
+    // A request that never went through the gate has no person, whatever it carries.
+    expect(tailnetPersonOf(as("benny@example.com"))).toBeNull();
+  });
+
+  test("a picture that is not https is dropped, and a removed person loses access at once", () => {
+    expect(tailnetPerson(as("angel@example.com", { "Tailscale-User-Profile-Pic": "javascript:alert(1)" }))?.picture).toBeNull();
+    const live = new Set(roster);
+    const options = { people: { enabled: true, isMember: (login: string) => live.has(login) } };
+    expect(tailnetGateResponse(as("angel@example.com"), options)).toBeNull();
+    live.delete("angel@example.com");
+    expect(tailnetGateResponse(as("angel@example.com"), options)?.status).toBe(403);
+  });
+});

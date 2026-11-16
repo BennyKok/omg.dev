@@ -36,8 +36,15 @@ understand it before you run it anywhere shared.
 - **Treat Tailscale auth keys as secrets.** Pass `TS_AUTHKEY` on the setup command
   line only; it is never written to disk. Prefer ephemeral, pre-approved, tagged,
   single-use keys.
-- **Treat a pairing code as a full-control credential.** Settings > Remote
-  access > "Allow linking from other machines" is off by default. When on, the
+- **Let people in by their Tailscale login, not by address.** The gated
+  tailnet listener (`LFG_TAILNET_PORT`) admits no person by default. Set
+  `LFG_TAILNET_IDENTITY=1` on the computer to admit a person whose Tailscale
+  login is on the user list (`LFG_USERS` and the profiles made in setup). Any
+  other login gets 403. Point `tailscale serve` at `LFG_TAILNET_PORT`, never at
+  `LFG_PORT`: the login header is trusted only on that listener. See
+  `docs/user-accounts.md`.
+- **Treat a pairing code as a full-control credential.** Settings > My
+  computers > "Let other computers add this one" is off by default. When on, the
   gated tailnet listener (`LFG_TAILNET_PORT`) accepts this box's peer token
   from another omg.dev box. That box can then do anything the local UI can,
   except manage links (`/api/peers*` returns 403 to it). The token is stored in

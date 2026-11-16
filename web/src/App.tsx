@@ -232,7 +232,7 @@ import {
 } from "./components/conversation-presence";
 import { SessionAssigneeAvatar } from "./components/session-assignee-avatar";
 import { UserFilterMenu } from "./components/user-filter-menu";
-import { OWNER_VIEWER, applyRoleViews, fetchViewer, readRolePreview, writeRolePreview, type Viewer } from "./lib/viewer-role";
+import { adoptServerIdentity, OWNER_VIEWER, applyRoleViews, fetchViewer, readRolePreview, writeRolePreview, type Viewer } from "./lib/viewer-role";
 import { RoleViewerContext, type RoleViewerState } from "./lib/viewer-role-context";
 import {
   AuthenticatedArtifactImage,
@@ -6018,6 +6018,13 @@ export function App() {
     const controller = new AbortController();
     void fetchViewer(identity, rolePreview, controller.signal)
       .then((next) => {
+        // A person the server knows by their Tailscale login is that
+        // profile. Load once more as them, so no list is shown under the
+        // profile this browser held before.
+        if (adoptServerIdentity(next, window.localStorage)) {
+          window.location.reload();
+          return;
+        }
         if (next) setRoleViewer(next);
       })
       .catch(() => {});

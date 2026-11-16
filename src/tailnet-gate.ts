@@ -20,6 +20,15 @@
 //   on "Allow linking" in Settings > Remote access. It still cannot reach
 //   `/api/peers*`.
 //
+// - A PERSON passes when Tailscale identity is on (LFG_TAILNET_IDENTITY=1) and
+//   their Tailscale login is on this computer's user list. `tailscale serve`
+//   adds the login to every request it proxies (`Tailscale-User-Login`). This
+//   listener is loopback-only and is where `tailscale serve` points, so the
+//   header here was written by Tailscale and not by the caller. A login that
+//   is not on the list gets 403. The server then treats that login as the
+//   user for the request (tailnetPersonOf), whatever profile the browser
+//   picked. Off by default: without the switch, no person passes, as before.
+//
 // Linked devices (src/devices) are handled before this gate: `/api/devices/link/*`
 // goes to their own handler, which requires a device signature on every call
 // except pairing (a one-use code). Nothing else on the API opens.
@@ -31,7 +40,53 @@ export const TAILNET_PASSTHROUGH_PATHS = new Set(["/api/connectors/oauth/callbac
 export type TailnetGateOptions = {
   /** Shared peer bearer token accepted from linked remote omg.dev boxes. */
   peerToken?: string | null;
+  /**
+   * Tailscale identity. Absent or `enabled: false` admits no person.
+   * `isMember` answers for a lower-cased login.
+   */
+  people?: { enabled: boolean; isMember: (login: string) => boolean };
 };
+
+/** A person signed in to the tailnet, as `tailscale serve` reports them. */
+export type TailnetPerson = { login: string; name: string | null; picture: string | null };
+
+/** Tailscale percent-encodes non-ASCII header values (RFC 2047 is also allowed; that form is left as sent). */
+function headerText(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    return decodeURIComponent(trimmed).slice(0, 200);
+  } catch {
+    return trimmed.slice(0, 200);
+  }
+}
+
+/**
+ * The person `tailscale serve` named on this request, or null. A tagged
+ * device and a Funnel visitor carry no login, so they are never a person.
+ * The login must look like an address: it becomes a user id.
+ */
+export function tailnetPerson(req: Request): TailnetPerson | null {
+  const login = req.headers.get("tailscale-user-login")?.trim().toLowerCase();
+  if (!login || login.length > 254 || !/^[^\s@,;<>"']+@[^\s@,;<>"']+$/.test(login)) return null;
+  const picture = req.headers.get("tailscale-user-profile-pic")?.trim() || null;
+  return {
+    login,
+    name: headerText(req.headers.get("tailscale-user-name")),
+    picture: picture && /^https:\/\//i.test(picture) ? picture.slice(0, 2000) : null,
+  };
+}
+
+// The person each admitted request belongs to. Keyed by the request object
+// the tailnet listener hands to the main handler, so no header or query
+// value from the caller can set it, and a request on the main port never has
+// one.
+const ADMITTED = new WeakMap<Request, TailnetPerson>();
+
+/** The tailnet person this request was admitted as, or null. */
+export function tailnetPersonOf(req: Request): TailnetPerson | null {
+  return ADMITTED.get(req) ?? null;
+}
 
 function matchesToken(candidate: string | null | undefined, expected: string): boolean {
   const trimmed = candidate?.trim();
@@ -84,6 +139,24 @@ export function tailnetGateResponse(req: Request, options: TailnetGateOptions = 
     }
     return null;
   }
+  if (options.people?.enabled) {
+    const person = tailnetPerson(req);
+    if (person) {
+      if (options.people.isMember(person.login)) {
+        ADMITTED.set(req, person);
+        return null;
+      }
+      // Known to the tailnet, not to this computer. The owner adds a person
+      // on the computer itself; nothing a visitor sends can do it.
+      return Response.json(
+        {
+          error: "not on this computer's user list",
+          detail: `${person.login} is signed in to the tailnet, but the owner of this computer has not added this user.`,
+        },
+        { status: 403, headers: { "cache-control": "no-store" } },
+      );
+    }
+  }
   return Response.json(
     {
       error: "sign-in required",
@@ -91,6 +164,12 @@ export function tailnetGateResponse(req: Request, options: TailnetGateOptions = 
     },
     { status: 401, headers: { "cache-control": "no-store", "www-authenticate": 'Bearer realm="omg"' } },
   );
+}
+
+/** LFG_TAILNET_IDENTITY: "1" or "true" turns Tailscale identity on. Anything else is off. */
+export function tailnetIdentityFromEnv(raw: string | undefined): boolean {
+  const value = raw?.trim().toLowerCase();
+  return value === "1" || value === "true";
 }
 
 /** Parses LFG_TAILNET_PORT. 0 means off. Fails loud on a bad value. */

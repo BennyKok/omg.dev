@@ -87,7 +87,7 @@ import {
   isStorableUserFilter,
   setSessionUserFilter,
 } from "../session-user-filter.ts";
-import { tailnetGateResponse, tailnetPortFromEnv } from "../tailnet-gate.ts";
+import { tailnetGateResponse, tailnetIdentityFromEnv, tailnetPersonOf, tailnetPortFromEnv } from "../tailnet-gate.ts";
 import { findProjectFavicon, projectFaviconMime } from "../project-favicon.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
@@ -966,6 +966,9 @@ function publicSessionUrl(sessionId: string): string | null {
 const HOST = process.env.LFG_HOST ?? "127.0.0.1";
 // Opt-in second listener for `tailscale serve`. See src/tailnet-gate.ts.
 const TAILNET_PORT = tailnetPortFromEnv(process.env.LFG_TAILNET_PORT, PORT);
+// Admit people on the tailnet listener by their Tailscale login. Off unless
+// the owner sets it on this computer (src/tailnet-gate.ts).
+const TAILNET_IDENTITY = tailnetIdentityFromEnv(process.env.LFG_TAILNET_IDENTITY);
 const MAX_LFG_SUBAGENT_DEPTH = 4;
 // How old the newest finished session scan may be for admission to count from
 // it (see recentAdmissionSessions). Active clients refresh it every few seconds.
@@ -5206,11 +5209,15 @@ export async function cmdServe() {
         }
       }
 
-      // Who the browser is viewing as, and what that role lets it see. The
-      // user is the browser's own pick (lfg_user); there is no auth, so this
-      // is a layout answer. Owner may preview another role with `?role=`.
+      // Who the browser is viewing as, and what that role lets it see. On the
+      // main port the user is the browser's own pick (lfg_user); there is no
+      // auth, so this is a layout answer. A person admitted on the tailnet
+      // listener by their Tailscale login IS that login: the pick is ignored,
+      // so they cannot view as someone else. Owner may preview another role
+      // with `?role=`.
       if (path === "/api/me" && req.method === "GET") {
-        const user = url.searchParams.get("user")?.trim() || undefined;
+        const person = tailnetPersonOf(req);
+        const user = person?.login ?? (url.searchParams.get("user")?.trim() || undefined);
         const preview = url.searchParams.get("role")?.trim() || undefined;
         let role = roleForUser(user);
         if (preview && role.id === OWNER_ROLE_ID) {
@@ -5223,6 +5230,8 @@ export async function cmdServe() {
         for (const key of VIEW_TOGGLE_KEYS) views[key] = settings[key] && !role.views.hide.includes(key);
         return json({
           user: user ?? null,
+          // Set only for a tailnet person. The web makes this the profile.
+          identity: person ? { source: "tailscale", login: person.login, name: person.name, picture: person.picture } : null,
           role: { id: role.id, name: role.name },
           canSwitchRole: roleForUser(user).id === OWNER_ROLE_ID,
           views,
@@ -12703,9 +12712,17 @@ a{color:#60a5fa}
           const { handleDeviceLink } = await import("../devices/http.ts");
           return handleDeviceLink(req);
         }
-        const gated = tailnetGateResponse(req, { peerToken: getLocalPeerToken() });
+        const gated = tailnetGateResponse(req, {
+          peerToken: getLocalPeerToken(),
+          people: {
+            enabled: TAILNET_IDENTITY,
+            // The user list is read on each request, so a person the owner
+            // adds or removes takes effect at once.
+            isMember: (login) => rosterEmails().some((email) => email.trim().toLowerCase() === login),
+          },
+        });
         if (gated) {
-          if (gated.status === 401) console.warn(`[tailnet-gate] 401 ${req.method} ${new URL(req.url).pathname}`);
+          if (gated.status === 401 || gated.status === 403) console.warn(`[tailnet-gate] ${gated.status} ${req.method} ${new URL(req.url).pathname}`);
           return gated;
         }
         return server.fetch(req);
