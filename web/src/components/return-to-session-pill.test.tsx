@@ -36,14 +36,17 @@ const RAW =
   "## Done\n\n- Re-rendered the **app screenshots**";
 
 describe("linked session card", () => {
-  test("is one pill with the name, the id and a one-line preview", () => {
+  test("is one pill with the name and the id, nothing under it", () => {
     ui.render(<SystemMessageLine system={classifySystemMessage(RAW)!} raw={RAW} />);
     expect(ui.query('[data-slot="linked-session-card"]')).not.toBeNull();
     expect(ui.query('button[aria-label^="Open the session that reported, 6171998d"]')).not.toBeNull();
     expect(ui.text()).toContain("6171998d");
     expect(ui.text()).toContain("i wanted to redesing the landing site. new branding");
     expect(ui.text()).not.toContain("reported in");
-    expect(ui.text()).toContain("Done Re-rendered the app screenshots");
+    // One line only: the preview is the tooltip, not a second row.
+    expect(ui.text()).not.toContain("Re-rendered");
+    const pill = ui.query('button[aria-label^="Open the session that reported"]') as HTMLButtonElement;
+    expect(pill.getAttribute("title")).toContain("Done Re-rendered the app screenshots");
     expect(ui.text()).not.toContain("**");
   });
 
@@ -96,7 +99,8 @@ describe("linked session card", () => {
     ui.render(<SystemMessageLine system={classifySystemMessage(raw)!} raw={raw} />);
     const logo = ui.query('[data-slot="linked-session-card"] img') as HTMLImageElement;
     expect(logo?.getAttribute("alt")).toBe("Codex");
-    expect(ui.text()).toContain("Started on chat.");
-    expect(ui.text()).not.toContain("[subagent progress]");
+    const pill = ui.query('button[aria-label^="Open the session that reported"]') as HTMLButtonElement;
+    expect(pill.getAttribute("title")).toContain("Started on chat.");
+    expect(pill.getAttribute("title")).not.toContain("[subagent progress]");
   });
 });

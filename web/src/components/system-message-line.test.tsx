@@ -13,7 +13,7 @@ beforeEach(() => {
 afterEach(() => ui.cleanup());
 
 describe("SystemMessageLine", () => {
-  test("a fork opener is a label, not the raw launch prompt", () => {
+  test("a fork opener is a label, not the raw launch prompt", async () => {
     const raw = [
       "You are starting a fresh agent session from an existing omg.dev session.",
       "",
@@ -27,6 +27,9 @@ describe("SystemMessageLine", () => {
     ui.render(<SystemMessageLine system={system} raw={raw} />);
     expect(ui.text()).toContain("Show coding agent icons");
     expect(ui.text()).toContain("542a7801");
+    expect(ui.text()).not.toContain("Finish the picker.");
+    (ui.query("button[aria-expanded]") as HTMLButtonElement).click();
+    await ui.flushAsync();
     expect(ui.text()).toContain("Finish the picker.");
     expect(ui.text()).not.toContain("You are starting a fresh agent session");
   });

@@ -76,9 +76,9 @@ export function SystemMessageLine({
 /**
  * A row that names another session: a child's report, a fork's source, a peer
  * write-in. It is one small pill for that session, with its agent's logo when
- * known, and one muted line of the message under it. The pill opens the
- * session in place (the destination then offers the way back); the chevron
- * or the preview line shows the whole message, rendered as markdown.
+ * known. One line, nothing under it: the pill opens the session in place
+ * (the destination then offers the way back), and the chevron shows the
+ * whole message, rendered as markdown. A long name stops at 20rem.
  */
 function LinkedSessionCard({ system, raw }: { system: SystemMessage; raw: string }) {
   const [open, setOpen] = useState(false);
@@ -87,7 +87,6 @@ function LinkedSessionCard({ system, raw }: { system: SystemMessage; raw: string
   const known = useSessionRefLabel(id);
   const name = system.source || known?.title || "Untitled session";
   const agent = known?.agent ?? null;
-  const preview = systemMessagePreview(system.body);
   const body = system.body || raw;
   const verb = LINK_EYEBROW[system.kind] ?? "Session";
   const openLabel = `${LINK_OPEN_LABEL[system.kind] ?? "Open the session"}, ${id}`;
@@ -100,7 +99,7 @@ function LinkedSessionCard({ system, raw }: { system: SystemMessage; raw: string
           type="button"
           onClick={() => openLinkedSession(id)}
           aria-label={openLabel}
-          title={`${verb} ${name} · ${id}`}
+          title={[`${verb} ${name} · ${id}`, systemMessagePreview(system.body)].filter(Boolean).join("\n\n")}
           className="flex h-full min-w-0 items-center gap-1.5 rounded-l-full pr-1.5 pl-2 outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
         >
           {agent ? (
@@ -108,7 +107,7 @@ function LinkedSessionCard({ system, raw }: { system: SystemMessage; raw: string
           ) : (
             <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
           )}
-          <span className="min-w-0 truncate font-medium text-foreground">{name}</span>
+          <span className="min-w-0 max-w-[20rem] truncate font-medium text-foreground">{name}</span>
           <span className="shrink-0 font-mono text-[10.5px] text-muted-foreground/80">{id}</span>
           <ArrowUpRight className="size-3 shrink-0 text-muted-foreground" aria-hidden="true" />
         </button>
@@ -125,16 +124,6 @@ function LinkedSessionCard({ system, raw }: { system: SystemMessage; raw: string
           </button>
         ) : null}
       </div>
-      {!open && preview ? (
-        <button
-          type="button"
-          onClick={toggle}
-          tabIndex={-1}
-          className="block max-w-[min(32rem,100%)] truncate px-3 text-[11px] leading-4 text-muted-foreground/70 hover:text-muted-foreground"
-        >
-          {preview}
-        </button>
-      ) : null}
       {open ? (
         <div className="mt-1 max-h-80 w-[min(42rem,92%)] overflow-auto rounded-xl border border-border/70 bg-muted/30 px-4 py-3 text-left text-[13px] leading-relaxed">
           <MessageResponse>{body}</MessageResponse>
