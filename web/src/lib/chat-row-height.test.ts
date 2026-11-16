@@ -15,7 +15,7 @@ import {
   MEDIA_MAX_PX,
   messageRowHeight,
   OMG_INSTRUCTIONS_LEADING_PX,
-  SYSTEM_LINE_PX,
+  SYSTEM_CARD_PX,
   RICH_INLINE_RE,
   ROW_GAP_PX,
   SPEAKER_CHANGE_PX,
@@ -423,7 +423,7 @@ describe("media rows", () => {
 });
 
 describe("message rows", () => {
-  test("a fork opener is the compact system line, not a user bubble", () => {
+  test("a fork opener is the linked-session card, not a user bubble", () => {
     const message: RowMessage = {
       role: "user",
       kind: "text",
@@ -437,7 +437,7 @@ describe("message rows", () => {
         "Finish the picker.",
       ].join("\n"),
     };
-    expect(messageRowHeight(message, context())).toBe(SYSTEM_LINE_PX);
+    expect(messageRowHeight(message, context())).toBe(SYSTEM_CARD_PX);
   });
 
   test("an interrupted turn is a constant", () => {

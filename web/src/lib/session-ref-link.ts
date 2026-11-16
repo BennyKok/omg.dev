@@ -71,6 +71,11 @@ export function openThreadRef(href: string): boolean {
   return true;
 }
 
+/** Open a session whose full id is already known. */
+export function openSessionId(sessionId: string): void {
+  if (sessionId) navigateTo?.(sessionId);
+}
+
 /** True when `href` was a session reference and has been taken over. */
 export function openSessionRef(href: string): boolean {
   ensureClient();

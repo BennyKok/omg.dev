@@ -24,3 +24,13 @@ describe("classifyUserTurn", () => {
     expect(classifyUserTurn(wrapped)?.label).toBe("Started from Icons");
   });
 });
+
+describe("systemMessagePreview markdown", () => {
+  test("drops markdown marks so the preview reads as prose", () => {
+    const { systemMessagePreview } = require("./system-message");
+    const body = "Done.\n\n## What changed\n- Re-rendered **6 screenshots**\n- Updated `public/shots/`\n\n| Page | Status |\n| --- | --- |\n| Home | done |";
+    expect(systemMessagePreview(body)).toBe(
+      "Done. What changed Re-rendered 6 screenshots Updated public/shots/ Page · Status Home · done",
+    );
+  });
+});

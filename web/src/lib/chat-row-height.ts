@@ -19,7 +19,7 @@
 import type { ChatRenderItem, ChatRenderMessage } from "./chat-render-items";
 import type { BoxMetrics, MarkdownMetrics } from "./markdown-metrics";
 import { parseOmgPromptEnvelope } from "./omg-prompt-envelope";
-import { classifyUserTurn } from "./system-message";
+import { classifyUserTurn, systemMessageLinksSession } from "./system-message";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -46,6 +46,15 @@ export const INTERRUPTED_PX = 20;
 
 /** Compact machine-written user turn: icon+label row + two-line preview + py. */
 export const SYSTEM_LINE_PX = 64;
+
+/** A machine-written turn that links a session: the card with its footer. */
+export const SYSTEM_CARD_PX = 112;
+
+function systemTurnPx(rawText: string): number | null {
+  const system = classifyUserTurn(rawText);
+  if (!system) return null;
+  return systemMessageLinksSession(system) ? SYSTEM_CARD_PX : SYSTEM_LINE_PX;
+}
 
 /** A collapsed `Reasoning`: only the trigger row is in flow (text-xs). */
 export const COLLAPSED_THINKING_PX = 16;
@@ -694,9 +703,8 @@ export function messageRowHeight(message: RowMessage, ctx: RowContext): number {
   const leading = envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0;
   if (!text.trim()) return TYPING_INDICATOR_PX;
 
-  if (message.role === "user" && classifyUserTurn(rawText)) {
-    return leading + SYSTEM_LINE_PX;
-  }
+  const systemPx = message.role === "user" ? systemTurnPx(rawText) : null;
+  if (systemPx !== null) return leading + systemPx;
 
   if (message.role === "user") {
     const metrics = ctx.user ?? ctx.assistant;
@@ -772,8 +780,8 @@ export function estimateUnprobedRowHeight<T extends RowMessage>(
     else if (message.kind === "html") height = HTML_ARTIFACT_PX;
     else if (message.kind === "image" || message.kind === "video") {
       height = mediaHeight(message.width, message.height, 1);
-    } else if (message.role === "user" && classifyUserTurn(message.text ?? "")) {
-      height = SYSTEM_LINE_PX + (envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0);
+    } else if (message.role === "user" && systemTurnPx(message.text ?? "") !== null) {
+      height = systemTurnPx(message.text ?? "")! + (envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0);
     } else if (message.role === "user") {
       height = USER_SINGLE_LINE_PX + (envelope ? OMG_INSTRUCTIONS_LEADING_PX : 0);
     } else height = ASSISTANT_SINGLE_LINE_PX;

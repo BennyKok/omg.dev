@@ -31,6 +31,8 @@ export type SystemMessage = {
   id?: string;
   /** Everything after the wrapper: what the expanded body shows. */
   body: string;
+  /** The linked session's or sender's name, when the wrapper carried one. */
+  source?: string;
 };
 
 const SHORT_ID = /\b([0-9a-f]{8})(?:-[0-9a-f-]{27})?\b/i;
@@ -111,6 +113,7 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
       label: name ? `${name} reported in` : "Background task reported in",
       id,
       body: afterHeader(value, m[0].length),
+      source: name || undefined,
     };
   }
 
@@ -130,6 +133,7 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
       label: `Message from ${m[1].trim()}`,
       id: shortId(m[0]),
       body: afterHeader(value, m[0].length),
+      source: m[1].trim() || undefined,
     };
   }
 
@@ -207,6 +211,7 @@ export function classifySystemMessage(text: string | null | undefined): SystemMe
       label: title ? `Started from ${title}` : "Started from another session",
       id,
       body,
+      source: title || undefined,
     };
   }
 
@@ -227,9 +232,50 @@ export function systemMessageHasPreview(system: SystemMessage): boolean {
   return system.kind !== "browser-login" && system.kind !== "builder" && system.kind !== "compaction";
 }
 
-/** Collapse a body to one run of prose for the two-line preview under the label. */
+/**
+ * Whether the row names another session the person can open: a report from a
+ * child, a fork's source, a peer write-in. Those draw as a card with a link;
+ * the rest stay one quiet line.
+ */
+export function systemMessageLinksSession(system: SystemMessage): boolean {
+  return (
+    Boolean(system.id) &&
+    (system.kind === "background-task" || system.kind === "fork" || system.kind === "peer")
+  );
+}
+
+/**
+ * Collapse a body to one run of prose for the two-line preview under the
+ * label. Agents report in markdown; the preview is plain text, so the marks
+ * (`##`, `**`, list bullets, table rules) come off rather than showing raw.
+ */
 export function systemMessagePreview(body: string): string {
-  return body.replace(/\s+/g, " ").trim();
+  return body
+    .split("\n")
+    .map((line) => {
+      const row = line.trim();
+      if (/^```/.test(row)) return "";
+      // A table rule (`| --- | :-: |`) carries nothing to read.
+      if (/^\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?$/.test(row)) return "";
+      let text = row.replace(/^(#{1,6}|>|[-*+]|\d+[.)])\s+/, "");
+      // A table row: cells separated by a dot instead of pipes.
+      if (text.startsWith("|")) {
+        text = text
+          .replace(/^\|/, "")
+          .replace(/\|$/, "")
+          .split("|")
+          .map((cell) => cell.trim())
+          .filter(Boolean)
+          .join(" · ");
+      }
+      return text
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+        .replace(/(\*\*|__)(?=\S)(.*?\S)\1/g, "$2")
+        .replace(/`([^`]+)`/g, "$1");
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /**

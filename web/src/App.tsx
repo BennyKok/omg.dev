@@ -80,6 +80,7 @@ import {
   omgUpload,
 } from "./lib/omg-client";
 import { registerSessionRefHandlers } from "./lib/session-ref-link";
+import { ReturnToSessionPill } from "./components/return-to-session-pill";
 import { publishTeamSessions, useSessionTeam, type TeamPlanSummary } from "./lib/session-team";
 import {
   FRONTEND_VERSION,
@@ -21357,6 +21358,8 @@ const ChatStream = memo(function ChatStream({
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
+    {/* After a linked-session card opened this one, the way back. */}
+    <ReturnToSessionPill sid={sid} />
     <Conversation
       key={sid ?? "no-session"}
       ref={ref}

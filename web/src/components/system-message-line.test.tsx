@@ -25,7 +25,8 @@ describe("SystemMessageLine", () => {
     ].join("\n");
     const system = classifySystemMessage(raw)!;
     ui.render(<SystemMessageLine system={system} raw={raw} />);
-    expect(ui.text()).toContain("Started from Show coding agent icons");
+    expect(ui.text()).toContain("Started from");
+    expect(ui.text()).toContain("Show coding agent icons");
     expect(ui.text()).toContain("542a7801");
     expect(ui.text()).toContain("Finish the picker.");
     expect(ui.text()).not.toContain("You are starting a fresh agent session");
@@ -47,7 +48,8 @@ describe("SystemMessageLine", () => {
     const raw = "[Background task ios app · 542a7801]\n\nExact shipping tip is 0964f06ea.";
     const system = classifySystemMessage(raw)!;
     ui.render(<SystemMessageLine system={system} raw={raw} />);
-    expect(ui.text()).toContain("ios app reported in");
+    expect(ui.text()).toContain("Report from");
+    expect(ui.text()).toContain("ios app");
     expect(ui.text()).not.toContain("[Background task");
     const open = ui.query("button[aria-expanded]") as HTMLButtonElement;
     expect(open.getAttribute("aria-expanded")).toBe("false");
