@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "./config.ts";
@@ -238,6 +238,11 @@ describe("dashboard store and live runtime views", () => {
     expect(refreshStaleDashboardViews()).toEqual([]);
     // Past the interval it runs again.
     expect(refreshStaleDashboardViews(Date.now() + 61_000)).toEqual(["stale"]);
+  });
+
+  test("the saved dashboard is readable by its owner only", () => {
+    upsertDashboardView({ id: "private", title: "Private", kpis: [{ label: "MRR", value: "$1" }] });
+    expect(statSync(join(home, "dashboard", "dashboard.json")).mode & 0o777).toBe(0o600);
   });
 
   test("rejects a refresh script outside the session workspace", () => {

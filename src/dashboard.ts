@@ -563,10 +563,12 @@ export function readDashboardStore(): DashboardStoreData {
 
 function writeDashboardStore(data: DashboardStoreData): void {
   const dir = dashboardDir();
-  mkdirSync(dir, { recursive: true });
+  // Views can hold private figures (revenue, users), so only the owner reads them.
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   const path = dashboardFile();
   const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(data, null, 2));
+  writeFileSync(tmp, JSON.stringify(data, null, 2), { mode: 0o600 });
+  chmodSync(tmp, 0o600);
   renameSync(tmp, path);
   storeCache = null;
 }
