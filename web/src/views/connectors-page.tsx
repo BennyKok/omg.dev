@@ -89,7 +89,7 @@ export function ConnectorsPage() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 pb-10" data-lfg-page-column>
       <div>
-        <h1 className="text-lg font-semibold">Tool access</h1>
+        <h1 className="text-lg font-semibold max-md:hidden">Tool access</h1>
         <p className="text-sm text-muted-foreground">Who can use which tools.</p>
       </div>
       <div role="tablist" className="flex gap-1 rounded-xl bg-muted p-1 text-sm">

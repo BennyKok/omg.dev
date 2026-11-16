@@ -119,7 +119,7 @@ export function LinkedDevicesPage() {
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
       <div className="px-1">
-        <h1 className="text-lg font-semibold leading-tight">Linked devices</h1>
+        <h1 className="text-lg font-semibold leading-tight max-md:hidden">Linked devices</h1>
         <p className="text-sm text-muted-foreground">Connect two omg.dev instances. The receiving computer controls its permissions.</p>
       </div>
 

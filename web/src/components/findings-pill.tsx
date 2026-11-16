@@ -56,7 +56,10 @@ export function FindingsPill({
   const label = findingsLabel(count);
   return (
     <div
-      className="pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-4"
+      // The band behind the pill fades the list out before it reaches the
+      // pill. Without it a chat title ran under the pill and the two labels
+      // read as one ("weekly re 10 updates").
+      className="pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-4 before:absolute before:inset-x-0 before:-top-5 before:-bottom-2 before:bg-gradient-to-t before:from-background before:from-60% before:to-transparent before:content-['']"
       style={{ bottom: findingsPillBottom(aboveComposer) }}
     >
       <button
@@ -64,7 +67,7 @@ export function FindingsPill({
         onClick={onOpen}
         data-testid="findings-pill"
         aria-label={`${label} from auto agents. Open`}
-        className="pointer-events-auto flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-card/90 px-2.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-xl transition-colors hover:text-foreground"
+        className="pointer-events-auto relative flex h-7 items-center gap-1.5 rounded-full border border-border/70 bg-card/90 px-2.5 text-xs font-medium text-muted-foreground shadow-sm backdrop-blur-xl transition-colors hover:text-foreground"
       >
         <span className="tabular-nums">{label}</span>
         <ChevronUp className="size-3 shrink-0 opacity-70" />

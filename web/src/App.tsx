@@ -30,7 +30,7 @@ import { MobileHomeComposer } from "./components/mobile-home-composer";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
-import { mobileHeaderControl, sideNavRows, tabFallsToSettings, type SideNavRow } from "./lib/side-nav-items";
+import { mobileHeader, sideNavRows, tabFallsToSettings, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
 import {
   AgentSetupSheet,
@@ -6133,6 +6133,18 @@ export function App() {
     },
     [navigate],
   );
+  // Whether the page in view was opened from the phone's menu page. Back
+  // returns there (lib/side-nav-items.ts, mobileHeader). It survives a step
+  // into a Settings sub-page, so Menu > Settings > Usage walks back the same
+  // way. Chats and the menu itself reset it.
+  const previousTabRef = useRef(tab);
+  const [openedFromMenu, setOpenedFromMenu] = useState(false);
+  useEffect(() => {
+    const previous = previousTabRef.current;
+    previousTabRef.current = tab;
+    if (tab === "live" || tab === "folders") setOpenedFromMenu(false);
+    else if (previous === "folders") setOpenedFromMenu(true);
+  }, [tab]);
   const openBot = useCallback(
     (botId: string, conversationId?: string | null) => {
       const keepHostMode = (prev: AppSearch): AppSearch => ({
@@ -9436,17 +9448,9 @@ export function App() {
             </NavIsland>
           ) : (
             <NavIsland surface={false} className="flex shrink-0 items-center gap-0.5 self-center">
-              {!hiddenPages.includes("dashboard") ? (
-                <button
-                  type="button"
-                  onClick={() => setTab("dashboard")}
-                  aria-label="Dashboard"
-                  title="Dashboard"
-                  className="flex size-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                  <BarChart3 className="size-[18px]" />
-                </button>
-              ) : null}
+              {/* Two controls at most: the Inbox, and the roster filter when
+                  more than one person uses this computer. Every other page
+                  is a row on the menu page, and only there. */}
               {!hiddenPages.includes("notifications") ? (
                 <button
                   type="button"
@@ -9486,37 +9490,38 @@ export function App() {
       >
         {/* min-h-11: the height of Live's header islands, so the drawer button
             sits at the same height on a page with no pills around it. */}
-        <div className="flex min-h-11 min-w-0 items-center gap-2">
+        <div className={cn("flex min-h-11 min-w-0 items-center", isMobile ? "flex-1 gap-0.5" : "gap-2")}>
         {/* A phone has ONE control in this corner (lib/side-nav-items.ts,
-            mobileHeaderControl): the menu button on Chats, or a direct Back
-            button on every other page. */}
+            mobileHeader): the menu button on Chats, or one Back arrow with
+            the page's name beside it on every other page. */}
         {isMobile ? (
           (() => {
-            const ctrl = mobileHeaderControl(tab);
-            if (ctrl === "none") return null;
-            if (ctrl === "menu") return pageNavigation;
-            const target =
-              ctrl === "back-to-inbox"
-                ? "notifications"
-                : ctrl === "back-to-settings" && !embedded
-                  ? "settings"
-                  : "live";
-            const label =
-              ctrl === "back-to-inbox"
-                ? "Inbox"
-                : ctrl === "back-to-settings" && !embedded
-                  ? "Settings"
-                  : "Chats";
+            const head = mobileHeader(tab, {
+              fromMenu: openedFromMenu,
+              hasSettings: !embedded,
+              extensions: extNavTabs,
+            });
+            if (head.control === "none") return null;
+            if (head.control === "menu") return pageNavigation;
             return (
-              <button
-                type="button"
-                onClick={() => setTab(target)}
-                aria-label={`Back to ${label}`}
-                className="flex h-11 items-center gap-1 rounded-full pl-1 pr-3 text-[15px] font-medium tracking-[-0.01em] text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
-              >
-                <ChevronLeft className="size-5" />
-                <span>{label}</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setTab(head.target)}
+                  data-testid="phone-header-back"
+                  aria-label={`Back to ${head.targetLabel}`}
+                  title={`Back to ${head.targetLabel}`}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground active:scale-[0.96]"
+                >
+                  <ChevronLeft className="size-6" />
+                </button>
+                <h1
+                  data-testid="phone-header-title"
+                  className="min-w-0 flex-1 truncate text-[17px] font-semibold tracking-[-0.01em]"
+                >
+                  {head.title}
+                </h1>
+              </>
             );
           })()
         ) : (
@@ -9876,8 +9881,7 @@ export function App() {
           </div>
         ) : null}
         {isMobile && tab === "folders" ? (
-          // The phone's Folders & Navigation page: quick destinations at the top,
-          // folders below, and Settings in the title row.
+          // The phone's menu page: every page as a row, then the folders.
           <div className="mx-auto max-w-xl pb-10 pt-[calc(0.5rem+env(safe-area-inset-top))]">
             <PhoneFolders
               value={projectFilter}
@@ -9898,7 +9902,14 @@ export function App() {
               onAddFolder={() => setMobileFolderBrowser("add")}
               onNewFolder={() => setMobileFolderBrowser("new")}
               onCloneGitHub={() => setImportGitHubOpen(true)}
-              onOpenSettings={() => setTab("settings")}
+              pages={sideNavRows({
+                tab,
+                hiddenPages,
+                showSchedules: settings.showSchedules,
+                showSettings: !embedded,
+                extensions: extNavTabs,
+              })}
+              pagesUnread={sessionUnreadValue.any ? MENU_UNREAD_CHATS : undefined}
               onNavigate={(nextTab) => setTab(nextTab)}
             />
           </div>
@@ -15377,6 +15388,9 @@ export { RailItem };
  * deleted from the row — so no `onSwipeLeft` is offered and the row does not
  * rubber-band left.
  */
+/** The menu page marks Chats when a chat has unread work. */
+const MENU_UNREAD_CHATS: ReadonlySet<string> = new Set(["live"]);
+
 export function BotRosterRow({
   bot,
   busy,
@@ -28643,7 +28657,7 @@ function StoragePage() {
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
       <div className="px-1">
-        <h1 className="text-lg font-semibold leading-tight">Storage &amp; performance</h1>
+        <h1 className="text-lg font-semibold leading-tight max-md:hidden">Storage &amp; performance</h1>
         <p className="text-sm text-muted-foreground">This computer</p>
       </div>
 
@@ -30255,7 +30269,8 @@ function MoreView({
 
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
-      <div className="px-1">
+      {/* A phone names the page in its header bar (mobileHeader). */}
+      <div className="px-1 max-md:hidden">
         <h1 className="text-lg font-semibold leading-tight">More</h1>
       </div>
 
@@ -32019,7 +32034,7 @@ function AutoManageView({
               Settings
             </button>
           ) : null}
-          <h1 className="text-lg font-semibold leading-tight">Schedules</h1>
+          <h1 className="text-lg font-semibold leading-tight max-md:hidden">Schedules</h1>
         </div>
         <Button size="sm" variant="tint" className="ml-auto shrink-0" onClick={() => onEdit("new")}>
           <Plus className="size-4" /> New

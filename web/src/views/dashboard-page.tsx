@@ -658,7 +658,8 @@ export default function DashboardPage({
   return (
     <div className="mx-auto max-w-5xl space-y-3 pb-28" data-lfg-page-column data-testid="dashboard-page">
       <div className="flex items-center gap-2 px-1">
-        <h1 className="shrink-0 text-lg font-semibold tracking-[-0.01em]">Dashboard</h1>
+        {/* A phone names the page in its header bar (mobileHeader). */}
+        <h1 className="shrink-0 text-lg font-semibold tracking-[-0.01em] max-md:hidden">Dashboard</h1>
 
         {views.length > 1 ? (
           <div

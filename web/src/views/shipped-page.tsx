@@ -521,7 +521,7 @@ export default function ShippedPage({
     <div className="mx-auto max-w-xl space-y-4 pb-10" data-lfg-page-column>
       <div className="flex items-center justify-between px-1">
         <div>
-          <h1 className="text-lg font-semibold tracking-[-0.01em]">
+          <h1 className="text-lg font-semibold tracking-[-0.01em] max-md:hidden">
             {artifactsOnly ? "Artifacts" : "Inbox"}
           </h1>
           {artifactsOnly ? (

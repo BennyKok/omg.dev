@@ -59,14 +59,14 @@ test("the desktop menu still reaches Chat while a bot conversation is selected",
   expect(opened).toEqual(["auto"]);
 });
 
-test("the phone's Folders page separates folder selection from Settings", async () => {
+test("the phone's menu page separates folder selection from page navigation", async () => {
   const picked: string[] = [];
-  let settings = 0;
-  ui.render(<PhoneFolders value="__all" projects={["project"]} labelFor={(value) => value} onPick={(value) => picked.push(value)} onOpenSettings={() => settings++} />);
+  const opened: string[] = [];
+  ui.render(<PhoneFolders value="__all" projects={["project"]} labelFor={(value) => value} onPick={(value) => picked.push(value)} pages={sideNavRows({ tab: "folders" })} onNavigate={(tab) => opened.push(tab)} />);
   await click(ui.queryAll("button").find((node) => node.textContent === "project") ?? null);
   expect(picked).toEqual(["project"]);
-  await click(ui.query('[aria-label="Settings"]'));
-  expect(settings).toBe(1);
+  await click(ui.query('[data-testid="side-nav-row-settings"]'));
+  expect(opened).toEqual(["settings"]);
   expect(picked).toEqual(["project"]);
 });
 

@@ -55,7 +55,7 @@ const PAGES: { key: string; label: string; icon: SideNavIcon }[] = [
   // Bots is not listed: it is reached from the Chat/Bots switch on the Live
   // surface, and a second entry here made the drawer longer for a page most
   // people never open.
-  { key: "live", label: "Chat", icon: "chat" },
+  { key: "live", label: "Chats", icon: "chat" },
   { key: "dashboard", label: "Dashboard", icon: "dashboard" },
   { key: "auto", label: "Schedules", icon: "schedules" },
   // Then the destinations that used to be behind the overflow menu.
@@ -121,33 +121,80 @@ export function sideNavRows(input: {
   return rows;
 }
 
-export type MobileHeaderControl =
-  | "menu"
-  | "back-to-chats"
-  | "back-to-inbox"
-  | "back-to-settings"
-  | "none";
+export type MobileHeader =
+  | { control: "menu" }
+  | { control: "none" }
+  | {
+      control: "back";
+      /** The tab Back opens. */
+      target: "live" | "folders" | "settings";
+      /** The name of that tab, for the accessible label. */
+      targetLabel: string;
+      /** The page's own name, drawn beside the Back arrow. */
+      title: string;
+    };
+
+/** Page names for the phone header. An extension supplies its own label. */
+const PAGE_TITLES: Record<string, string> = {
+  dashboard: "Dashboard",
+  auto: "Schedules",
+  notifications: "Inbox",
+  artifacts: "Artifacts",
+  bots: "Bots",
+  board: "Board",
+  settings: "Settings",
+  usage: "Usage",
+  "coding-agents": "Coding agents",
+  changelog: "Changelog",
+  term: "Terminal",
+  browser: "Browser",
+  storage: "Storage & performance",
+  devices: "Linked devices",
+  "remote-access": "Remote access",
+  instructions: "Custom instructions",
+  connectors: "Tool access",
+  more: "More",
+};
 
 /**
- * The one control in a phone header's top-left corner.
+ * The phone header of a page: one control in the top-left corner, and the
+ * page's name beside it.
  *
  * - Chats (`live`) is home and shows the menu button (`SideNavButton`).
- * - Folders (`folders`) is chromeless and draws its own top row.
- * - Pages reached from Settings (`auto` / Schedules and Settings sub-pages)
- *   show Back to Settings (`< Settings`).
- * - Artifacts is reached from Inbox on a phone and shows Back to Inbox (`< Inbox`).
- * - Top-level pages (`dashboard`, `notifications`, `settings`, `bots`, `board`,
- *   extensions) show Back to Chats (`< Chats`), so tapping the top-left corner
- *   always returns where you came from instead of jumping to Folders.
+ * - The menu page (`folders`) is chromeless and draws its own top row.
+ * - Every other page shows ONE Back arrow with the page's name on the same
+ *   line. Back has two rules, and no page picks its own:
+ *     1. A page that Settings lists and the menu does not (Usage, Coding
+ *        agents, ...) returns to Settings. Settings is its only parent.
+ *     2. Any other page returns to where you opened it from: the menu when
+ *        `fromMenu` is true, and Chats otherwise.
+ *
+ * Back used to be a fixed label per page (`< Chats`, `< Inbox`, `< Settings`).
+ * Schedules said Settings and Artifacts said Inbox even when the menu opened
+ * them, so the corner named a page the reader had not come from.
  */
-export function mobileHeaderControl(tab: string): MobileHeaderControl {
-  if (tab === "folders") return "none";
-  if (tab === "live") return "menu";
-  if (tab === "artifacts") return "back-to-inbox";
-  if (tab === "auto" || (SETTINGS_TABS.has(tab) && tab !== "settings")) {
-    return "back-to-settings";
+export function mobileHeader(
+  tab: string,
+  options: {
+    /** True when the page was opened from the phone's menu page. */
+    fromMenu?: boolean;
+    /** False under a host that owns Settings. Its sub-pages return to Chats. */
+    hasSettings?: boolean;
+    extensions?: readonly { id: string; label: string }[];
+  } = {},
+): MobileHeader {
+  const { fromMenu = false, hasSettings = true, extensions = [] } = options;
+  if (tab === "folders") return { control: "none" };
+  if (tab === "live") return { control: "menu" };
+  const title =
+    PAGE_TITLES[tab] ?? extensions.find((extension) => extension.id === tab)?.label ?? "Settings";
+  const settingsChild = SETTINGS_TABS.has(tab) && tab !== "settings";
+  if (settingsChild && hasSettings) {
+    return { control: "back", target: "settings", targetLabel: "Settings", title };
   }
-  return "back-to-chats";
+  return fromMenu
+    ? { control: "back", target: "folders", targetLabel: "Menu", title }
+    : { control: "back", target: "live", targetLabel: "Chats", title };
 }
 
 /** Tabs that draw their own page in the shell. Anything else falls to Settings. */

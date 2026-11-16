@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mobileHeaderControl, sideNavCurrentKey, sideNavRows, tabFallsToSettings } from "./side-nav-items";
+import { mobileHeader, sideNavCurrentKey, sideNavRows, tabFallsToSettings } from "./side-nav-items";
 
 const keys = (rows: { key: string }[]) => rows.map((row) => row.key);
 
@@ -83,23 +83,51 @@ describe("sideNavRows", () => {
   });
 });
 
-describe("mobileHeaderControl", () => {
-  test("Chats shows the menu button, and Folders has no header control", () => {
-    expect(mobileHeaderControl("live")).toBe("menu");
-    expect(mobileHeaderControl("folders")).toBe("none");
+describe("mobileHeader", () => {
+  test("Chats shows the menu button, and the menu page has no header control", () => {
+    expect(mobileHeader("live")).toEqual({ control: "menu" });
+    expect(mobileHeader("folders")).toEqual({ control: "none" });
   });
 
-  test("top-level pages show Back to Chats instead of jumping to Folders", () => {
-    for (const tab of ["dashboard", "notifications", "settings", "bots", "board", "ext-anything"]) {
-      expect(mobileHeaderControl(tab)).toBe("back-to-chats");
+  test("every other page shows one Back arrow and its own name", () => {
+    for (const [tab, title] of [
+      ["dashboard", "Dashboard"],
+      ["notifications", "Inbox"],
+      ["artifacts", "Artifacts"],
+      ["auto", "Schedules"],
+      ["settings", "Settings"],
+      ["bots", "Bots"],
+      ["board", "Board"],
+    ]) {
+      expect(mobileHeader(tab)).toEqual({ control: "back", target: "live", targetLabel: "Chats", title });
     }
   });
 
-  test("Artifacts shows Back to Inbox, and Schedules + Settings sub-pages show Back to Settings", () => {
-    expect(mobileHeaderControl("artifacts")).toBe("back-to-inbox");
-    for (const tab of ["auto", "usage", "coding-agents", "storage", "instructions", "connectors", "changelog", "more"]) {
-      expect(mobileHeaderControl(tab)).toBe("back-to-settings");
+  test("Back returns to the menu when the menu opened the page", () => {
+    // Schedules and Artifacts are menu rows. They used to say Settings and
+    // Inbox, pages the reader had not come from.
+    for (const tab of ["dashboard", "notifications", "artifacts", "auto", "settings"]) {
+      const head = mobileHeader(tab, { fromMenu: true });
+      expect(head).toMatchObject({ control: "back", target: "folders", targetLabel: "Menu" });
     }
+  });
+
+  test("a page only Settings lists returns to Settings, wherever Settings was opened from", () => {
+    for (const tab of ["usage", "coding-agents", "storage", "instructions", "connectors", "changelog", "more"]) {
+      for (const fromMenu of [false, true]) {
+        expect(mobileHeader(tab, { fromMenu })).toMatchObject({ control: "back", target: "settings" });
+      }
+    }
+    expect(mobileHeader("storage")).toMatchObject({ title: "Storage & performance" });
+  });
+
+  test("under a host that owns Settings, its sub-pages return to Chats", () => {
+    expect(mobileHeader("usage", { hasSettings: false })).toMatchObject({ target: "live", targetLabel: "Chats" });
+  });
+
+  test("an extension page shows the extension's label", () => {
+    const head = mobileHeader("ext-a", { extensions: [{ id: "ext-a", label: "Reports" }] });
+    expect(head).toMatchObject({ control: "back", target: "live", title: "Reports" });
   });
 });
 

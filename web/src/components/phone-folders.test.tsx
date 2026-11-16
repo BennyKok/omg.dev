@@ -50,7 +50,7 @@ test("a hidden folder stays out of the list unless it is the one in view", () =>
   expect(rows()).toEqual(["All chats", "lfg", "vibes"]);
 });
 
-test("adding a folder or cloning one sits behind the + button, offered only when the shell can do it", () => {
+test("adding a folder or cloning one sits behind one row at the end of the list, offered only when the shell can do it", () => {
   let cloned = 0;
   ui.render(
     <PhoneFolders value="__all" projects={["lfg"]} labelFor={labelFor} onPick={() => {}} onCloneGitHub={() => cloned++} />,
@@ -63,12 +63,9 @@ test("adding a folder or cloning one sits behind the + button, offered only when
   expect(cloned).toBe(1);
 });
 
-test("Settings is the gear in the title row, not a row under the folders", () => {
-  let opened = 0;
-  ui.render(<PhoneFolders value="__all" projects={["lfg"]} labelFor={labelFor} onPick={() => {}} onOpenSettings={() => opened++} />);
-  ui.flush(() => (ui.query('button[aria-label="Settings"]') as HTMLElement).click());
-  expect(opened).toBe(1);
-  expect(rows().some((row) => row.includes("Settings"))).toBe(false);
+test("without a shell that can add folders there is no Add row", () => {
+  ui.render(<PhoneFolders value="__all" projects={["lfg"]} labelFor={labelFor} onPick={() => {}} />);
+  expect(ui.query('button[aria-label="Add a folder"]')).toBeNull();
 });
 
 test("the sort is the reader's choice and survives a reload", () => {
@@ -79,7 +76,13 @@ test("the sort is the reader's choice and survives a reload", () => {
   draw();
   // Recent first by default.
   expect(rows()).toEqual(["All chats", "zeta", "alpha", "mid"]);
-  ui.flush(() => (ui.queryAll('[role="radio"]').find((b) => b.textContent === "A–Z") as HTMLElement).click());
+  // One control picks the sort. It used to be three tabs beside Edit.
+  expect(ui.queryAll('[role="radio"]')).toEqual([]);
+  const select = ui.query('[data-testid="phone-folders-sort"]') as HTMLSelectElement;
+  ui.flush(() => {
+    select.value = "name";
+    select.dispatchEvent(new window.Event("change", { bubbles: true }));
+  });
   expect(rows()).toEqual(["All chats", "alpha", "mid", "zeta"]);
   ui.remount();
   draw();
@@ -102,7 +105,8 @@ test("Edit opens folder management in place, and Back returns to the list", () =
   expect(rows()).toEqual(["All chats", "lfg"]);
 });
 
-test("offers quick destination tiles for Chats, Dashboard, Inbox, and Computer when onNavigate is provided", () => {
+test("every page is one row above the folders, Settings included, and a tap opens it", async () => {
+  const { sideNavRows } = await import("../lib/side-nav-items");
   const visited: string[] = [];
   ui.render(
     <PhoneFolders
@@ -110,13 +114,25 @@ test("offers quick destination tiles for Chats, Dashboard, Inbox, and Computer w
       projects={["lfg"]}
       labelFor={labelFor}
       onPick={() => {}}
+      // The shell passes the rows for the menu's own tab.
+      pages={sideNavRows({ tab: "folders" })}
+      pagesUnread={new Set(["live"])}
       onNavigate={(tab) => visited.push(tab)}
     />,
   );
-  for (const key of ["live", "dashboard", "notifications", "computer"]) {
-    ui.flush(() => (ui.query(`[data-testid="phone-nav-${key}"]`) as HTMLElement).click());
-  }
-  expect(visited).toEqual(["live", "dashboard", "notifications", "computer"]);
+  const keys = ["live", "dashboard", "auto", "notifications", "artifacts", "computer", "settings"];
+  const pageRows = ui.queryAll('[data-testid="phone-nav-pages"] button');
+  expect(pageRows.map((row) => row.getAttribute("data-testid"))).toEqual(keys.map((key) => `side-nav-row-${key}`));
+  // No row is marked current, so every row navigates, Chats too.
+  expect(ui.query('[data-testid="phone-nav-pages"] [aria-current]')).toBeNull();
+  for (const row of pageRows) ui.flush(() => (row as HTMLElement).click());
+  expect(visited).toEqual(keys);
+  expect(ui.query('[aria-label="Chats has unread"]')).not.toBeNull();
+  // The page rows are not folder rows.
+  expect(rows()).toEqual(["All chats", "lfg"]);
+  // One way to each page: no tile strip, no gear.
+  expect(ui.query('[data-testid="phone-nav-strip"]')).toBeNull();
+  expect(ui.query('button[aria-label="Settings"]')).toBeNull();
 });
 
 test("Recent puts the newest folder first and folds idle folders into Inactive", async () => {

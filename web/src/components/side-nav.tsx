@@ -121,6 +121,7 @@ export function SideNavRows({
   unread,
   dense = false,
   haptic = true,
+  plain = false,
 }: {
   rows: SideNavRow[];
   onNavigate: (key: string) => void;
@@ -136,6 +137,11 @@ export function SideNavRows({
    * the phone's Folders page, where a switch under the finger caught scrolls.
    */
   haptic?: boolean;
+  /**
+   * Full-strength labels on every row. For the phone's menu page, where no
+   * row is the current one and a list of dimmed rows read as disabled.
+   */
+  plain?: boolean;
 }) {
   return (
     <>
@@ -158,10 +164,12 @@ export function SideNavRows({
               dense ? "min-h-10 text-[14px]" : "min-h-12 text-[15px]",
               row.current
                 ? "bg-muted font-semibold text-foreground"
-                : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                : plain
+                  ? "text-foreground hover:bg-muted/60"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
             )}
           >
-            <Icon className={cn("shrink-0", dense ? "size-4" : "size-[18px]")} />
+            <Icon className={cn("shrink-0", plain && "text-muted-foreground", dense ? "size-4" : "size-[18px]")} />
             <span className="min-w-0 flex-1 truncate">{row.label}</span>
             {unread?.has(row.key) ? (
               <span role="status" aria-label={`${row.label} has unread`} className="size-2 shrink-0 rounded-full bg-primary" />

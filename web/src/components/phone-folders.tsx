@@ -1,23 +1,29 @@
 /**
- * THE PHONE'S FOLDERS PAGE: the leftmost of the phone's flat pages.
+ * THE PHONE'S MENU PAGE: the leftmost of the phone's flat pages.
  *
- * It replaced the Create, Apps and Chats pills, and then the side drawer.
- * Picking a row selects that folder: the list shows only its chats, the header
- * names it, and the next chat starts there. "All chats" leaves the folder. The
- * shell owns the value (the project filter); this only draws it and hands a
- * pick back.
+ * It is the phone's one navigation. Two lists, in this order:
  *
- * Only folders live here. Settings is the gear in the title row, because a
- * row under a long folder list is a row nobody scrolls to.
+ *   1. Pages: every page a phone can open, one row each (lib/side-nav-items.ts).
+ *   2. Folders: picking a row selects that folder. The Chats list shows only
+ *      its chats, the header names it, and the next chat starts there. "All
+ *      chats" leaves the folder. The shell owns the value (the project
+ *      filter); this only draws it and hands a pick back.
+ *
+ * The page used to carry four page tiles, an add button, a Settings gear,
+ * three sort tabs and Edit above the folders, while the Chats header repeated
+ * two of the tiles. The pages are plain rows now, Settings is one of them, the
+ * sort is one control, and adding a folder is a row at the end of the list.
  */
 import { useState, type ReactNode } from "react";
-import { BarChart3, Bell, ChevronDown, Folder, FolderPlus, MessageSquare, MessagesSquare, Monitor, Plus, Settings } from "lucide-react";
+import { ChevronDown, Folder, FolderPlus, MessagesSquare, Plus } from "lucide-react";
 import { Github } from "./icons/github";
 import { cn } from "@/lib/utils";
 import { arrangeFolders, useFolderMenuPrefs, type ArrangedFolder } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER } from "../lib/project-filter";
 import { byRecent, splitByActivity, useFolderActivity } from "../lib/folder-activity";
 import { ManageFolders } from "./project-folder-menu";
+import { SideNavRows } from "./side-nav";
+import type { SideNavRow } from "../lib/side-nav-items";
 
 /** How the list is ordered. "custom" is the order set in Edit (folder-menu-prefs). */
 export type FolderSort = "recent" | "name" | "custom";
@@ -67,7 +73,8 @@ export function PhoneFolders({
   onAddFolder,
   onNewFolder,
   onCloneGitHub,
-  onOpenSettings,
+  pages,
+  pagesUnread,
   onNavigate,
   trailing,
 }: {
@@ -89,11 +96,12 @@ export function PhoneFolders({
   onAddFolder?: () => void;
   onNewFolder?: () => void;
   onCloneGitHub?: () => void;
-  /** The gear beside the title. Settings is one tap from here, always. */
-  onOpenSettings?: () => void;
-  /** Quick page navigation strip at the top of the phone's menu page. */
+  /** The page rows, first on the page. Settings is the last of them. */
+  pages?: readonly SideNavRow[];
+  /** Page row keys that carry an unread dot. */
+  pagesUnread?: ReadonlySet<string>;
   onNavigate?: (tab: string) => void;
-  /** Beside the gear: the host's header slot, since this page has no header bar. */
+  /** Beside the title: the host's header slot, since this page has no header bar. */
   trailing?: ReactNode;
 }) {
   const prefs = useFolderMenuPrefs();
@@ -144,80 +152,52 @@ export function PhoneFolders({
 
   return (
     <section aria-labelledby="phone-folders-title" className="flex flex-col gap-1">
-      <div className="flex items-center justify-between px-3">
+      <div className="flex min-h-10 items-center justify-between px-3">
         <h1 id="phone-folders-title" className="text-[22px] font-bold tracking-[-0.02em]">
-          Folders
+          Menu
         </h1>
-        <div className="flex items-center gap-1">
-          {trailing}
-          {canAdd ? (
-            <IconButton label="Add a folder" pressed={adding} onClick={() => setAdding((open) => !open)}>
-              <Plus className="size-5" />
-            </IconButton>
-          ) : null}
-          {onOpenSettings ? (
-            <IconButton label="Settings" onClick={onOpenSettings}>
-              <Settings className="size-5" />
-            </IconButton>
-          ) : null}
-        </div>
+        {trailing ? <div className="flex items-center gap-1">{trailing}</div> : null}
       </div>
-      {adding ? (
-        <div className="mx-1 mb-1 flex flex-col rounded-xl bg-muted/50 py-1">
-          {onAddFolder ? <ActionRow icon={<FolderPlus className="size-4" />} label="Add a folder on this computer" onClick={onAddFolder} /> : null}
-          {onNewFolder ? <ActionRow icon={<FolderPlus className="size-4" />} label="New empty folder" onClick={onNewFolder} /> : null}
-          {onCloneGitHub ? <ActionRow icon={<Github className="size-4" />} label="Clone from GitHub" onClick={onCloneGitHub} /> : null}
-        </div>
-      ) : null}
-      {onNavigate ? (
-        <nav
-          aria-label="Pages"
-          data-testid="phone-nav-strip"
-          className="grid grid-cols-4 gap-1.5 px-2 pb-2 pt-0.5"
-        >
-          {(
-            [
-              { key: "live", label: "Chats", icon: <MessageSquare className="size-4" /> },
-              { key: "dashboard", label: "Dashboard", icon: <BarChart3 className="size-4" /> },
-              { key: "notifications", label: "Inbox", icon: <Bell className="size-4" /> },
-              { key: "computer", label: "Computer", icon: <Monitor className="size-4" /> },
-            ] as const
-          ).map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              data-testid={`phone-nav-${item.key}`}
-              onClick={() => onNavigate(item.key)}
-              className="flex flex-col items-center justify-center gap-1 rounded-xl border border-border/60 bg-card/50 py-2.5 text-[12px] font-medium text-foreground transition-colors hover:bg-muted active:scale-[0.98]"
-            >
-              <span className="text-muted-foreground">{item.icon}</span>
-              <span>{item.label}</span>
-            </button>
-          ))}
+      {pages?.length && onNavigate ? (
+        <nav aria-label="Pages" data-testid="phone-nav-pages" className="flex flex-col gap-0.5 pb-1">
+          <SideNavRows
+            // No row is marked: this page is none of them, and a marked row
+            // does not navigate (SideNavRows closes on the current row).
+            rows={pages.map((row) => ({ ...row, current: false }))}
+            onNavigate={onNavigate}
+            onClose={() => {}}
+            unread={pagesUnread}
+            haptic={false}
+            plain
+          />
         </nav>
       ) : null}
-      <div className="flex items-center justify-between px-2 pb-1">
-        <div role="radiogroup" aria-label="Sort folders" className="flex rounded-full bg-muted p-0.5">
-          {SORTS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              role="radio"
-              aria-checked={sort === option.id}
-              onClick={() => setSort(option.id)}
-              className={cn(
-                "h-8 rounded-full px-3 text-[13px] font-medium transition-colors",
-                sort === option.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground",
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
-        </div>
+      <div className="mt-2 flex min-h-10 items-center gap-2 border-t border-border/60 px-3 pt-2">
+        <h2 className="min-w-0 flex-1 text-[12px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          Folders
+        </h2>
+        <label className="relative flex h-8 shrink-0 items-center rounded-full bg-muted pl-3 pr-7 text-[13px] font-medium text-foreground">
+          <span className="sr-only">Sort folders</span>
+          <span aria-hidden="true">{SORTS.find((option) => option.id === sort)?.label}</span>
+          <ChevronDown aria-hidden="true" className="pointer-events-none absolute right-2 size-3.5 text-muted-foreground" />
+          <select
+            aria-label="Sort folders"
+            data-testid="phone-folders-sort"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as FolderSort)}
+            className="absolute inset-0 size-full cursor-pointer appearance-none opacity-0"
+          >
+            {SORTS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="h-8 rounded-full px-3 text-[13px] font-medium text-primary"
+          className="h-8 shrink-0 rounded-full px-2 text-[13px] font-medium text-primary"
         >
           Edit
         </button>
@@ -278,35 +258,29 @@ export function PhoneFolders({
             : null}
         </>
       ) : null}
+      {canAdd ? (
+        <>
+          <button
+            type="button"
+            aria-expanded={adding}
+            aria-label="Add a folder"
+            onClick={() => setAdding((open) => !open)}
+            className="flex min-h-12 items-center gap-3 rounded-xl px-3 text-left text-[15px] text-primary transition-colors hover:bg-muted/60"
+          >
+            <Plus className="size-[18px] shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Add a folder</span>
+            <ChevronDown className={cn("size-4 shrink-0 transition-transform", adding && "rotate-180")} />
+          </button>
+          {adding ? (
+            <div className="mx-1 mb-1 flex flex-col rounded-xl bg-muted/50 py-1">
+              {onAddFolder ? <ActionRow icon={<FolderPlus className="size-4" />} label="Add a folder on this computer" onClick={onAddFolder} /> : null}
+              {onNewFolder ? <ActionRow icon={<FolderPlus className="size-4" />} label="New empty folder" onClick={onNewFolder} /> : null}
+              {onCloneGitHub ? <ActionRow icon={<Github className="size-4" />} label="Clone from GitHub" onClick={onCloneGitHub} /> : null}
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </section>
-  );
-}
-
-function IconButton({
-  label,
-  pressed,
-  onClick,
-  children,
-}: {
-  label: string;
-  pressed?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-label={label}
-      aria-pressed={pressed}
-      title={label}
-      className={cn(
-        "flex size-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-        pressed && "bg-muted text-foreground",
-      )}
-    >
-      {children}
-    </button>
   );
 }
 

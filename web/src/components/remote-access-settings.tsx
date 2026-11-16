@@ -115,7 +115,7 @@ export function RemoteAccessPage() {
   return (
     <div className="mx-auto max-w-xl space-y-8 pb-10" data-lfg-page-column>
       <div className="px-1">
-        <h1 className="text-lg font-semibold leading-tight">Remote access</h1>
+        <h1 className="text-lg font-semibold leading-tight max-md:hidden">Remote access</h1>
         <p className="text-sm text-muted-foreground">Open omg.dev from your phone or another computer.</p>
       </div>
       {offersRemoteAccess(access) ? (
