@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/omg-client";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
+import { PhoneHeaderActions, usePhoneHeaderSlot } from "@/components/phone-header-actions";
 
 export type DashboardTone = "good" | "warn" | "bad" | "neutral";
 
@@ -655,9 +656,13 @@ export default function DashboardPage({
     }
   };
 
+  const phoneHeaderSlot = usePhoneHeaderSlot();
+
   return (
     <div className="mx-auto max-w-5xl space-y-3 pb-28" data-lfg-page-column data-testid="dashboard-page">
-      <div className="flex items-center gap-2 px-1">
+      {/* On a phone the title and the actions are in the header bar. The row
+          stays only when it has view tabs to show. */}
+      <div className={cn("flex items-center gap-2 px-1", phoneHeaderSlot && views.length <= 1 && "hidden")}>
         {/* A phone names the page in its header bar (mobileHeader). */}
         <h1 className="shrink-0 text-lg font-semibold tracking-[-0.01em] max-md:hidden">Dashboard</h1>
 
@@ -692,6 +697,7 @@ export default function DashboardPage({
           </div>
         ) : null}
 
+        <PhoneHeaderActions>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {agentBusy && onOpenEditorSession ? (
             <Button
@@ -703,7 +709,8 @@ export default function DashboardPage({
               className="h-8 gap-1.5 px-2.5 text-xs"
             >
               <Loader2 className="size-3.5 animate-spin text-primary" />
-              <span>Updating…</span>
+              {/* A phone header keeps the spinner and drops the word. */}
+              <span className="max-md:sr-only">Updating…</span>
             </Button>
           ) : null}
           {onEdit ? (
@@ -730,6 +737,7 @@ export default function DashboardPage({
             <RotateCcw className={cn("size-4", refreshing && "animate-spin")} />
           </Button>
         </div>
+        </PhoneHeaderActions>
       </div>
 
       {activeView === null ? (

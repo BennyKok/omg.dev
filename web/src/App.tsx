@@ -30,6 +30,7 @@ import { MobileHomeComposer } from "./components/mobile-home-composer";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
+import { PhoneHeaderActions, PhoneHeaderSlotContext, usePhoneHeaderSlot } from "./components/phone-header-actions";
 import { mobileHeader, sideNavRows, tabFallsToSettings, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
 import {
@@ -6137,6 +6138,10 @@ export function App() {
   // returns there (lib/side-nav-items.ts, mobileHeader). It survives a step
   // into a Settings sub-page, so Menu > Settings > Usage walks back the same
   // way. Chats and the menu itself reset it.
+  // The right side of the phone header, where a page draws its own actions
+  // (components/phone-header-actions.tsx). State, not a ref: the pages must
+  // render again once the node exists.
+  const [phoneHeaderSlot, setPhoneHeaderSlot] = useState<HTMLElement | null>(null);
   const previousTabRef = useRef(tab);
   const [openedFromMenu, setOpenedFromMenu] = useState(false);
   useEffect(() => {
@@ -9344,6 +9349,7 @@ export function App() {
     <ArtifactViewerContext.Provider value={openArtifactViewer}>
     <SessionTerminalContext.Provider value={terminalDocks}>
     <OpenSettingsPageContext.Provider value={setTab}>
+    <PhoneHeaderSlotContext.Provider value={isMobile ? phoneHeaderSlot : null}>
     <BotDirectoryContext.Provider value={botDirectory}>
     <ViewerIdentityContext.Provider value={viewerParticipantId}>
     <RuntimeAvailabilityContext.Provider value={{
@@ -9521,6 +9527,12 @@ export function App() {
                 >
                   {head.title}
                 </h1>
+                {/* The page's own actions (PhoneHeaderActions). */}
+                <div
+                  ref={setPhoneHeaderSlot}
+                  data-testid="phone-header-actions"
+                  className="flex shrink-0 items-center gap-1 empty:hidden"
+                />
               </>
             );
           })()
@@ -10159,6 +10171,7 @@ export function App() {
     </RuntimeAvailabilityContext.Provider>
     </ViewerIdentityContext.Provider>
     </BotDirectoryContext.Provider>
+    </PhoneHeaderSlotContext.Provider>
     </OpenSettingsPageContext.Provider>
     </SessionTerminalContext.Provider>
     </ArtifactViewerContext.Provider>
@@ -32012,6 +32025,9 @@ function AutoManageView({
   // section starts open: hiding schedules by default would be a worse kind of
   // noise than showing them.
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // On a phone the title and "New" are in the header bar, so the row that
+  // held them is empty.
+  const phoneHeaderSlot = usePhoneHeaderSlot();
 
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-2" data-lfg-page-column>
@@ -32021,7 +32037,7 @@ function AutoManageView({
           that sat here is gone: findings have their own surface, and a banner
           about them was the loudest thing on a page that is meant to be a
           list of schedules. The per-row "N open" badge still points at them. */}
-      <div className="flex items-end justify-between gap-3 px-1 pb-2">
+      <div className={cn("flex items-end justify-between gap-3 px-1 pb-2", phoneHeaderSlot && !onBack && "hidden")}>
         <div className="flex min-w-0 items-center gap-2">
           {onBack ? (
             <button
@@ -32036,9 +32052,11 @@ function AutoManageView({
           ) : null}
           <h1 className="text-lg font-semibold leading-tight max-md:hidden">Schedules</h1>
         </div>
-        <Button size="sm" variant="tint" className="ml-auto shrink-0" onClick={() => onEdit("new")}>
-          <Plus className="size-4" /> New
-        </Button>
+        <PhoneHeaderActions>
+          <Button size="sm" variant="tint" className="ml-auto shrink-0" onClick={() => onEdit("new")}>
+            <Plus className="size-4" /> New
+          </Button>
+        </PhoneHeaderActions>
       </div>
       {autoAgents.length === 0 ? (
         <div className="px-4 py-10 text-center text-sm text-muted-foreground">
