@@ -153,7 +153,7 @@ const PAGE_TITLES: Record<string, string> = {
   computers: "My computers",
   "remote-access": "Open from phone",
   instructions: "Custom instructions",
-  connectors: "Tool access",
+  connectors: "People & roles",
 };
 
 /**

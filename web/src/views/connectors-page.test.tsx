@@ -167,13 +167,17 @@ describe("RoleCard views and members", () => {
 });
 
 describe("ConnectorsPage", () => {
-  test("has Roles and Connectors tabs; no iframe, no Executor", async () => {
+  test("has People, Roles and Connectors tabs; no iframe, no Executor", async () => {
     fakeServer([OWNER]);
     ui.render(<ConnectorsPage />);
     await ui.flushAsync();
+    // People is the first tab; Roles and Connectors follow it.
+    expect(ui.queryAll('[role="tab"]').map((tab) => tab.textContent)).toEqual(["People", "Roles", "Connectors"]);
+    await ui.flushAsync(async () => (ui.queryAll('[role="tab"]')[1] as HTMLElement).click());
+    await ui.flushAsync();
     expect(ui.text()).toContain("Built in."); // Roles tab, owner
 
-    await ui.flushAsync(async () => (ui.queryAll('[role="tab"]')[1] as HTMLElement).click());
+    await ui.flushAsync(async () => (ui.queryAll('[role="tab"]')[2] as HTMLElement).click());
     // Native connectors panel: no iframe, reads /api/connectors, not Executor.
     expect(ui.query("iframe")).toBeNull();
     expect(ui.text()).toContain("Apps your agents can use");

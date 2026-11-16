@@ -83,6 +83,22 @@ export function tailnetPerson(req: Request): TailnetPerson | null {
 // one.
 const ADMITTED = new WeakMap<Request, TailnetPerson>();
 
+// What Tailscale last said about each admitted person, for Settings > People.
+// In memory only: it is a display aid, rebuilt as people use the computer.
+const SEEN = new Map<string, { name: string | null; picture: string | null; lastSeenAt: number }>();
+const SEEN_LIMIT = 200;
+
+function remember(person: TailnetPerson): void {
+  SEEN.delete(person.login);
+  SEEN.set(person.login, { name: person.name, picture: person.picture, lastSeenAt: Date.now() });
+  while (SEEN.size > SEEN_LIMIT) SEEN.delete(SEEN.keys().next().value as string);
+}
+
+/** Tailscale's name and picture for a login the gate admitted, or null. */
+export function seenTailnetPerson(login: string): { name: string | null; picture: string | null; lastSeenAt: number } | null {
+  return SEEN.get(login.trim().toLowerCase()) ?? null;
+}
+
 /** The tailnet person this request was admitted as, or null. */
 export function tailnetPersonOf(req: Request): TailnetPerson | null {
   return ADMITTED.get(req) ?? null;
@@ -144,6 +160,7 @@ export function tailnetGateResponse(req: Request, options: TailnetGateOptions = 
     if (person) {
       if (options.people.isMember(person.login)) {
         ADMITTED.set(req, person);
+        remember(person);
         return null;
       }
       // Known to the tailnet, not to this computer. The owner adds a person

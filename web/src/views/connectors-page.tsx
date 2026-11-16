@@ -1,5 +1,6 @@
 import { useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, Plug, Plus, Trash2, Users } from "lucide-react";
+import { ChevronRight, Plug, Plus, Trash2, Users, UserRound } from "lucide-react";
+import { PeoplePanel } from "./people-panel";
 
 import { Button } from "@/components/ui/button";
 import type { ViewToggleKey } from "@/lib/viewer-role";
@@ -62,7 +63,7 @@ export const HIDEABLE_PAGE_ROWS: { id: string; label: string }[] = [
 type RosterUser = { email: string; name?: string };
 
 
-type Tab = "roles" | "connectors";
+type Tab = "people" | "roles" | "connectors";
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   // Through the transport, never bare fetch: embedded in a host, a relative
@@ -85,16 +86,19 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export function ConnectorsPage() {
-  const [tab, setTab] = useState<Tab>("roles");
+  // People first: "who is here and what can they do" is the question the
+  // page is opened for. Roles and connectors are how the answer is built.
+  const [tab, setTab] = useState<Tab>("people");
   return (
     <div className="mx-auto max-w-2xl space-y-6 pb-10" data-lfg-page-column>
       <div>
-        <h1 className="text-lg font-semibold max-md:hidden">Tool access</h1>
-        <p className="text-sm text-muted-foreground">Who can use which tools.</p>
+        <h1 className="text-lg font-semibold max-md:hidden">People &amp; roles</h1>
+        <p className="text-sm text-muted-foreground">Who uses this computer, and which tools they can use.</p>
       </div>
       <div role="tablist" className="flex gap-1 rounded-xl bg-muted p-1 text-sm">
         {(
           [
+            ["people", "People", UserRound],
             ["roles", "Roles", Users],
             ["connectors", "Connectors", Plug],
           ] as const
@@ -114,6 +118,7 @@ export function ConnectorsPage() {
           </button>
         ))}
       </div>
+      {tab === "people" ? <PeoplePanel /> : null}
       {tab === "roles" ? <RolesPanel /> : null}
       {tab === "connectors" ? <ConnectorsNativePanel /> : null}
     </div>

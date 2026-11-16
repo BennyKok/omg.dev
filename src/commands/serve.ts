@@ -87,7 +87,7 @@ import {
   isStorableUserFilter,
   setSessionUserFilter,
 } from "../session-user-filter.ts";
-import { tailnetGateResponse, tailnetIdentityFromEnv, tailnetPersonOf, tailnetPortFromEnv } from "../tailnet-gate.ts";
+import { seenTailnetPerson, tailnetGateResponse, tailnetIdentityFromEnv, tailnetPerson, tailnetPersonOf, tailnetPortFromEnv } from "../tailnet-gate.ts";
 import { findProjectFavicon, projectFaviconMime } from "../project-favicon.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
@@ -5240,6 +5240,35 @@ export async function cmdServe() {
           hide: role.views.hide,
           hiddenPages: role.views.hiddenPages,
         });
+      }
+
+      // Settings > People: each person on the user list, the role they
+      // resolve to, and what Tailscale calls them when the gate has seen
+      // them. Read-only. A role is changed through /api/roles, its one owner.
+      if (path === "/api/people" && req.method === "GET") {
+        const admitted = tailnetPersonOf(req);
+        // On the main port the header is a hint the caller could have typed.
+        // It is shown back to that caller only, marked unverified, and is
+        // never stored or used to decide anything.
+        const hint = admitted ?? tailnetPerson(req);
+        return json(
+          {
+            identityMode: TAILNET_IDENTITY ? "tailscale" : "profile",
+            viewer: hint ? { login: hint.login, name: hint.name, verified: !!admitted } : null,
+            people: userRoster().map((person) => {
+              const role = roleForUser(person.email);
+              const seen = seenTailnetPerson(person.email);
+              return {
+                email: person.email,
+                name: person.name,
+                avatar: person.avatar,
+                role: { id: role.id, name: role.name },
+                tailscale: seen ? { name: seen.name, lastSeenAt: seen.lastSeenAt } : null,
+              };
+            }),
+          },
+          { headers: { "Content-Type": "application/json", "Cache-Control": "no-store" } },
+        );
       }
 
       // ---- roles ----

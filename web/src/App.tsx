@@ -30282,6 +30282,12 @@ function SettingsView({
     <div className="mx-auto w-full max-w-xl space-y-8 pb-10" data-lfg-page-column>
       <IdentitySettingsHeader user={user} />
 
+      {/* Who uses this computer and what each person can do. It was inside
+          Advanced, three taps down, under the name "Tool access". */}
+      <SettingsGroup label="People">
+        <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
+      </SettingsGroup>
+
       <SettingsGroup label="Agents">
         <SettingsRow
           onClick={onOpenCodingAgents}
@@ -30389,10 +30395,6 @@ function SettingsView({
           stay one tap away. It is the last group, so opening it pushes
           nothing else down. */}
       <AdvancedSettingsGroup collapsible>
-        <SettingsGroup label="Tool access">
-          <ConnectorsRow onOpen={onOpenConnectors} roleCount={null} />
-        </SettingsGroup>
-
         <AgentConcurrencySettingsSection
           settings={settings}
           onChange={onSettingsChange}
@@ -30486,8 +30488,8 @@ function ViewSettingsSection({
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {roleViewer.canSwitchRole
-                      ? "Change the preview under Roles & tool access."
-                      : "Set by the owner under Roles & tool access."}
+                      ? "Change the preview under People & roles."
+                      : "Set by the owner under People & roles."}
                   </div>
                 </div>
                 <span className="shrink-0 text-sm">{roleViewer.role.name}</span>

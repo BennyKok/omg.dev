@@ -10,8 +10,8 @@ export function ConnectorsRow({ onOpen, roleCount }: { onOpen: () => void; roleC
     <SettingsRow
       onClick={onOpen}
       icon={<SettingsIcon><Shield /></SettingsIcon>}
-      title={<>Roles &amp; tool access</>}
-      description={roleCount === null ? "Which tools each session may use" : `${roleCount} role${roleCount === 1 ? "" : "s"}`}
+      title={<>People &amp; roles</>}
+      description={roleCount === null ? "Who uses this computer, and what they can do" : `${roleCount} role${roleCount === 1 ? "" : "s"}`}
       descriptionClassName="truncate"
     />
   );
