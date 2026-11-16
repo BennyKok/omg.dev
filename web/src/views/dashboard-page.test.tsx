@@ -85,60 +85,40 @@ test("renders KPIs, Needs you list, charts, and tables and switches views", asyn
   expect(ui.text()).toContain("14d 3h");
 });
 
-test("sends agent edit requests for the active view and opens the linked session", async () => {
-  const asks: Array<{ prompt: string; viewId: string | undefined }> = [];
-  const opened: string[] = [];
-
+test("Edit hands the open tab to the shell, with no input bar on the page", () => {
+  const edits: Array<string | undefined> = [];
   ui.render(
-    <DashboardPage
-      active={false}
-      initialData={SAMPLE_PAYLOAD}
-      onAskAgent={(prompt, view) => {
-        asks.push({ prompt, viewId: view?.id });
-      }}
-      onOpenEditorSession={(sid) => opened.push(sid)}
-    />,
+    <DashboardPage active={false} initialData={SAMPLE_PAYLOAD} onEdit={(view) => edits.push(view?.id)} />,
   );
-
-  // Quick prompt chip populates input and form submit invokes onAskAgent
-  const chip = ui.queryAll("button").find((b) => b.textContent === "Add an Analytics tab with 7d metrics")!;
-  ui.flush(() => chip.click());
-
-  const form = ui.query('[data-testid="dashboard-agent-form"]') as HTMLFormElement;
-  await ui.flushAsync(() => {
-    form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
-  });
-  expect(asks).toEqual([
-    { prompt: "Add an Analytics tab with 7d metrics", viewId: "today" },
-  ]);
-
-  const openChatBtn = ui.query('[data-testid="dashboard-open-agent-session"]') as HTMLElement;
-  ui.flush(() => openChatBtn.click());
-  expect(opened).toEqual(["session-123"]);
+  expect(ui.query("input")).toBeNull();
+  expect(ui.query("form")).toBeNull();
+  ui.flush(() => (ui.query('[data-testid="dashboard-tab-system"]') as HTMLElement).click());
+  ui.flush(() => (ui.query('[data-testid="dashboard-edit"]') as HTMLElement).click());
+  expect(edits).toEqual(["system"]);
+  // Header: Edit and Refresh only, while no agent is at work.
+  expect(ui.query('[data-testid="dashboard-open-agent-session"]')).toBeNull();
 });
 
-test("Updating… follows the dashboard's own agent session, not any busy agent", async () => {
+test("Updating… shows only while the dashboard's own agent works, and opens its chat", () => {
   const busy = new Set<string>(["some-other-session"]);
-  ui.render(
-    <DashboardPage
-      initialData={SAMPLE_PAYLOAD}
-      active={false}
-      isSessionBusy={(sid) => busy.has(sid)}
-      onOpenEditorSession={() => {}}
-    />,
-  );
+  const opened: string[] = [];
+  const draw = () =>
+    ui.render(
+      <DashboardPage
+        initialData={SAMPLE_PAYLOAD}
+        active={false}
+        isSessionBusy={(sid) => busy.has(sid)}
+        onOpenEditorSession={(sid) => opened.push(sid)}
+      />,
+    );
+  draw();
   expect(ui.text()).not.toContain("Updating…");
-  expect(ui.text()).toContain("Agent chat");
+  expect(ui.query('[data-testid="dashboard-open-agent-session"]')).toBeNull();
   busy.add("session-123");
-  ui.render(
-    <DashboardPage
-      initialData={SAMPLE_PAYLOAD}
-      active={false}
-      isSessionBusy={(sid) => busy.has(sid)}
-      onOpenEditorSession={() => {}}
-    />,
-  );
+  draw();
   expect(ui.text()).toContain("Updating…");
+  ui.flush(() => (ui.query('[data-testid="dashboard-open-agent-session"]') as HTMLElement).click());
+  expect(opened).toEqual(["session-123"]);
 });
 
 test("opens on the first tab, not always on Today", async () => {

@@ -5978,6 +5978,13 @@ export function App() {
     nonce: number;
   } | null>(null);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
+  // Text that a surface outside the composer writes into it (the dashboard's
+  // Edit). Cleared once a composer has applied it.
+  const [promptRequest, setPromptRequest] = useState<{ text: string; nonce: number } | null>(null);
+  const clearPromptRequest = useCallback(
+    (nonce: number) => setPromptRequest((current) => (current?.nonce === nonce ? null : current)),
+    [],
+  );
   // Local echo of "I dismissed the getting-started panel". The durable record
   // is the server marking every coach step done (see the card's onDismiss);
   // this just makes it go away without waiting on the round trip.
@@ -9066,70 +9073,30 @@ export function App() {
       [s.sessionId, s.nativeSessionId].filter((x): x is string => !!x),
     ),
   );
-  const askDashboardAgent = async (promptText: string, activeView: { id: string; title: string } | null) => {
-    const cwd = resolveAutoTriageCwd({
-      sources: [],
-      projectFilter,
-      repos: repos.map((repo) => ({ cwd: repo.cwd, project: repoProject(repo) })),
-      fallbackCwd: localStorage.getItem("lfg_v2_repo"),
-    });
-    const launchAgent =
-      knownAgentKind(localStorage.getItem("lfg_v2_agent")) ??
-      knownAgentKind(settings.lastAgent) ??
-      resolveInitialAgent(settings.defaultAgent, "aisdk");
-    const launchModel =
-      localStorage.getItem(`lfg_model_${launchAgent}`) ||
-      (launchAgent === settings.lastAgent ? settings.lastModel : "") ||
-      (launchAgent === settings.defaultAgent ? settings.defaultModel : "") ||
-      localStorage.getItem("lfg_model") ||
-      modelCatalog.defaults[launchAgent] ||
-      AGENT_DEFAULT_MODEL[launchAgent];
-    const owner =
-      userFilter === "__unassigned"
-        ? ""
-        : resolveRosterUser(
-            userFilter !== "__all" ? userFilter : localStorage.getItem("lfg_user"),
-            users,
-          );
-    const fullPrompt = [
-      `Update the local omg.dev Dashboard (active view: "${activeView?.title ?? "Today"}", id: "${activeView?.id ?? "today"}") using the \`omg_dashboard\` MCP tool.`,
-      "First call `omg_dashboard` with `action: \"get\"` to inspect current views, then call `omg_dashboard` with `action: \"upsert_view\"` to apply the requested changes.",
-      "Follow omg-admin rules: show labels and numbers only, no prose explanations or subtitles.",
-      "",
-      `Request: ${promptText}`,
-    ].join("\n");
-    const res = await api<{ sessionId?: string }>("/api/sessions/new", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        cwd,
-        prompt: fullPrompt,
-        title: `Dashboard: ${promptText.slice(0, 48)}`,
-        user: owner || undefined,
-        agent: launchAgent,
-        model: launchModel,
-        thinkingLevel: thinkingLevelsForSelection(modelCatalog, launchAgent, launchModel).length
-          ? savedThinkingLevel()
-          : undefined,
-      }),
-    });
-    if (res.sessionId) {
-      markCreatedSid(res.sessionId);
-      await api("/api/dashboard/editor-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: res.sessionId }),
-      }).catch(() => {});
+  // The dashboard's Edit writes the opening of a chat into the normal
+  // composer. The person finishes the request, picks the agent and model there,
+  // and sends it. The server links the chat to the dashboard when the agent
+  // saves a view (see /api/dashboard/views).
+  const editDashboard = (activeView: { id: string; title: string } | null) => {
+    const name = activeView ? `"${activeView.title}" tab (id ${activeView.id})` : "dashboard";
+    setPromptRequest((prev) => ({
+      text: `Edit the omg.dev dashboard ${name} with the omg_dashboard tool. Labels and numbers only.\n\nChange: `,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+    if (isMobile) {
+      setTab("live");
+      setComposerExpanded(true);
+      setComposerFocusNonce((n) => n + 1);
+    } else {
+      setNewOpen(true);
     }
-    await refreshSessions();
-    toast.success("Agent is updating the dashboard");
   };
   const dashboardPage = (active: boolean) => (
     <Suspense fallback={<div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>}>
       <DashboardPage
         active={active}
         isSessionBusy={(sid) => !!liveStream.busyBySid[sid]}
-        onAskAgent={askDashboardAgent}
+        onEdit={editDashboard}
         onOpenEditorSession={(sid) => {
           setTab("live");
           openSessionPage(sid);
@@ -9818,6 +9785,8 @@ export function App() {
                   variant="stage"
                   open
                   starters={false}
+                  promptRequest={promptRequest}
+                  onPromptRequestApplied={clearPromptRequest}
                   users={users}
                   repos={repos}
                   scopedProject={projectFilter}
@@ -10000,6 +9969,8 @@ export function App() {
               focusNonce={composerFocusNonce}
               findSessions={findSessions}
               agentRequest={agentRequest}
+              promptRequest={promptRequest}
+              onPromptRequestApplied={clearPromptRequest}
               users={users}
               repos={repos}
               // The folder in view. The composer's folder pill writes it back,
@@ -10079,6 +10050,8 @@ export function App() {
       <NewSessionDialog
         open={newOpen}
         agentRequest={agentRequest}
+        promptRequest={promptRequest}
+        onPromptRequestApplied={clearPromptRequest}
         users={users}
         repos={repos}
         scopedProject={projectFilter}
@@ -23365,6 +23338,8 @@ function NewSessionDialog({
   findSessions,
   codingAgents,
   agentRequest,
+  promptRequest,
+  onPromptRequestApplied,
 }: {
   /** The starter pills above an empty chat box. Desktop only: the phone
    *  starts new work from Create, which has the host's tutorial cards. */
@@ -23410,6 +23385,13 @@ function NewSessionDialog({
   // Set when a surface outside the composer picks the agent for it (the usage
   // campfire). The nonce lets the same agent be requested more than once.
   agentRequest?: { kind: AgentKind; accountId?: string; nonce: number } | null;
+  // Set when a surface outside the composer writes the first words of a chat
+  // (the dashboard's Edit). The text replaces the draft and the box takes
+  // focus, so the person finishes the request and sends it. The owner clears
+  // the request in onPromptRequestApplied, so a later remount does not apply
+  // it again over newer typing.
+  promptRequest?: { text: string; nonce: number } | null;
+  onPromptRequestApplied?: (nonce: number) => void;
 }) {
   "use memo";
   const runtime = useRuntimeAvailability();
@@ -24153,6 +24135,23 @@ function NewSessionDialog({
     selectAgent(agentRequest.kind);
     if (agentRequest.kind === "aisdk") setClaudeAccountId(agentRequest.accountId ?? "");
   }, [agentRequest]);
+
+  const appliedPromptNonce = useRef<number | null>(null);
+  useEffect(() => {
+    if (!promptRequest) return;
+    if (appliedPromptNonce.current === promptRequest.nonce) return;
+    appliedPromptNonce.current = promptRequest.nonce;
+    setPrompt(promptRequest.text);
+    onPromptRequestApplied?.(promptRequest.nonce);
+    // The drawer mounts its field as it opens. Wait a frame, then put the
+    // caret after the prefilled text.
+    window.setTimeout(() => {
+      const field = fieldRef.current?.querySelector("textarea");
+      if (!field) return;
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+    }, 60);
+  }, [promptRequest]);
 
 
   // overrideThinking comes from a hold-to-scrub release on Start: the level was

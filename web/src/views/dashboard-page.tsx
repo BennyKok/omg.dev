@@ -3,15 +3,8 @@
 // Modelled on omg-admin: labels and numbers only. No subtitles, explanations,
 // or prose filler. Views are stored locally in `<data>/dashboard/dashboard.json`
 // and edited with an agent through the `omg_dashboard` MCP tool or `/api/dashboard`.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowUp,
-  Check,
-  Loader2,
-  MessageSquareText,
-  RotateCcw,
-  Sparkles,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Loader2, RotateCcw, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/lib/omg-client";
 import { toast } from "@/lib/notify";
@@ -592,17 +585,11 @@ function DashboardSectionView({ section }: { section: DashboardSection }) {
   return null;
 }
 
-const QUICK_PROMPTS = [
-  "Add an Analytics tab with 7d metrics",
-  "Add a funnel breakdown chart",
-  "Add a cost & usage table",
-];
-
 export default function DashboardPage({
   active = true,
   initialData = null,
   isSessionBusy,
-  onAskAgent,
+  onEdit,
   onOpenEditorSession,
 }: {
   active?: boolean;
@@ -613,8 +600,11 @@ export default function DashboardPage({
    * computer do not.
    */
   isSessionBusy?: (sessionId: string) => boolean;
-  /** Launch or steer an agent session to edit the dashboard. */
-  onAskAgent?: (prompt: string, activeView: DashboardView | null) => Promise<void> | void;
+  /**
+   * Start an edit. The shell writes a prompt for the view in the normal chat
+   * composer, where the person finishes it and picks the agent and model.
+   */
+  onEdit?: (activeView: DashboardView | null) => void;
   /** Open the chat transcript for the dashboard's editing session. */
   onOpenEditorSession?: (sessionId: string) => void;
 }) {
@@ -622,10 +612,6 @@ export default function DashboardPage({
   // Null until a tab is picked: the first view (lowest order) opens by default.
   const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [prompt, setPrompt] = useState("");
-  const [sending, setSending] = useState(false);
-  const [justSent, setJustSent] = useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);
   const agentBusy = !!(data?.editorSessionId && isSessionBusy?.(data.editorSessionId));
 
   const load = useCallback(async () => {
@@ -669,73 +655,17 @@ export default function DashboardPage({
     }
   };
 
-  const submitPrompt = async (textToSubmit?: string) => {
-    const clean = (textToSubmit ?? prompt).trim();
-    if (!clean || sending || !onAskAgent) return;
-    setSending(true);
-    try {
-      await onAskAgent(clean, activeView);
-      setPrompt("");
-      setJustSent(true);
-      setTimeout(() => setJustSent(false), 3000);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Could not send dashboard edit");
-    } finally {
-      setSending(false);
-    }
-  };
-
   return (
     <div className="mx-auto max-w-5xl space-y-3 pb-28" data-lfg-page-column data-testid="dashboard-page">
-      {/* Header: Title + Actions on top row, View Tabs cleanly aligned */}
-      <div className="flex flex-col gap-2 px-1 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center justify-between gap-2">
-          <h1 className="text-lg font-semibold tracking-[-0.01em]">Dashboard</h1>
-          <div className="flex items-center gap-1 sm:hidden">
-            {data?.editorSessionId && onOpenEditorSession ? (
-              <Button
-                size="sm"
-                variant="ghost"
-                data-testid="dashboard-open-agent-session-mobile"
-                onClick={() => onOpenEditorSession(data.editorSessionId!)}
-                className="h-8 gap-1.5 px-2.5 text-xs"
-              >
-                {agentBusy ? (
-                  <Loader2 className="size-3.5 animate-spin text-primary" />
-                ) : (
-                  <MessageSquareText className="size-3.5 text-muted-foreground" />
-                )}
-                <span>{agentBusy ? "Updating…" : "Agent chat"}</span>
-              </Button>
-            ) : null}
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Edit dashboard with agent"
-              title="Edit dashboard with agent"
-              onClick={() => inputRef.current?.focus()}
-            >
-              <Sparkles className="size-4" />
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              aria-label="Refresh dashboard"
-              title="Refresh dashboard"
-              disabled={refreshing}
-              onClick={() => void handleRefresh()}
-            >
-              <RotateCcw className={cn("size-4", refreshing && "animate-spin")} />
-            </Button>
-          </div>
-        </div>
+      <div className="flex items-center gap-2 px-1">
+        <h1 className="shrink-0 text-lg font-semibold tracking-[-0.01em]">Dashboard</h1>
 
         {views.length > 1 ? (
           <div
             role="tablist"
             aria-label="Dashboard views"
             data-no-page-swipe
-            className="flex max-w-full items-center gap-1 self-start overflow-x-auto rounded-full bg-muted/70 p-0.5 sm:self-auto"
+            className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-full bg-muted/70 p-0.5"
           >
             {views.map((view) => {
               const selected = view.id === activeView?.id;
@@ -761,32 +691,33 @@ export default function DashboardPage({
           </div>
         ) : null}
 
-        <div className="hidden items-center gap-1 sm:flex">
-          {data?.editorSessionId && onOpenEditorSession ? (
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          {agentBusy && onOpenEditorSession ? (
             <Button
               size="sm"
               variant="ghost"
               data-testid="dashboard-open-agent-session"
-              onClick={() => onOpenEditorSession(data.editorSessionId!)}
+              title="Open the chat that is editing the dashboard"
+              onClick={() => onOpenEditorSession(data!.editorSessionId!)}
               className="h-8 gap-1.5 px-2.5 text-xs"
             >
-              {agentBusy ? (
-                <Loader2 className="size-3.5 animate-spin text-primary" />
-              ) : (
-                <MessageSquareText className="size-3.5 text-muted-foreground" />
-              )}
-              <span>{agentBusy ? "Updating…" : "Agent chat"}</span>
+              <Loader2 className="size-3.5 animate-spin text-primary" />
+              <span>Updating…</span>
             </Button>
           ) : null}
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="Edit dashboard with agent"
-            title="Edit dashboard with agent"
-            onClick={() => inputRef.current?.focus()}
-          >
-            <Sparkles className="size-4" />
-          </Button>
+          {onEdit ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              data-testid="dashboard-edit"
+              title="Edit the dashboard with an agent"
+              onClick={() => onEdit(activeView)}
+              className="h-8 gap-1.5 px-2.5 text-xs"
+            >
+              <Sparkles className="size-3.5 text-primary" />
+              <span>Edit</span>
+            </Button>
+          ) : null}
           <Button
             size="icon-sm"
             variant="ghost"
@@ -810,61 +741,6 @@ export default function DashboardPage({
           ))}
         </div>
       )}
-
-      {/* Generative Agent Edit Bar */}
-      {onAskAgent ? (
-        <div className="mt-4 rounded-2xl border border-border/80 bg-card/80 p-2.5 shadow-sm backdrop-blur-xl">
-          <div data-no-page-swipe className="mb-2 flex items-center gap-1.5 overflow-x-auto pb-0.5">
-            <span className="flex shrink-0 items-center gap-1 px-1 text-[11px] font-medium text-muted-foreground">
-              <Sparkles className="size-3 text-primary" />
-              Edit with agent
-            </span>
-            {QUICK_PROMPTS.map((chip) => (
-              <button
-                key={chip}
-                type="button"
-                onClick={() => setPrompt(chip)}
-                className="shrink-0 rounded-full border border-border/60 bg-background/60 px-2.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
-              >
-                {chip}
-              </button>
-            ))}
-          </div>
-          <form
-            data-testid="dashboard-agent-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void submitPrompt();
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
-              placeholder={`Ask agent to edit ${activeView?.title ?? "Dashboard"} or add a tab…`}
-              aria-label="Ask agent to edit dashboard"
-              className="h-9 min-w-0 flex-1 rounded-xl border border-border/60 bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none"
-            />
-            <Button
-              type="submit"
-              size="icon-sm"
-              disabled={!prompt.trim() || sending}
-              aria-label="Send dashboard edit to agent"
-              className="size-9 shrink-0 rounded-xl"
-            >
-              {sending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : justSent ? (
-                <Check className="size-4" />
-              ) : (
-                <ArrowUp className="size-4" />
-              )}
-            </Button>
-          </form>
-        </div>
-      ) : null}
     </div>
   );
 }
