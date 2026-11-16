@@ -195,6 +195,26 @@ describe("dashboard store and live runtime views", () => {
     expect(refreshed.source?.status).toBe("ok");
   });
 
+  test("keeps its own copy, so the refresh survives the session folder being deleted", async () => {
+    const workspace = join(home, "worktree-gone");
+    mkdirSync(workspace, { recursive: true });
+    const script = join(workspace, "mrr.sh");
+    writeFileSync(script, `#!/usr/bin/env bash\necho '{"kpis":[{"label":"MRR","value":"$262"}]}'\n`);
+    chmodSync(script, 0o755);
+    const view = upsertDashboardView({ id: "revenue", title: "Revenue" }, { scopeRoot: workspace, refreshScriptPath: script });
+    expect(view.source?.scriptPath.startsWith(join(home, "dashboard", "scripts"))).toBe(true);
+    expect(view.source?.workspace).toBe(workspace);
+
+    rmSync(workspace, { recursive: true, force: true });
+    const refreshed = await refreshDashboardView("revenue");
+    expect(refreshed.kpis).toEqual([{ label: "MRR", value: "$262" }]);
+
+    // Deleting the view removes the copy.
+    const copy = view.source!.scriptPath;
+    deleteDashboardView("revenue");
+    expect(await Bun.file(copy).exists()).toBe(false);
+  });
+
   test("rejects a refresh script outside the session workspace", () => {
     const workspace = join(home, "workspace-a");
     const outside = join(home, "workspace-b");

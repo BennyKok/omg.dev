@@ -11,9 +11,20 @@
 // workspace; the server invokes it with explicit argv (never a shell) and
 // merges the JSON output in place.
 import { execFile } from "node:child_process";
-import { mkdirSync, realpathSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  realpathSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { freemem, totalmem, uptime } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { PATHS } from "./config.ts";
 
 export type DashboardTone = "good" | "warn" | "bad" | "neutral";
@@ -90,6 +101,13 @@ export type DashboardSourceConfig = {
   scriptPath: string;
   argv: string[];
   scopeRoot: string;
+  /**
+   * The session folder the script came from. The dashboard runs its own copy
+   * (scriptPath, under <data>/dashboard/scripts), so a session worktree can be
+   * cleaned up without stopping the refresh. The script still runs here when
+   * the folder exists, so relative paths keep working.
+   */
+  workspace?: string;
   intervalSeconds: number;
   timeoutSeconds: number;
   enabled: boolean;
@@ -448,6 +466,7 @@ export function normalizeDashboardView(raw: unknown, strict = false): DashboardV
         argv: Array.isArray(so.argv) ? so.argv.filter((a): a is string => typeof a === "string").slice(0, 32) : [],
         intervalSeconds: typeof so.intervalSeconds === "number" ? so.intervalSeconds : 300,
         timeoutSeconds: typeof so.timeoutSeconds === "number" ? so.timeoutSeconds : 30,
+        ...(typeof so.workspace === "string" ? { workspace: so.workspace } : {}),
         enabled: so.enabled !== false,
         status: so.status === "ok" || so.status === "error" || so.status === "running" ? so.status : "idle",
         ...(typeof so.lastRefreshedAt === "number" ? { lastRefreshedAt: so.lastRefreshedAt } : {}),
@@ -460,6 +479,43 @@ export function normalizeDashboardView(raw: unknown, strict = false): DashboardV
 
 const dashboardDir = () => join(PATHS.data, "dashboard");
 const dashboardFile = () => join(dashboardDir(), "dashboard.json");
+const dashboardScriptsDir = () => join(dashboardDir(), "scripts");
+
+/** Largest refresh script the dashboard keeps a copy of. */
+const MAX_SCRIPT_BYTES = 256 * 1024;
+
+/**
+ * Keep the dashboard's own copy of a validated refresh script. The copy is
+ * private to the server (0700) and fixed at registration, so a later edit in
+ * the session folder cannot change what the server runs without a new
+ * registration.
+ */
+function adoptDashboardScript(viewId: string, validatedScript: string): { scriptPath: string; scopeRoot: string } {
+  const size = statSync(validatedScript).size;
+  if (size > MAX_SCRIPT_BYTES) {
+    throw new DashboardInputError(`refresh script must be at most ${MAX_SCRIPT_BYTES / 1024} KB`);
+  }
+  const dir = dashboardScriptsDir();
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const ext = extname(validatedScript).replace(/[^.a-zA-Z0-9]/g, "").slice(0, 8);
+  const dest = join(dir, `${viewId}${ext}`);
+  const tmp = `${dest}.${process.pid}.tmp`;
+  copyFileSync(validatedScript, tmp);
+  chmodSync(tmp, 0o700);
+  renameSync(tmp, dest);
+  return { scriptPath: realpathSync(dest), scopeRoot: realpathSync(dir) };
+}
+
+function removeAdoptedScript(source: DashboardSourceConfig | undefined): void {
+  if (!source) return;
+  try {
+    if (pathInside(realpathSync(source.scriptPath), realpathSync(dashboardScriptsDir()))) {
+      rmSync(source.scriptPath, { force: true });
+    }
+  } catch {
+    // Already gone, or never adopted (a view saved before copies existed).
+  }
+}
 
 type CachedStore = { mtimeMs: number; size: number; data: DashboardStoreData };
 let storeCache: CachedStore | null = null;
@@ -552,18 +608,21 @@ export function upsertDashboardView(
   }
 
   if (options.refreshScriptPath === null) {
+    removeAdoptedScript(existing?.source);
     delete normalized.source;
   } else if (options.refreshScriptPath !== undefined) {
     if (!options.scopeRoot) {
       throw new DashboardInputError("refreshScriptPath requires an active session workspace");
     }
-    const validated = validateDashboardScript(options.refreshScriptPath, options.scopeRoot);
+    const checked = validateDashboardScript(options.refreshScriptPath, options.scopeRoot);
+    const validated = adoptDashboardScript(normalized.id, checked.scriptPath);
     const argv = (options.refreshArgv ?? existing?.source?.argv ?? []).slice(0, 32).map(String);
     const intervalSeconds = Math.max(10, Math.min(604_800, Math.round(options.refreshIntervalSeconds ?? existing?.source?.intervalSeconds ?? 300)));
     const timeoutSeconds = Math.max(1, Math.min(300, Math.round(options.refreshTimeoutSeconds ?? existing?.source?.timeoutSeconds ?? 30)));
     normalized.source = {
       scriptPath: validated.scriptPath,
       scopeRoot: validated.scopeRoot,
+      workspace: checked.scopeRoot,
       argv,
       intervalSeconds,
       timeoutSeconds,
@@ -598,6 +657,7 @@ export function deleteDashboardView(id: string): boolean {
   const cleanId = id.trim().toLowerCase();
   const store = readDashboardStore();
   const hadCustom = Boolean(store.views[cleanId]);
+  removeAdoptedScript(store.views[cleanId]?.source);
   delete store.views[cleanId];
   const isBuiltin = cleanId === "today" || cleanId === "system";
   if (isBuiltin && !hadCustom) {
@@ -639,7 +699,7 @@ export async function refreshDashboardView(id: string): Promise<DashboardView> {
       validated.scriptPath,
       source.argv,
       {
-        cwd: validated.scopeRoot,
+        cwd: source.workspace && existsSync(source.workspace) ? source.workspace : validated.scopeRoot,
         timeout: (source.timeoutSeconds || 30) * 1000,
         maxBuffer: 2 * 1024 * 1024,
       },
