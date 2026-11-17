@@ -25111,7 +25111,6 @@ function NewSessionDialog({
         projects={[NO_PROJECT_FILTER, ...new Set(repos.map(repoProject))]}
         folder={unassigned ? NO_PROJECT_FILTER : composerProject}
         labelFor={(value) => projectFilterLabel(value, shortProject)}
-        counts={projectCounts}
         onFolder={pickFolder}
         onClose={() => onClose()}
         onHistory={() => setResumeOpen(true)}

@@ -1,9 +1,10 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronDown, Folder, History, Plus, X } from "lucide-react";
+import { ChevronDown, Folder, History, Plus, Search, X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { NO_PROJECT_FILTER } from "../lib/project-filter";
-import { byRecent, splitByActivity, useFolderActivity } from "../lib/folder-activity";
+import { byRecent, useFolderActivity } from "../lib/folder-activity";
+import { projectFaviconSrc } from "../lib/session-ui";
 import { arrangeFolders, useFolderMenuPrefs } from "../lib/folder-menu-prefs";
 
 /**
@@ -69,38 +70,68 @@ export function MobileNewSessionButton({ onOpen, hidden = false }: { onOpen: () 
   );
 }
 
+/** How many folders show before "More". One or two rows on a phone. */
+const FOLDER_CHIPS = 6;
+
+/** The folder's favicon, else a plain folder mark. */
+function FolderMark({ project }: { project: string }) {
+  const src = projectFaviconSrc(project);
+  const [failed, setFailed] = useState<string | null>(null);
+  if (src && failed !== src) {
+    return (
+      <img
+        src={src}
+        alt=""
+        aria-hidden="true"
+        loading="lazy"
+        className="size-3.5 shrink-0 rounded-[3px] object-contain"
+        onError={() => setFailed(src)}
+      />
+    );
+  }
+  return <Folder className="size-3.5 shrink-0 opacity-60" />;
+}
+
 /**
- * The folders a phone chat can start in, in the folder menu's order: the
- * order set in Manage folders, else the most recently used first. Hidden
- * folders stay out, and folders idle for a while fold into one row.
+ * Where the next chat starts, as a few chips: "No project" and the first
+ * folders in the folder menu's order (the order set in Manage folders, else
+ * the most recently used first). The current folder always has a chip.
+ * "More" opens a search over the rest.
  */
-function FolderList({
+function FolderChips({
   projects,
   value,
   labelFor,
-  counts,
   onChange,
   onAddFolder,
 }: {
   projects: readonly string[];
   value: string;
   labelFor: (value: string) => string;
-  counts?: ReadonlyMap<string, number>;
   onChange: (value: string) => void;
   onAddFolder?: () => void;
 }) {
   const activity = useFolderActivity();
   const prefs = useFolderMenuPrefs();
-  const [showInactive, setShowInactive] = useState(false);
-  const { active, inactive } = useMemo(() => {
+  const [more, setMore] = useState(false);
+  const [query, setQuery] = useState("");
+  const ordered = useMemo(() => {
     const folders = projects.filter((project) => project !== NO_PROJECT_FILTER && project !== "__all");
     const visible = arrangeFolders(folders, prefs).filter((folder) => !folder.hidden || folder.value === value);
     const shown = prefs.order.length ? visible : byRecent(visible, activity, labelFor);
-    return splitByActivity(shown, activity, { keep: value });
+    return shown.map((folder) => folder.value);
   }, [projects, prefs, activity, labelFor, value]);
-  const row = (folder: string, icon: boolean) => {
+  const first = ordered.slice(0, FOLDER_CHIPS);
+  // The current folder keeps a chip even when it is not among the first.
+  if (value !== NO_PROJECT_FILTER && ordered.includes(value) && !first.includes(value)) {
+    first[first.length - 1] = value;
+  }
+  const rest = ordered.filter((folder) => !first.includes(folder));
+  const needle = query.trim().toLowerCase();
+  const matches = needle ? rest.filter((folder) => labelFor(folder).toLowerCase().includes(needle)) : rest;
+
+  const chip = (folder: string) => {
     const selected = folder === value;
-    const count = counts?.get(folder);
     return (
       <button
         key={folder}
@@ -110,44 +141,73 @@ function FolderList({
         // Keep the field focused, so the keyboard stays up while a folder
         // is picked.
         onMouseDown={(event) => event.preventDefault()}
-        onClick={() => onChange(folder)}
+        onClick={() => {
+          onChange(folder);
+          setMore(false);
+          setQuery("");
+        }}
         className={cn(
-          "flex h-11 w-full shrink-0 items-center gap-3 rounded-xl px-3 text-left text-[15px]",
-          selected ? "bg-muted font-medium" : "hover:bg-muted/60",
+          "inline-flex h-8 max-w-[11rem] shrink-0 items-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors",
+          selected ? "bg-foreground text-background" : "bg-muted text-foreground hover:bg-muted/70",
         )}
       >
-        {icon ? <Folder className="size-4 shrink-0 text-muted-foreground" /> : <span className="size-4 shrink-0" />}
-        <span className="min-w-0 flex-1 truncate">{labelFor(folder)}</span>
-        {count ? <span className="text-xs tabular-nums text-muted-foreground">{count}</span> : null}
-        <Check className={cn("size-4 shrink-0", selected ? "opacity-100" : "opacity-0")} />
+        {folder === NO_PROJECT_FILTER ? null : <FolderMark project={folder} />}
+        <span className="min-w-0 truncate">{labelFor(folder)}</span>
       </button>
     );
   };
+  const quiet =
+    "inline-flex h-8 shrink-0 items-center gap-1 rounded-full px-3 text-[13px] font-medium text-muted-foreground hover:bg-muted";
+
   return (
-    <div role="radiogroup" aria-label="Folder" className="flex flex-col gap-0.5">
-      {projects.includes(NO_PROJECT_FILTER) ? row(NO_PROJECT_FILTER, false) : null}
-      {active.map((folder) => row(folder.value, true))}
-      {inactive.length && !showInactive ? (
-        <button
-          type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => setShowInactive(true)}
-          className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] text-muted-foreground hover:bg-muted/60"
-        >
-          <ChevronDown className="size-4" />
-          {inactive.length} more
-        </button>
-      ) : null}
-      {showInactive ? inactive.map((folder) => row(folder.value, true)) : null}
-      {onAddFolder ? (
-        <button
-          type="button"
-          onClick={onAddFolder}
-          className="flex h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-[15px] text-muted-foreground hover:bg-muted/60"
-        >
-          <Plus className="size-4" />
-          Add a folder
-        </button>
+    <div className="flex flex-col gap-2">
+      <div role="radiogroup" aria-label="Folder" className="flex flex-wrap gap-1.5">
+        {projects.includes(NO_PROJECT_FILTER) ? chip(NO_PROJECT_FILTER) : null}
+        {first.map(chip)}
+        {rest.length || onAddFolder ? (
+          <button
+            type="button"
+            aria-expanded={more}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => {
+              setMore((open) => !open);
+              setQuery("");
+            }}
+            className={quiet}
+          >
+            {more ? "Less" : rest.length ? `More (${rest.length})` : "More"}
+            <ChevronDown className={cn("size-3.5 transition-transform", more && "rotate-180")} />
+          </button>
+        ) : null}
+      </div>
+      {more ? (
+        <div className="flex flex-col gap-2">
+          {rest.length > FOLDER_CHIPS ? (
+            <label className="flex h-9 items-center gap-2 rounded-full bg-muted px-3 text-[14px] text-muted-foreground">
+              <Search className="size-4 shrink-0" />
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search folders"
+                aria-label="Search folders"
+                className="min-w-0 flex-1 bg-transparent text-foreground outline-none placeholder:text-muted-foreground"
+                style={{ fontSize: 16 }}
+              />
+            </label>
+          ) : null}
+          <div className="flex flex-wrap gap-1.5">
+            {matches.map(chip)}
+            {needle && !matches.length ? (
+              <span className="px-1 py-1.5 text-[13px] text-muted-foreground">No folder matches.</span>
+            ) : null}
+            {onAddFolder ? (
+              <button type="button" onClick={onAddFolder} className={quiet}>
+                <Plus className="size-3.5" />
+                Add a folder
+              </button>
+            ) : null}
+          </div>
+        </div>
       ) : null}
     </div>
   );
@@ -155,15 +215,14 @@ function FolderList({
 
 /**
  * Phone: the new-session composer as its own full screen. The header closes
- * it and opens history; the flat composer sits right under it; the folder
- * list fills the rest. The shell is pinned to the visual viewport the same
+ * it and opens history; the flat composer sits right under it; a few folder
+ * chips follow. The shell is pinned to the visual viewport the same
  * way a mobile chat is.
  */
 export function MobileNewSessionScreen({
   projects,
   folder,
   labelFor,
-  counts,
   onFolder,
   onClose,
   onHistory,
@@ -175,7 +234,6 @@ export function MobileNewSessionScreen({
   projects: readonly string[];
   folder: string;
   labelFor: (value: string) => string;
-  counts?: ReadonlyMap<string, number>;
   onFolder: (value: string) => void;
   onClose: () => void;
   onHistory?: () => void;
@@ -234,13 +292,11 @@ export function MobileNewSessionScreen({
         {/* The composer sits at the top, flat under the header, where the
             eye lands first; the folder list follows below it. */}
         <div data-suggest-below="" className="relative z-10 mx-auto w-full max-w-lg shrink-0 border-b border-border/60">{children}</div>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3 pt-2">
-          <p className="px-1 pb-1.5 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Start in</p>
-          <FolderList
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3 pt-3">
+          <FolderChips
             projects={projects}
             value={folder}
             labelFor={labelFor}
-            counts={counts}
             onChange={onFolder}
             onAddFolder={onAddFolder}
           />
