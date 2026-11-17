@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## November 17, 2026 - Agents can ask for more access time (v0.7.12)
+
+- An agent can ask the computer that shares access for more time. The request shows in Agent access on that computer, with a notification, for example "Session abc12345 asks to extend access by 2 h". Only you can allow or deny it there. No answer means no.
+- Agent access warns 10 minutes before access stops, by its end or by its idle stop. The warning closes when you select Extend.
+- Requests that expired while access was off are listed in Agent access until you dismiss them. `omg device run` prints them when it starts.
+- A request that reached the computer just as access ended is queued again. It no longer expires without a trace.
+- Agents see each linked computer's access: whether it is on, when it ends, and the idle time left. They get a new tool, `omg_device_extend`, to ask for more time.
+- Update omg.dev on both computers. If the computer that shares access runs an older omg.dev, agents see its access as unknown.
+
 ## November 17, 2026 - Longer agent access sessions, a new-session screen on the phone (v0.7.11)
 
 - Agent access → Share this computer: when you start access, choose the session length (1 h, 4 h, 8 h, 12 h or 24 h) and when it stops for idleness (15 min, 1 h, 4 h, or never while the session lasts). A session longer than 4 hours needs one more confirmation.
