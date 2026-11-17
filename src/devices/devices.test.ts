@@ -2,6 +2,7 @@
 // over HTTP from pairing to a file coming back.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, symlink, writeFile, mkdir } from "node:fs/promises";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PATHS } from "../config.ts";
@@ -110,6 +111,73 @@ describe("device config", () => {
     g.touch(50 * 60_000);
     expect(g.over(60 * 60_000)).toBe("the grant ended");
     expect(new agent.Grant(10_000, 15, 0).endsAt).toBe(agent.GRANT_MAX_MINUTES * 60_000);
+  });
+
+  test("a grant extends only within its limit, pauses idle while busy, and can drop the idle stop", () => {
+    const g = new agent.Grant(60, 15, 0);
+    expect(g.extendBy(60, 10 * 60_000)).toBe(120 * 60_000);
+    // A standard grant reaches at most 4 hours past the decision.
+    expect(g.extendBy(600, 10 * 60_000)).toBe(250 * 60_000);
+    expect(() => g.extendUntil(300 * 60_000, 10 * 60_000)).toThrow("at most 4 h");
+    expect(() => g.extendBy(0)).toThrow();
+    g.begin(20 * 60_000);
+    expect(g.idleEndsAt()).toBeNull();
+    expect(g.over(100 * 60_000)).toBeNull();
+    g.finish(100 * 60_000);
+    expect(g.over(114 * 60_000)).toBeNull();
+    expect(g.over(115 * 60_000)).toContain("no requests");
+    const never = new agent.Grant(60, null, 0);
+    expect(never.over(59 * 60_000)).toBeNull();
+    expect(never.over(60 * 60_000)).toBe("the grant ended");
+    expect(() => never.extendBy(60, 61 * 60_000)).toThrow("already ended");
+    const long = new agent.Grant(720, 60, 0, 1440);
+    expect(long.endsAt).toBe(720 * 60_000);
+    expect(long.extendBy(24 * 60, 0)).toBe(1440 * 60_000);
+    expect(new agent.Grant(5000, 60, 0, 99_999).ceilingMinutes).toBe(1440);
+  });
+
+  test("idle values and the grant config are checked", () => {
+    expect(agent.parseIdle("never")).toBeNull();
+    expect(agent.parseIdle(0)).toBeNull();
+    expect(agent.parseIdle("60")).toBe(60);
+    for (const bad of [-1, 1.5, "soon", 1441, undefined]) expect(() => agent.parseIdle(bad)).toThrow();
+    const ok = (grant: unknown) => agent.validateConfig({ actions: {}, grant }).ok;
+    expect(ok({ maxMinutes: 240, idleMinutes: 240 })).toBe(true); // a config already in use
+    expect(ok({ maxMinutes: 120, idleMinutes: 0, hardMaxMinutes: 600 })).toBe(true);
+    expect(ok({ maxMinutes: 480 })).toBe(false); // a default never starts a long session silently
+    expect(ok({ hardMaxMinutes: 2000 })).toBe(false);
+    expect(ok({ maxMinutes: 200, hardMaxMinutes: 120 })).toBe(false);
+    expect(agent.grantCeiling({})).toBe(240);
+    expect(agent.grantCeiling({}, true)).toBe(1440);
+    expect(agent.grantCeiling({ grant: { hardMaxMinutes: 240 } }, true)).toBe(240);
+    expect(agent.grantCeiling({ grant: { hardMaxMinutes: 120 } })).toBe(120);
+  });
+
+  test("start choices: defaults unchanged, long needs the flag, a config can forbid long sessions", async () => {
+    const { resolveStart } = await import("./runtime.ts");
+    expect(resolveStart({})).toEqual({ minutes: 120, idle: 15, long: false, ceiling: 240 });
+    expect(resolveStart({ grant: { maxMinutes: 240, idleMinutes: 240 } })).toMatchObject({ minutes: 240, idle: 240 });
+    expect(() => resolveStart({}, { minutes: 480 })).toThrow("explicit long-session choice");
+    expect(resolveStart({}, { minutes: 480, idle: "never", long: true })).toEqual({ minutes: 480, idle: null, long: true, ceiling: 1440 });
+    expect(() => resolveStart({ grant: { hardMaxMinutes: 240 } }, { minutes: 480, long: true })).toThrow("1 to 240");
+  });
+
+  test("omg device run: flags, a confirmed long session, and the remembered choice", async () => {
+    const yes = async () => true;
+    const no = async () => false;
+    mkdirSync(process.env.OMG_DEVICE_HOME!, { recursive: true });
+    rmSync(join(process.env.OMG_DEVICE_HOME!, "state.json"), { force: true });
+    expect(await agent.runStartOptions([], no)).toEqual({ long: false });
+    expect(await agent.runStartOptions(["--hours", "4", "--idle", "never"], no)).toEqual({ minutes: 240, idle: "never", long: false });
+    await expect(agent.runStartOptions(["--hours", "8"], no)).rejects.toThrow("need --long");
+    expect(await agent.runStartOptions(["--hours", "8"], yes)).toEqual({ minutes: 480, idle: undefined, long: true });
+    expect(await agent.runStartOptions(["--hours", "12", "--long"], no)).toEqual({ minutes: 720, idle: undefined, long: true });
+    writeFileSync(join(process.env.OMG_DEVICE_HOME!, "state.json"), JSON.stringify({ lastStart: { minutes: 480, idle: 60, long: true } }));
+    await expect(agent.runStartOptions([], no)).rejects.toThrow("Not started");
+    expect(await agent.runStartOptions([], yes)).toEqual({ minutes: 480, idle: "60", long: true });
+    writeFileSync(join(process.env.OMG_DEVICE_HOME!, "state.json"), JSON.stringify({ lastStart: { minutes: 60, idle: null, long: false } }));
+    expect(await agent.runStartOptions([], no)).toEqual({ minutes: 60, idle: "never", long: false });
+    rmSync(join(process.env.OMG_DEVICE_HOME!, "state.json"), { force: true });
   });
 
   test("only plain files in the request folder go back", async () => {

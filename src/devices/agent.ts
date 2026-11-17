@@ -35,6 +35,7 @@ import {
   type ActionInfo,
   type Approval,
   type ArgSpec,
+  type WireGrant,
   type WireRequest,
   type WireUpdate,
 } from "./protocol.ts";
@@ -56,11 +57,17 @@ export type ActionConfig = {
 export type DeviceConfig = {
   server?: string;
   deviceId?: string;
-  grant?: { maxMinutes?: number; idleMinutes?: number };
+  /**
+   * maxMinutes: default grant length (at most 240). idleMinutes: default idle timeout (0 means none).
+   * hardMaxMinutes: the most a long session may allow from one decision. Default and maximum 1440.
+   */
+  grant?: { maxMinutes?: number; idleMinutes?: number; hardMaxMinutes?: number };
   actions: Record<string, ActionConfig>;
 };
 
+/** The default hard maximum. A device config can raise it up to GRANT_CEILING_LIMIT_MINUTES. */
 export const GRANT_MAX_MINUTES = 240;
+export const GRANT_CEILING_LIMIT_MINUTES = 24 * 60;
 const APPROVAL_WAIT_MS = 120_000;
 const DEFAULT_TIMEOUT_SEC = 600;
 const BASE_ENV = ["PATH", "HOME", "LANG", "USER", "TMPDIR"];
@@ -103,6 +110,16 @@ export function validateConfig(raw: unknown): { ok: true; config: DeviceConfig }
     }
     if (a.cwd !== undefined && !isAbsolute(a.cwd)) return { ok: false, error: `${where}.cwd: an absolute path` };
     if (a.env && (!Array.isArray(a.env) || a.env.some((e) => !/^[A-Z_][A-Z0-9_]*$/.test(e)))) return { ok: false, error: `${where}.env: a list of variable names` };
+  }
+  if (c.grant !== undefined) {
+    if (!c.grant || typeof c.grant !== "object") return { ok: false, error: "grant: an object" };
+    const g = c.grant;
+    const whole = (v: unknown, min: number, max: number) => v === undefined || (Number.isInteger(v) && (v as number) >= min && (v as number) <= max);
+    if (!whole(g.hardMaxMinutes, 1, GRANT_CEILING_LIMIT_MINUTES)) return { ok: false, error: `grant.hardMaxMinutes: whole minutes, 1 to ${GRANT_CEILING_LIMIT_MINUTES}` };
+    const standard = Math.min(GRANT_MAX_MINUTES, g.hardMaxMinutes ?? GRANT_MAX_MINUTES);
+    // The default length is used without an explicit choice, so it stays a standard session.
+    if (!whole(g.maxMinutes, 1, standard)) return { ok: false, error: `grant.maxMinutes: whole minutes, 1 to ${standard}. Choose a longer session when you start access.` };
+    if (!whole(g.idleMinutes, 0, GRANT_CEILING_LIMIT_MINUTES)) return { ok: false, error: "grant.idleMinutes: whole minutes, 0 for none" };
   }
   return { ok: true, config: c };
 }
@@ -150,25 +167,86 @@ export function audit(entry: Record<string, unknown>) {
 
 // ---- grant ------------------------------------------------------------------------
 
+export type GrantStatus = WireGrant;
+
 export class Grant {
-  readonly endsAt: number;
+  readonly startedAt: number;
+  private end: number;
+  private idle: number | null;
   private lastActivity: number;
+  private running = 0;
   private readonly approvedOnce = new Set<string>();
+  readonly ceilingMinutes: number;
   constructor(
-    readonly maxMinutes: number,
-    readonly idleMinutes: number,
+    maxMinutes: number,
+    idleMinutes: number | null,
     now = Date.now(),
+    ceilingMinutes = GRANT_MAX_MINUTES,
   ) {
-    this.endsAt = now + Math.min(maxMinutes, GRANT_MAX_MINUTES) * 60_000;
+    this.ceilingMinutes = Math.min(Math.max(1, ceilingMinutes), GRANT_CEILING_LIMIT_MINUTES);
+    this.startedAt = now;
+    this.end = now + Math.min(maxMinutes, this.ceilingMinutes) * 60_000;
+    this.idle = idleMinutes;
     this.lastActivity = now;
+  }
+  get endsAt() {
+    return this.end;
+  }
+  get idleMinutes() {
+    return this.idle;
+  }
+  get busy() {
+    return this.running > 0;
   }
   touch(now = Date.now()) {
     this.lastActivity = now;
   }
+  /** An approved action starts. Idle time does not count while it runs. */
+  begin(now = Date.now()) {
+    this.running++;
+    this.lastActivity = now;
+  }
+  /** The action ended. Idle time counts again from now. */
+  finish(now = Date.now()) {
+    this.running = Math.max(0, this.running - 1);
+    this.lastActivity = now;
+  }
+  idleEndsAt(): number | null {
+    if (this.idle === null || this.running > 0) return null;
+    return this.lastActivity + this.idle * 60_000;
+  }
   over(now = Date.now()): string | null {
-    if (now >= this.endsAt) return "the grant ended";
-    if (now - this.lastActivity >= this.idleMinutes * 60_000) return `no requests for ${this.idleMinutes} minutes`;
+    if (now >= this.end) return "the grant ended";
+    const idleEnd = this.idleEndsAt();
+    if (idleEnd !== null && now >= idleEnd) return `no requests for ${this.idle} minutes`;
     return null;
+  }
+  /**
+   * The person at the device moves the end. Each decision may reach at most
+   * `ceilingMinutes` past the moment it is made, so an unattended grant never
+   * runs longer than the person allowed in one decision.
+   */
+  extendBy(minutes: number, now = Date.now()): number {
+    if (!Number.isFinite(minutes) || minutes < 1) throw new Error("Extend by 1 minute or more.");
+    return this.extendUntil(this.end + Math.round(minutes) * 60_000, now, true);
+  }
+  extendUntil(at: number, now = Date.now(), clamp = false): number {
+    if (this.over(now)) throw new Error("Access has already ended. Start access again.");
+    const limit = now + this.ceilingMinutes * 60_000;
+    if (!Number.isFinite(at) || at <= now + 60_000) throw new Error("The new end must be at least 1 minute from now.");
+    if (at > limit && !clamp) throw new Error(`The new end can be at most ${formatMinutes(this.ceilingMinutes)} from now.${this.ceilingMinutes <= GRANT_MAX_MINUTES ? " Start a long session to allow more." : ""}`);
+    this.end = Math.min(at, limit);
+    this.lastActivity = now; // the person is here
+    return this.end;
+  }
+  setIdle(minutes: number | null, now = Date.now()) {
+    if (this.over(now)) throw new Error("Access has already ended. Start access again.");
+    if (minutes !== null && (!Number.isInteger(minutes) || minutes < 1 || minutes > GRANT_CEILING_LIMIT_MINUTES)) throw new Error("Idle timeout must be a whole number of minutes, or none.");
+    this.idle = minutes;
+    this.lastActivity = now;
+  }
+  status(): GrantStatus {
+    return { startedAt: this.startedAt, endsAt: this.end, idleMinutes: this.idle, idleEndsAt: this.idleEndsAt(), busy: this.busy, ceilingMinutes: this.ceilingMinutes };
   }
   /** Whether this action needs the person to answer now. */
   needsPrompt(name: string, approval: Approval): boolean {
@@ -179,6 +257,32 @@ export class Grant {
   remember(name: string, approval: Approval) {
     if (approval === "once-per-grant") this.approvedOnce.add(name);
   }
+}
+
+export function formatMinutes(m: number): string {
+  if (m < 60) return `${m} min`;
+  const h = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest ? `${h} h ${rest} min` : `${h} h`;
+}
+
+/**
+ * The most one decision at the device (start or extend) may allow, in minutes.
+ * A standard session stays within 4 hours. Only an explicit long-session choice
+ * at the device goes past that, up to 24 hours. grant.hardMaxMinutes in the
+ * device config can lower the long limit (for example to forbid long sessions).
+ */
+export function grantCeiling(c: Pick<DeviceConfig, "grant">, long = false): number {
+  const hard = c.grant?.hardMaxMinutes ?? GRANT_CEILING_LIMIT_MINUTES;
+  return long ? hard : Math.min(GRANT_MAX_MINUTES, hard);
+}
+
+/** "never", "none", 0 and null mean no idle stop while the grant lasts. */
+export function parseIdle(raw: unknown): number | null {
+  if (raw === null || raw === "none" || raw === "never" || raw === 0 || raw === "0") return null;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > GRANT_CEILING_LIMIT_MINUTES) throw new Error("Idle timeout must be a whole number of minutes, or none.");
+  return n;
 }
 
 // ---- transport ----------------------------------------------------------------------
@@ -384,10 +488,20 @@ export async function handleRequest(c: DeviceConfig, grant: Grant, r: WireReques
 
   if (observer.signal?.aborted) return deny("access stopped on this device");
   if (Date.now() >= r.expiresAt) return deny("the request expired before approval");
-  // Only an approved or allowed run counts as activity, so a server cannot keep an idle grant alive.
-  grant.touch();
   // REQUEST_ID_RE already rules out "..", this keeps the delete inside out/ even if that rule ever changes.
   if (!resolve(out).startsWith(resolve(outRoot()) + sep)) return deny("bad output folder");
+  // Only an approved or allowed run counts as activity, so a server cannot keep
+  // an idle grant alive. While it runs, idle time does not count at all: a long
+  // benchmark keeps the grant open until it ends. The hard end still applies.
+  grant.begin();
+  try {
+    await runApproved(c, r, action, argv, out, report, observer);
+  } finally {
+    grant.finish();
+  }
+}
+
+async function runApproved(c: DeviceConfig, r: WireRequest, action: ActionConfig, argv: string[], out: string, report: (u: WireUpdate) => Promise<void>, observer: RunObserver) {
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true, mode: 0o700 });
   await report({ id: r.id, status: "running" });
@@ -454,16 +568,55 @@ export async function linkDevice(server: string, code: string) {
   }
 }
 
+/** Reads `--hours 8` or `--minutes 480`, `--idle 60|never` and `--long`. Without them, offers the last choice. */
+export async function runStartOptions(args: string[], confirm: (question: string) => Promise<boolean>): Promise<{ minutes?: number; idle?: string; long?: boolean }> {
+  const hours = flag(args, "hours");
+  const minutesFlag = flag(args, "minutes");
+  const idle = flag(args, "idle");
+  const long = args.includes("--long");
+  if (hours !== undefined || minutesFlag !== undefined || idle !== undefined) {
+    const minutes = hours !== undefined ? Math.round(Number(hours) * 60) : minutesFlag !== undefined ? Number(minutesFlag) : undefined;
+    if (minutes !== undefined && minutes > GRANT_MAX_MINUTES && !long) {
+      if (!(await confirm(`Start a long session of ${formatMinutes(minutes)}? Agents can run allowed actions until it ends or you stop it. [y/N] `))) {
+        throw new Error(`Not started. Sessions longer than ${formatMinutes(GRANT_MAX_MINUTES)} need --long or a yes.`);
+      }
+      return { minutes, idle, long: true };
+    }
+    return { minutes, idle, long };
+  }
+  const { readStartChoice } = await import("./runtime.ts");
+  const last = readStartChoice();
+  if (!last) return { long };
+  const idleText = last.idle === null ? "never" : String(last.idle);
+  if (last.minutes > GRANT_MAX_MINUTES && !long) {
+    if (!(await confirm(`Start the same long session as last time: ${formatMinutes(last.minutes)}, idle stop ${last.idle === null ? "never" : formatMinutes(last.idle)}? [y/N] `))) {
+      throw new Error("Not started. Pass --hours and --idle to choose, or --long to reuse the last long session.");
+    }
+  }
+  return { minutes: last.minutes, idle: idleText, long: long || last.minutes > GRANT_MAX_MINUTES };
+}
+
+function terminalConfirm(question: string): Promise<boolean> {
+  if (!process.stdin.isTTY) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    rl.question(question, (answer) => {
+      rl.close();
+      resolve(["y", "yes"].includes(answer.trim().toLowerCase()));
+    });
+  });
+}
+
 async function cmdRun(args: string[]) {
   const { DeviceRuntime } = await import("./runtime.ts");
   const runtime = new DeviceRuntime();
-  runtime.start({ minutes: flag(args, "minutes"), idle: flag(args, "idle") }, terminalAsk());
+  runtime.start(await runStartOptions(args, terminalConfirm), terminalAsk());
   const stop = () => { void runtime.stop(); process.exitCode = 130; };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
     const state = runtime.snapshot();
-    console.log(`Grant for "${state.deviceId}" until ${new Date(state.endsAt!).toLocaleTimeString()}; ends after ${state.idleMinutes} idle minutes. Ctrl-C stops it.`);
+    console.log(`Grant for "${state.deviceId}" until ${new Date(state.endsAt!).toLocaleString()}; ${state.idleMinutes === null ? "no idle stop" : `ends after ${state.idleMinutes} idle minutes`}. Ctrl-C stops it.`);
     for (const a of state.actions) console.log(`  ${a.name.padEnd(16)} ${a.approval}`);
     if (!process.stdin.isTTY) console.log("No terminal attached: only in-grant actions can run.");
     await runtime.finished;
@@ -563,8 +716,10 @@ On the omg computer:
 On the device:
   omg device link --server <url> --code <CODE>
                                 Make this device's key and link it
-  omg device run [--minutes 120] [--idle 15]
-                                Start a grant: fetch requests, ask here, run them
+  omg device run [--hours 1|4|8|12|24 | --minutes 120] [--idle 15|60|240|never] [--long]
+                                Start a grant: fetch requests, ask here, run them.
+                                Over 4 hours needs --long or a yes. With no flags,
+                                it offers your last choice.
   omg device check <action> [name=value ...]
                                 Show the exact command an action would run
   omg device status             Show the link and the actions in the config

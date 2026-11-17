@@ -1,6 +1,6 @@
 # Device link
 
-Status: core, controller Settings, and local receiver UI implemented in `src/devices/` and `web/src/` (2026-11-12).
+Status: core, controller Settings, and local receiver UI implemented in `src/devices/` and `web/src/` (2026-11-12). Session length, long sessions, Extend and the idle stop choice added 2026-11-17.
 
 A device link lets an agent on this computer ask a linked device, such as a
 test Mac, to do one action. The user approves the action on that device. The
@@ -59,8 +59,26 @@ These rules come from the first user's answers and from IR-2026-11-01.
 
 ### Approval
 
-- Every grant has a hard expiry, 4 hours at most, and an idle timeout,
-  15 minutes by default.
+- Every grant has a hard end and an idle stop. The person at the device picks
+  both in one decision when they start access: a session of 1, 4, 8, 12 or
+  24 hours, and an idle stop of 15 minutes, 1 hour, 4 hours, or never while
+  the session lasts. Without a choice, the defaults stay 120 minutes and
+  15 minutes (`grant.maxMinutes` and `grant.idleMinutes` in the device config).
+- A session longer than 4 hours is a long session. It needs an explicit
+  choice at the device: a confirmation box in the UI, `--long` or a typed
+  yes in `omg device run`. A remembered or default length never starts one
+  silently, and `grant.maxMinutes` cannot be more than 240.
+- While access is active, the person at the device can select Extend (1 hour,
+  or 4 hours in a long session) and change the idle stop. Each decision can
+  move the end to at most 4 hours after that decision (24 hours in a long
+  session). `grant.hardMaxMinutes` in the device config lowers the long-session
+  limit, for example `240` to forbid long sessions on that computer.
+- Idle time does not count while an approved action runs. A 40-minute
+  benchmark keeps the grant open until it ends, and the idle stop counts
+  again from that moment. The hard end still stops a running action.
+- The device remembers the last length and idle stop in
+  `~/.omg-device/state.json` and offers them next time. A long session must
+  still be confirmed again.
 - Each action has an approval level in the device config:
   - `in-grant`: allowed while a grant is active (for example `snap`,
     `app_shot`, `logs`, `test`, `status`).
@@ -78,6 +96,23 @@ These rules come from the first user's answers and from IR-2026-11-01.
 - Stop ends pending approvals and kills the running action's process group.
   Grants do not resume after a restart. The CLI and UI share one receiver
   runtime and an exclusive lock in the device home.
+
+### Why long sessions are safe enough
+
+- The hard end and the idle stop limit how long an unattended computer
+  accepts actions. They do not limit what an action can do. That stays with
+  the action registry and its approval levels, which a longer session does not
+  change: `once-per-grant` and `each` actions still ask.
+- Only the person at the device can start, extend, or lengthen access. The
+  receiver routes accept only a direct localhost UI request (see Approval),
+  and the CLI reads its choice from the device's own terminal. The controller
+  and its agents cannot set the length, the idle stop, or the long-session
+  choice.
+- Each decision is bounded from the moment it is made (4 hours, or 24 hours
+  for an explicit long session), so no chain of clicks or stale remembered
+  setting leaves access open longer than the person chose at that time.
+- Stop access, Stop and clear, Ctrl-C in `omg device run`, unlinking, and
+  removing the device on the controller all still end access at once.
 
 ### Results and files
 
@@ -121,7 +156,7 @@ These rules come from the first user's answers and from IR-2026-11-01.
 
 ```json
 {
-  "grant": { "maxMinutes": 120, "idleMinutes": 15 },
+  "grant": { "maxMinutes": 120, "idleMinutes": 15, "hardMaxMinutes": 1440 },
   "actions": {
     "snap": {
       "approval": "in-grant",
@@ -136,6 +171,9 @@ These rules come from the first user's answers and from IR-2026-11-01.
 }
 ```
 
+- `grant` is optional. `maxMinutes` (1 to 240) and `idleMinutes` (0 means
+  never) are the defaults when no choice is sent. `hardMaxMinutes` (1 to 1440,
+  default 1440) is the most a long session may allow.
 - `argv[0]` must be an absolute path. Each value fills one argument and cannot
   start with `-` unless the rule has `"allowDash": true`.
 - Every argument needs a `pattern` or an `enum`.
@@ -154,7 +192,10 @@ With omg.dev running on both computers:
    code, and select Connect.
 3. Review the action permissions. The installed `~/.omg-device/config.json`
    is still required. Pairing does not start access or install actions.
-4. Select an access duration and Start access. Pending requests show the exact
+4. Select a session length and an idle stop, and select Start access. For more
+   than 4 hours, also select Allow a long session. While access is active, the
+   card shows the time left. Select Extend 1 h to move the end, or change the
+   idle stop there. Pending requests show the exact
    argument list. Select Allow once, Allow until access ends, or Deny as offered
    by that action's rule. No answer within two minutes means deny.
 5. Enable device notifications in the receiving UI. Keep its local browser open.
@@ -178,7 +219,10 @@ The CLI remains available:
 1. On the omg computer: `omg device pair test-mac`.
 2. On the device: write the config, then run the printed
    `omg device link --server ... --code ...`.
-3. On the device: `omg device run` starts a grant. Ctrl-C ends it.
+3. On the device: `omg device run` starts a grant. Ctrl-C ends it. Pass
+   `--hours 8 --idle never` (or `--minutes`, and `--idle 15|60|240`). More
+   than 4 hours needs `--long` or a typed yes. With no flags it offers the last
+   choice. The CLI cannot extend a running grant; use the localhost UI for that.
 4. To unlink: `omg device remove test-mac` on the omg computer, and
    `omg device unlink` on the device.
 

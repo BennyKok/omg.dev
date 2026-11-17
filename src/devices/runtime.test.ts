@@ -144,9 +144,84 @@ test("one receiver owns the device; a new runtime never restores an old grant", 
 });
 
 test("duration limits cannot be bypassed with non-finite or invalid values", async () => {
-  for (const minutes of [0, -1, 241, "Infinity", "NaN"]) expect((await ui("start", { minutes })).status).toBe(400);
-  expect((await ui("start", { minutes: 15, idle: 16 })).status).toBe(400);
+  for (const minutes of [0, -1, 1.5, 241, "Infinity", "NaN"]) expect((await ui("start", { minutes })).status).toBe(400);
+  for (const minutes of [1441, "Infinity"]) expect((await ui("start", { minutes, long: true })).status).toBe(400);
+  for (const idle of [-1, 1.5, "soon", 1441]) expect((await ui("start", { minutes: 15, idle })).status).toBe(400);
+  // A truthy value that is not the explicit choice does not unlock a long session.
+  expect((await ui("start", { minutes: 480, long: "yes" })).status).toBe(400);
   expect(runtime.snapshot().active).toBe(false);
+});
+
+test("a long session needs the explicit choice and is remembered for the next start", async () => {
+  const refused = await ui("start", { minutes: 480, idle: "never" });
+  expect(refused.status).toBe(400);
+  expect(refused.body.error).toContain("explicit long-session choice");
+  const started = await ui("start", { minutes: 480, idle: "never", long: true });
+  expect(started.status).toBe(200);
+  expect(started.body.grant.idleMinutes).toBeNull();
+  expect(started.body.grant.ceilingMinutes).toBe(1440);
+  expect(started.body.grant.endsAt - started.body.grant.startedAt).toBe(480 * 60_000);
+  expect(started.body.longestMinutes).toBe(1440);
+  expect(started.body.standardMinutes).toBe(240);
+  await ui("stop");
+  expect(new DeviceRuntime().snapshot().lastChoice).toEqual({ minutes: 480, idle: null, long: true });
+  await ui("start", { minutes: 60, idle: 60 });
+  await ui("stop");
+  expect(new DeviceRuntime().snapshot().lastChoice).toEqual({ minutes: 60, idle: 60, long: false });
+});
+
+test("Extend moves the end in one step, within the session's limit", async () => {
+  expect((await ui("extend", { minutes: 60 })).status).toBe(400);
+  const started = await ui("start", { minutes: 60, idle: 15 });
+  const first = started.body.grant.endsAt;
+  const extended = await ui("extend", { minutes: 60 });
+  expect(extended.status).toBe(200);
+  expect(extended.body.grant.endsAt).toBe(first + 60 * 60_000);
+  expect(extended.body.activity.some((e: { kind: string }) => e.kind === "access-extended")).toBe(true);
+  // A standard session stays within 4 hours of the decision: +4 h clamps, then there is no room.
+  const clamped = await ui("extend", { minutes: 240 });
+  expect(clamped.body.grant.endsAt - Date.now()).toBeLessThanOrEqual(240 * 60_000);
+  expect(clamped.body.grant.endsAt - Date.now()).toBeGreaterThan(239 * 60_000);
+  const full = await ui("extend", { minutes: 60 });
+  expect(full.status).toBe(400);
+  expect(full.body.error).toContain("longest allowed time");
+  for (const minutes of [0, -5, "NaN"]) expect((await ui("extend", { minutes })).status).toBe(400);
+  await ui("stop");
+  // A long session can extend past 4 hours.
+  await ui("start", { minutes: 480, long: true });
+  const longer = await ui("extend", { minutes: 240 });
+  expect(longer.body.grant.endsAt - longer.body.grant.startedAt).toBe(720 * 60_000);
+});
+
+test("changing the idle stop applies to the running grant", async () => {
+  expect((await ui("idle", { idle: "never" })).status).toBe(400);
+  await ui("start", { minutes: 60, idle: 15 });
+  expect((await ui("idle", { idle: "sometimes" })).status).toBe(400);
+  const changed = await ui("idle", { idle: "never" });
+  expect(changed.status).toBe(200);
+  expect(changed.body.grant.idleMinutes).toBeNull();
+  expect(changed.body.grant.idleEndsAt).toBeNull();
+  await ui("idle", { idle: 60 });
+  expect(runtime.snapshot().grant?.idleMinutes).toBe(60);
+});
+
+test("a long-running action never lets the grant go idle", async () => {
+  await ui("start", { minutes: 120, idle: 15 });
+  const request = await store.createRequest({ deviceId: "receiver", action: "wait", args: {} });
+  await until(() => runtime.snapshot().pending !== null);
+  await ui("decision", { token: runtime.snapshot().pending!.token, allow: true });
+  await until(async () => (await store.getRequest(request.id))?.status === "running");
+  expect(runtime.snapshot().grant?.busy).toBe(true);
+  expect(runtime.snapshot().grant?.idleEndsAt).toBeNull();
+  const now = Date.now;
+  try {
+    const future = now() + 40 * 60_000; // a 40-minute benchmark, past the 15-minute idle stop
+    Date.now = () => future;
+    await Bun.sleep(400);
+    expect(runtime.snapshot().active).toBe(true);
+  } finally { Date.now = now; }
+  await ui("stop");
+  await until(async () => (await store.getRequest(request.id))?.status === "failed");
 });
 
 test("an expired prompt cannot approve, and idle expiry ends access", async () => {

@@ -2,6 +2,7 @@ import { useRef, useState } from "react";
 import { changeDeviceReceiver, controllerSessionUrl, useDeviceReceiver } from "../lib/device-receiver";
 import { DeviceNotificationSettings } from "./device-receiver-monitor";
 import { DevicePermissions } from "./device-activity";
+import { ActiveAccess, StartAccess } from "./device-access-controls";
 import { SettingsFold, SettingsGroup } from "./settings-ui";
 
 const inputClass = "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm";
@@ -13,7 +14,6 @@ export function DeviceReceiverSettings() {
   const [busy, setBusy] = useState(false);
   const [server, setServer] = useState("");
   const [code, setCode] = useState("");
-  const [minutes, setMinutes] = useState(60);
   const mutating = useRef(false);
 
   const act = async (action: string, body: Record<string, unknown> = {}) => {
@@ -64,18 +64,7 @@ export function DeviceReceiverSettings() {
             <p className="break-all text-xs text-muted-foreground">Linked as <strong>@{state.deviceId}</strong> to {state.server}</p>
           </div>
           {state.otherProcess && <p className="text-xs text-muted-foreground">Stop the other device process before starting access here. An old lock after a crash also blocks access.</p>}
-          {state.active ? <>
-            <p className="text-xs text-muted-foreground">Ends at {state.endsAt && new Date(state.endsAt).toLocaleTimeString()}. Stops after {state.idleMinutes} idle minutes.</p>
-            <button type="button" disabled={busy} className="rounded-lg bg-destructive px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => void act("stop")}>Stop access</button>
-          </> : <>
-            <p className="text-xs text-muted-foreground">Starting access allows actions marked “Allowed during access” to run without another prompt. Other actions ask first.</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" disabled={busy || !state.actions.length || state.otherProcess} className={buttonClass} onClick={() => void act("start", { minutes, idle: 15 })}>Start access</button>
-              <label className="flex items-center gap-2 text-sm text-muted-foreground">for<select aria-label="Access duration" value={minutes} onChange={(e) => setMinutes(Number(e.target.value))} className="rounded-lg border border-border bg-background p-2 text-foreground">
-                {[15, 30, 60, 120].map((n) => <option key={n} value={n}>{n} minutes</option>)}
-              </select></label>
-            </div>
-          </>}
+          {state.active ? <ActiveAccess state={state} busy={busy} act={act} /> : <StartAccess state={state} busy={busy} act={act} />}
           {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
         </div>
       </SettingsGroup>}

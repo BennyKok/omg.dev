@@ -101,7 +101,15 @@ export type ReceiverState = {
   active: boolean;
   otherProcess?: boolean;
   endsAt: number | null;
+  /** null while active means no idle stop. */
   idleMinutes: number | null;
+  /** The device's own grant. Older receivers do not send it. */
+  grant?: { startedAt: number; endsAt: number; idleMinutes: number | null; idleEndsAt: number | null; busy: boolean; ceilingMinutes: number } | null;
+  /** The length and idle stop chosen last time on this computer. */
+  lastChoice?: { minutes: number; idle: number | null; long: boolean } | null;
+  /** Longest session one decision may allow, and the limit without a long-session choice. */
+  longestMinutes?: number;
+  standardMinutes?: number;
   actions: LinkedDevice["actions"];
   error: string | null;
   requests?: Array<{ id: string; action: string; args: Record<string, string>; requestedBy?: string; status: string; expiresAt: number }>;

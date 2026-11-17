@@ -37,7 +37,13 @@ export async function handleLocalDeviceApi(req: Request, peerAddress?: string, r
         await runtime.changeLink(unlinkDevice);
         break;
       case `${LOCAL_DEVICE_PREFIX}/start`:
-        runtime.start({ minutes: b.minutes, idle: b.idle });
+        runtime.start({ minutes: b.minutes, idle: b.idle, long: b.long });
+        break;
+      case `${LOCAL_DEVICE_PREFIX}/extend`:
+        runtime.extend(b.minutes);
+        break;
+      case `${LOCAL_DEVICE_PREFIX}/idle`:
+        runtime.setIdle(b.idle);
         break;
       case `${LOCAL_DEVICE_PREFIX}/stop`:
         await runtime.stop();

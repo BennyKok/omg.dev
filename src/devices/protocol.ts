@@ -52,6 +52,19 @@ export type WireUpdate = {
   reason?: string;
 };
 
+/** The device's own grant, as it reports it. The server shows this to agents; it never sets it. */
+export type WireGrant = {
+  startedAt: number;
+  endsAt: number;
+  /** null: no idle timeout while the grant lasts. */
+  idleMinutes: number | null;
+  /** When the grant stops for idleness. null while an action runs, or with no idle timeout. */
+  idleEndsAt: number | null;
+  busy: boolean;
+  /** The most one decision at the device may allow, in minutes. */
+  ceilingMinutes: number;
+};
+
 export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const ACTION_RE = /^[a-z][a-z0-9_]{0,39}$/;
 /** Server-made request ids. The device uses one as a folder name, so it checks this before anything else. */

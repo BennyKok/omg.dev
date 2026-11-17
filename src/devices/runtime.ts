@@ -1,7 +1,8 @@
 // The receiver lifecycle used by both omg serve's local UI and omg device run.
 // No grant survives a restart. The installed device config remains authoritative.
-import { closeSync, existsSync, openSync, readSync, fstatSync } from "node:fs";
-import { actionInfos, audit, call, deviceHome, deviceLogPath, Grant, GRANT_MAX_MINUTES, handleRequest, loadConfig, UnlinkedError, type ApprovalPrompt, type Ask, type DeviceConfig } from "./agent.ts";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, fstatSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { actionInfos, audit, call, deviceHome, deviceLogPath, formatMinutes, Grant, GRANT_MAX_MINUTES, grantCeiling, handleRequest, loadConfig, parseIdle, UnlinkedError, type ApprovalPrompt, type Ask, type DeviceConfig } from "./agent.ts";
 import { deviceIsLocked, lockDevice } from "./lock.ts";
 import { FINAL_STATUSES, LINK_PREFIX, type WireRequest, type WireRequestState, type WireUpdate } from "./protocol.ts";
 
@@ -34,6 +35,49 @@ export function readLocalActivity(): LocalActivity[] {
   } finally { closeSync(fd); }
 }
 
+/** The session length and idle stop the person chose last time. Only the device writes it. */
+export type StartChoice = { minutes: number; idle: number | null; long: boolean };
+export type StartOptions = { minutes?: unknown; idle?: unknown; long?: unknown };
+
+const statePath = () => join(deviceHome(), "state.json");
+
+export function readStartChoice(): StartChoice | null {
+  try {
+    const raw = JSON.parse(readFileSync(statePath(), "utf8"))?.lastStart;
+    if (!raw || !Number.isInteger(raw.minutes) || raw.minutes < 1) return null;
+    return { minutes: raw.minutes, idle: raw.idle === null ? null : parseIdle(raw.idle), long: raw.long === true };
+  } catch {
+    return null;
+  }
+}
+
+function saveStartChoice(choice: StartChoice) {
+  try {
+    mkdirSync(deviceHome(), { recursive: true, mode: 0o700 });
+    writeFileSync(statePath(), JSON.stringify({ lastStart: choice }, null, 2) + "\n", { mode: 0o600 });
+  } catch {
+    // Remembering is a convenience. It must not block starting access.
+  }
+}
+
+/**
+ * Checks one start decision. A session over 4 hours needs `long: true`, which
+ * only an explicit choice at the device sends. The default length stays as it was.
+ */
+export function resolveStart(c: Pick<DeviceConfig, "grant">, options: StartOptions = {}): StartChoice & { ceiling: number } {
+  const minutes = Number(options.minutes ?? c.grant?.maxMinutes ?? 120);
+  const idle = options.idle !== undefined ? parseIdle(options.idle) : parseIdle(c.grant?.idleMinutes ?? 15);
+  const long = options.long === true;
+  const ceiling = grantCeiling(c, long);
+  const longest = grantCeiling(c, true);
+  if (!Number.isInteger(minutes) || minutes < 1) throw new Error("Access duration must be a whole number of minutes.");
+  if (minutes > ceiling) {
+    if (!long && minutes <= longest) throw new Error(`Sessions longer than ${formatMinutes(GRANT_MAX_MINUTES)} need an explicit long-session choice on this computer.`);
+    throw new Error(`Access duration must be 1 to ${longest} minutes on this computer.`);
+  }
+  return { minutes, idle, long, ceiling };
+}
+
 export class DeviceRuntime {
   private grant: Grant | null = null;
   private abort: AbortController | null = null;
@@ -58,6 +102,8 @@ export class DeviceRuntime {
       actions: actionInfos(c), active: this.grant !== null,
       otherProcess: !this.grant && !this.mutating && deviceIsLocked(deviceHome()),
       endsAt: this.grant?.endsAt ?? null, idleMinutes: this.grant?.idleMinutes ?? null,
+      grant: this.grant?.status() ?? null, lastChoice: readStartChoice(),
+      longestMinutes: grantCeiling(c, true), standardMinutes: grantCeiling(c, false),
       pending: this.pending, error: this.error, activity: readLocalActivity(),
       requests: this.requests, queueError: this.queueError,
     };
@@ -132,26 +178,24 @@ export class DeviceRuntime {
     if (this.listeners.size) void this.refreshRequests();
   }
 
-  start(options: { minutes?: unknown; idle?: unknown } = {}, ask?: Ask) {
+  start(options: StartOptions = {}, ask?: Ask) {
     if (this.mutating || this.grant) throw new Error("Device access is already active.");
     const c = loadConfig();
     if (!c.deviceId || !c.server) throw new Error("Connect to a controller first.");
     if (!Object.keys(c.actions).length) throw new Error("No actions in ~/.omg-device/config.json. Add actions on this computer first.");
-    const minutes = Number(options.minutes ?? c.grant?.maxMinutes ?? 120);
-    const idle = Number(options.idle ?? c.grant?.idleMinutes ?? 15);
-    if (!Number.isFinite(minutes) || minutes < 1 || minutes > GRANT_MAX_MINUTES) throw new Error(`Access duration must be 1 to ${GRANT_MAX_MINUTES} minutes.`);
-    if (!Number.isFinite(idle) || idle < 1 || idle > minutes) throw new Error("Idle timeout must be 1 minute or more and no longer than access duration.");
+    const choice = resolveStart(c, options);
     const unlock = lockDevice(deviceHome());
     this.release = unlock;
     this.activeConfig = c;
     process.once("exit", this.shutdown);
-    const grant = this.grant = new Grant(minutes, idle);
+    const grant = this.grant = new Grant(choice.minutes, choice.idle, Date.now(), choice.ceiling);
     const abort = this.abort = new AbortController();
     this.error = null;
-    this.record({ kind: "access-started" });
-    let executing = false;
+    saveStartChoice({ minutes: choice.minutes, idle: choice.idle, long: choice.long });
+    this.record({ kind: "access-started", reason: `${formatMinutes(choice.minutes)}${choice.long ? " (long session)" : ""}, idle stop ${choice.idle === null ? "never" : formatMinutes(choice.idle)}` });
+    // The grant knows when an action runs, so a long action never counts as idle.
     const timer = setInterval(() => {
-      if (Date.now() >= grant.endsAt || (!executing && grant.over())) abort.abort();
+      if (grant.over()) abort.abort();
     }, 250);
     this.finished = (async () => {
       let failures = 0;
@@ -163,8 +207,6 @@ export class DeviceRuntime {
           if (request) await handleRequest(c, grant, request, (question, prompt) => this.ask(question, prompt, abort.signal, ask), {
             signal: abort.signal,
             onUpdate: (request, update) => {
-              if (executing && (update.status === "done" || update.status === "failed")) grant.touch();
-              executing = update.status === "running";
               this.requests = this.requests.filter((r) => r.id !== request.id);
               if (!FINAL_STATUSES.has(update.status)) this.requests.unshift({ ...request, status: update.status });
               this.record({ kind: update.status, request, update });
@@ -221,6 +263,24 @@ export class DeviceRuntime {
       this.emit();
       if (ask) void ask(question, prompt, signal).then(finish, cancel);
     });
+  }
+
+  /** The person at this computer moves the end of the active grant. */
+  extend(minutes: unknown) {
+    if (!this.grant || this.abort?.signal.aborted) throw new Error("Access is not active. Start access first.");
+    const grant = this.grant;
+    // Less than a minute of room left means Extend would change nothing the person can see.
+    if (Date.now() + grant.ceilingMinutes * 60_000 - grant.endsAt < 60_000) throw new Error(`Access already ends at the longest allowed time (${formatMinutes(grant.ceilingMinutes)} from now).`);
+    const endsAt = grant.extendBy(Number(minutes));
+    this.record({ kind: "access-extended", reason: `ends at ${new Date(endsAt).toLocaleTimeString()}` });
+  }
+
+  /** The person at this computer changes the idle stop of the active grant. */
+  setIdle(idle: unknown) {
+    if (!this.grant || this.abort?.signal.aborted) throw new Error("Access is not active. Start access first.");
+    const minutes = parseIdle(idle);
+    this.grant.setIdle(minutes);
+    this.record({ kind: "idle-changed", reason: minutes === null ? "never while access lasts" : `after ${formatMinutes(minutes)}` });
   }
 
   decide(token: string, allow: boolean) {
