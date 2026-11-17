@@ -155,9 +155,9 @@ function FolderList({
 
 /**
  * Phone: the new-session composer as its own full screen. The header closes
- * it and opens history; the folder list fills the space above the field; the
- * composer sits at the bottom, over the keyboard. The shell is pinned to the
- * visual viewport the same way a mobile chat is.
+ * it and opens history; the flat composer sits right under it; the folder
+ * list fills the rest. The shell is pinned to the visual viewport the same
+ * way a mobile chat is.
  */
 export function MobileNewSessionScreen({
   projects,
@@ -231,7 +231,10 @@ export function MobileNewSessionScreen({
             <span className="size-11" aria-hidden />
           )}
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3">
+        {/* The composer sits at the top, flat under the header, where the
+            eye lands first; the folder list follows below it. */}
+        <div data-suggest-below="" className="relative z-10 mx-auto w-full max-w-lg shrink-0 border-b border-border/60">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3 pt-2">
           <p className="px-1 pb-1.5 pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Start in</p>
           <FolderList
             projects={projects}
@@ -242,7 +245,6 @@ export function MobileNewSessionScreen({
             onAddFolder={onAddFolder}
           />
         </div>
-        <div className="mx-auto w-full max-w-lg shrink-0">{children}</div>
       </section>
     </div>,
     document.body,

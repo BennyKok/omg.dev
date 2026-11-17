@@ -43,3 +43,24 @@ export function composerStartsUnassigned(input: {
   if (input.scopedProject === NO_PROJECT_FILTER) return true;
   return input.scopedProject === "__all" && !input.pickedFolder;
 }
+
+/** Set when the last folder choice for a new chat was "No project". */
+export const LAST_NO_FOLDER_KEY = "lfg_new_session_no_folder";
+
+/**
+ * Phone new-session screen under "All projects": whether it starts on the
+ * last folder chosen (picked or launched in) instead of "No project".
+ *
+ * The screen shows the folder list with a tick on the choice, so the
+ * default is never a hidden folder. It still only counts a folder this
+ * machine knows: a removed folder must not fall through to `repos[0]`,
+ * which nobody chose (walkthrough 2026-09-29).
+ */
+export function phoneStartsInLastFolder(input: {
+  lastWasNoFolder: boolean;
+  lastCwd?: string | null;
+  repos: { cwd: string }[];
+}): boolean {
+  if (input.lastWasNoFolder || !input.lastCwd) return false;
+  return input.repos.some((repo) => repo.cwd === input.lastCwd);
+}

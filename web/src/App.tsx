@@ -386,7 +386,7 @@ import {
   sortFindings,
   type AgentReport,
 } from "./lib/finding-groups";
-import { composerStartsUnassigned, resolveComposerRepo } from "./lib/composer-repo";
+import { composerStartsUnassigned, LAST_NO_FOLDER_KEY, phoneStartsInLastFolder, resolveComposerRepo } from "./lib/composer-repo";
 import {
   browseFolderWithRecovery,
   folderRecoveryNotice,
@@ -23509,6 +23509,13 @@ function NewSessionDialog({
   // here is what moves it into one. Cleared when the scope changes.
   const [folderPicked, setFolderPicked] = useState(false);
   useEffect(() => setFolderPicked(false), [scopedProject]);
+  // The last folder choice was "No project" (picked, or launched with none).
+  const [lastWasNoFolder, setLastWasNoFolder] = useState(() => localStorage.getItem(LAST_NO_FOLDER_KEY) === "1");
+  const rememberNoFolder = (none: boolean) => {
+    setLastWasNoFolder(none);
+    if (none) localStorage.setItem(LAST_NO_FOLDER_KEY, "1");
+    else localStorage.removeItem(LAST_NO_FOLDER_KEY);
+  };
   const [model, setModel] = useState(
     () =>
       (view.showComposerModels ? "" : preferredModelFor(agent)) ||
@@ -24040,7 +24047,14 @@ function NewSessionDialog({
   // This is the whole hazard of the feature: the normal fallback chain would
   // quietly hand the chat the last folder you used, and the person would have
   // started a session in a real repository while the UI said "No project".
-  const unassigned = composerStartsUnassigned({ scopedProject, pickedFolder: folderPicked });
+  // The phone screen shows its folder list with a tick, so under "All
+  // projects" it starts on the last folder chosen, not on "No project".
+  const startsInLastFolder =
+    variant === "inline" && phoneStartsInLastFolder({ lastWasNoFolder, lastCwd: repo, repos });
+  const unassigned = composerStartsUnassigned({
+    scopedProject,
+    pickedFolder: folderPicked || startsInLastFolder,
+  });
   const scopedRepo =
     scopedProject !== "__all" && scopedProject !== NO_PROJECT_FILTER
       ? repos.find((r) => repoProject(r) === scopedProject)
@@ -24089,6 +24103,7 @@ function NewSessionDialog({
   }
 
   function chooseComposerRepo(next: Repo) {
+    rememberNoFolder(false);
     setFolderPicked(true);
     setRepo(next.cwd);
     localStorage.setItem("lfg_v2_repo", next.cwd);
@@ -24271,6 +24286,7 @@ function NewSessionDialog({
     // A no-project chat has no folder to remember. Writing "" here would erase
     // the folder the next ordinary session is supposed to open in.
     if (!unassigned) localStorage.setItem("lfg_v2_repo", selectedRepo);
+    rememberNoFolder(unassigned);
     localStorage.setItem(`lfg_model_${launchAgent}`, launchModel);
     if (thinkingLevels.length) localStorage.setItem("lfg_thinking_level", launchThinkingLevel);
     if (launchAgent === "claude") localStorage.setItem("lfg_model", launchModel);
@@ -24503,6 +24519,7 @@ function NewSessionDialog({
   // names a folder, and with none chosen the next chat has no project.
   const ownsFolder = variant === "inline";
   const pickFolder = (next: string) => {
+    if (next === NO_PROJECT_FILTER) rememberNoFolder(true);
     if (next === "__all" || next === NO_PROJECT_FILTER) {
       setFolderPicked(false);
       onProjectChange?.(next);
@@ -24840,7 +24857,9 @@ function NewSessionDialog({
         // them would only narrow the field.
         variant === "inline" ? "px-4" : "px-2",
         variant === "inline"
-          ? "overflow-visible pb-[max(var(--lfg-device-safe-bottom),0.5rem)] pt-1.5"
+          ? // The phone screen puts the composer at the top, under the
+            // header, so it clears no home indicator.
+            "overflow-visible pb-2 pt-1"
           : variant === "stage"
             ? // The stage has the whole pane; nothing to cap or scroll. And
               // it must not clip: the / and @ suggest menus hang above the
@@ -24868,19 +24887,20 @@ function NewSessionDialog({
         />
       ) : null}
       <div
+        data-lfg-field=""
         className={cn(
-          "lfg-gfield relative",
-          // Inline follows iOS HomeComposer. At rest it is one row: agent,
-          // field, attach, mic. Focus or content gives the field its own line
-          // and moves agent, attach, mic and Start under it.
+          "relative",
+          // The phone screen's field is flat: it IS the page under the
+          // header, so it has no card edge of its own. Text first, then
+          // agent, attach, mic and Start in one row under it.
           sheetShape
             ? cn(
-                "flex overflow-visible transition-[border-radius,padding] duration-200 ease-out motion-reduce:transition-none",
+                "flex overflow-visible",
                 inlineExpanded
-                  ? "flex-col items-stretch gap-3 rounded-[30px] px-3.5 pb-3 pt-3.5"
-                  : cn("flex-row gap-1.5 rounded-[26px] px-2 py-[7px]", promptMultiline ? "items-end" : "items-center"),
+                  ? "flex-col items-stretch gap-2 px-0 pb-1 pt-1"
+                  : cn("flex-row gap-1.5 px-0 py-1", promptMultiline ? "items-end" : "items-center"),
               )
-            : "relative rounded-2xl px-2 py-1",
+            : "lfg-gfield relative rounded-2xl px-2 py-1",
         )}
         ref={fieldRef}
         onFocus={
@@ -24965,7 +24985,8 @@ function NewSessionDialog({
             "border-0 bg-transparent text-base leading-relaxed shadow-none focus-visible:border-0 focus-visible:ring-0",
             variant === "inline"
               ? cn(
-                  "min-h-9 px-1 py-1.5",
+                  // A writing area, not a one-line bar: the screen has room.
+                  "min-h-24 px-1 py-1.5 text-[17px]",
                   // At rest the field is empty by definition (any content
                   // expands it). Keep the placeholder on one line, so a
                   // narrow phone or a larger system font does not wrap it

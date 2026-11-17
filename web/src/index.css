@@ -2484,6 +2484,7 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
      through every layout change and never covers anything, where a measured
      overlay ring drifted onto other chrome. */
   form[data-lfg-guide-focus="composer"] .lfg-gfield,
+  form[data-lfg-guide-focus="composer"] [data-lfg-field],
   form[data-lfg-guide-focus="mic"] [data-lfg-mic],
   form[data-lfg-guide-focus="send"] [data-lfg-send],
   form[data-lfg-guide-focus="send"] button[type="submit"] {
@@ -2501,6 +2502,7 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
   }
   @media (prefers-reduced-motion: reduce) {
     form[data-lfg-guide-focus] .lfg-gfield,
+    form[data-lfg-guide-focus] [data-lfg-field],
     form[data-lfg-guide-focus] [data-lfg-mic],
     form[data-lfg-guide-focus] [data-lfg-send],
     form[data-lfg-guide-focus] button[type="submit"] {
@@ -3318,4 +3320,14 @@ html[data-lfg-embed="true"].lfg-keyboard-open {
 :root[data-motion="paused"] *::before,
 :root[data-motion="paused"] *::after {
   animation-play-state: paused !important;
+}
+
+/* The phone new-session screen puts its composer at the top, so the / and @
+   menus open downward over the folder list instead of up off the screen.
+   Unlayered on purpose: it has to beat the menus' `bottom-full` utility. */
+[data-suggest-below] [data-composer-suggest] {
+  top: 100%;
+  bottom: auto;
+  margin-top: 0.5rem;
+  margin-bottom: 0;
 }
