@@ -6397,9 +6397,11 @@ a{color:#60a5fa}
       // run one substring match. `?q=` runs that same match here instead.
       if (path === "/api/skills" && req.method === "GET") {
         const repoRoots = (await listRepos().catch(() => [])).map((repo) => repo.cwd);
+        const agent = url.searchParams.get("agent") ?? undefined;
+        if (agent !== undefined && !isCodingAgentKind(agent)) return err(400, "unknown coding agent");
         const q = url.searchParams.get("q");
-        if (q !== null) return json({ skills: await searchSkillCatalog(repoRoots, q) });
-        return json({ skills: withoutSkillKeywords(await listSkillCatalog(repoRoots)) });
+        if (q !== null) return json({ skills: await searchSkillCatalog(repoRoots, q, 50, agent) });
+        return json({ skills: withoutSkillKeywords(await listSkillCatalog(repoRoots, agent)) });
       }
       if (path === "/api/coding-agents/setup/log" && req.method === "GET") {
         return json(getCodingAgentSetupLog());

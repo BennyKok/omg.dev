@@ -46,9 +46,101 @@ type SkillIndex = {
   items: SkillCatalogItem[];
 };
 
-let skillIndex: SkillIndex | null = null;
-let skillIndexRefresh: Promise<SkillCatalogItem[]> | null = null;
-let skillIndexRefreshKey = "";
+const skillIndexes = new Map<string, SkillIndex>();
+const skillRefreshes = new Map<string, Promise<SkillCatalogItem[]>>();
+
+type SkillRoot = { root: string; source: SkillCatalogItem["source"] };
+
+function grokCompatibility(home: string, provider: "claude" | "cursor"): boolean {
+  const override = process.env[`GROK_${provider.toUpperCase()}_SKILLS_ENABLED`];
+  if (override !== undefined) {
+    const value = override.trim().toLowerCase();
+    if (value === "true" || value === "1") return true;
+    if (value === "false" || value === "0") return false;
+  }
+  try {
+    const config = Bun.TOML.parse(readFileSync(join(process.env.GROK_HOME || join(home, ".grok"), "config.toml"), "utf8")) as {
+      compat?: { claude?: { skills?: boolean }; cursor?: { skills?: boolean } };
+    };
+    return config.compat?.[provider]?.skills !== false;
+  } catch {
+    return true;
+  }
+}
+
+/** Native discovery roots only; plugin caches are not portable between agents. */
+export function skillCatalogRoots(
+  repoRoots: string[],
+  agent?: string,
+  home = homedir(),
+  selfRepo = PATHS.root,
+): { roots: SkillRoot[]; pluginRoots: SkillRoot[] } {
+  const homes = {
+    codex: process.env.CODEX_HOME || join(home, ".codex"),
+    claude: process.env.CLAUDE_HOME || join(home, ".claude"),
+    grok: process.env.GROK_HOME || join(home, ".grok"),
+  };
+  const projects = agent === undefined ? [selfRepo, ...repoRoots] : repoRoots;
+  const roots: SkillRoot[] = [];
+  const pluginRoots: SkillRoot[] = [];
+  const add = (source: SkillCatalogItem["source"], global: string, local: string) => {
+    roots.push({ root: global, source });
+    for (const cwd of projects) roots.push({ root: join(cwd, local), source });
+  };
+  const plugins = (source: "codex" | "claude") => {
+    const entry = { root: join(homes[source], "plugins", "cache"), source };
+    roots.push(entry);
+    pluginRoots.push(entry);
+  };
+  if (agent === undefined) {
+    // Preserve the unscoped API for clients that do not send an agent yet.
+    add("codex", join(homes.codex, "skills"), ".codex/skills");
+    add("claude", join(homes.claude, "skills"), ".claude/skills");
+    plugins("codex");
+    plugins("claude");
+    for (const cwd of [selfRepo, ...repoRoots]) {
+      roots.push({ root: join(cwd, ".agents", "skills"), source: "agent" });
+      roots.push({ root: join(cwd, "skills"), source: "agent" });
+      roots.push({ root: join(cwd, "packages", "skills", "skills"), source: "agent" });
+    }
+  } else {
+    switch (agent) {
+      case "claude":
+      case "aisdk":
+        add("claude", join(homes.claude, "skills"), ".claude/skills");
+        plugins("claude");
+        break;
+      case "codex":
+      case "codex-aisdk":
+        add("codex", join(homes.codex, "skills"), ".codex/skills");
+        add("agent", join(home, ".agents", "skills"), ".agents/skills");
+        plugins("codex");
+        break;
+      case "grok":
+        add("grok", join(homes.grok, "skills"), ".grok/skills");
+        add("agent", join(home, ".agents", "skills"), ".agents/skills");
+        if (grokCompatibility(home, "claude")) add("claude", join(homes.claude, "skills"), ".claude/skills");
+        if (grokCompatibility(home, "cursor")) add("agent", join(home, ".cursor", "skills"), ".cursor/skills");
+        break;
+      case "opencode":
+        add("agent", join(process.env.XDG_CONFIG_HOME || join(home, ".config"), "opencode", "skills"), ".opencode/skills");
+        add("claude", join(homes.claude, "skills"), ".claude/skills");
+        add("agent", join(home, ".agents", "skills"), ".agents/skills");
+        break;
+      case "cursor":
+        add("agent", join(home, ".cursor", "skills"), ".cursor/skills");
+        add("agent", join(home, ".agents", "skills"), ".agents/skills");
+        add("claude", join(homes.claude, "skills"), ".claude/skills");
+        add("codex", join(homes.codex, "skills"), ".codex/skills");
+        break;
+      case "pi":
+        add("agent", join(home, ".pi", "agent", "skills"), ".pi/skills");
+        add("agent", join(home, ".agents", "skills"), ".agents/skills");
+        break;
+    }
+  }
+  return { roots, pluginRoots };
+}
 
 function cacheKey(repoRoots: string[]): string {
   return [...new Set(repoRoots.map((root) => root.trim()).filter(Boolean))]
@@ -155,44 +247,11 @@ function pluginSkillTrigger(skillPath: string, name: string): string {
   return name;
 }
 
-async function buildSkillCatalog(repoRoots: string[] = []): Promise<SkillCatalogItem[]> {
-  const codexHome = process.env.CODEX_HOME || join(homedir(), ".codex");
-  const claudeHome = process.env.CLAUDE_HOME || join(homedir(), ".claude");
-  const selfRepo = PATHS.root;
-  // Installed-plugin caches. Skills found under these get a "plugin:name"
-  // trigger (see pluginSkillTrigger); everything else is addressed by bare name.
-  // These are also the only roots scanned for plugin commands.
-  const pluginRoots: { root: string; source: SkillCatalogItem["source"] }[] = [
-    { root: join(codexHome, "plugins", "cache"), source: "codex" },
-    { root: join(claudeHome, "plugins", "cache"), source: "claude" },
-  ];
+export async function buildSkillCatalog({ roots, pluginRoots }: {
+  roots: SkillRoot[];
+  pluginRoots: SkillRoot[];
+}): Promise<SkillCatalogItem[]> {
   const pluginCacheRoots = pluginRoots.map((r) => r.root);
-  const roots: { root: string; source: SkillCatalogItem["source"] }[] = [
-    { root: join(codexHome, "skills"), source: "codex" },
-    { root: join(codexHome, "plugins", "cache"), source: "codex" },
-    { root: join(claudeHome, "skills"), source: "claude" },
-    // Claude Code plugin skills, the mirror of the codex plugin cache above.
-    // Without this every plugin-provided skill was invisible to the catalog even
-    // though the agent could invoke it. Only `cache/` (what is actually
-    // installed) is scanned — `plugins/marketplaces/` is a marketplace checkout
-    // that also contains plugins the user never installed, so indexing it would
-    // advertise skills that aren't available. The layout matches codex's
-    // (<marketplace>/<plugin>/<version>/skills/...), so pluginSkillTrigger
-    // already resolves the "plugin:name" trigger correctly.
-    { root: join(claudeHome, "plugins", "cache"), source: "claude" },
-    { root: join(selfRepo, ".claude", "skills"), source: "claude" },
-    { root: join(selfRepo, ".codex", "skills"), source: "codex" },
-    { root: join(selfRepo, ".agents", "skills"), source: "agent" },
-    { root: join(selfRepo, "skills"), source: "agent" },
-    { root: join(selfRepo, "packages", "skills", "skills"), source: "agent" },
-  ];
-  for (const cwd of repoRoots) {
-    roots.push({ root: join(cwd, ".claude", "skills"), source: "claude" });
-    roots.push({ root: join(cwd, ".codex", "skills"), source: "codex" });
-    roots.push({ root: join(cwd, ".agents", "skills"), source: "agent" });
-    roots.push({ root: join(cwd, "skills"), source: "agent" });
-    roots.push({ root: join(cwd, "packages", "skills", "skills"), source: "agent" });
-  }
   const skillFiles = (
     await Promise.all(
       [...new Map(roots.map((r) => [`${r.source}:${r.root}`, r])).values()].map(async (r) =>
@@ -257,41 +316,28 @@ async function buildSkillCatalog(repoRoots: string[] = []): Promise<SkillCatalog
   return items.sort((a, b) => a.trigger.localeCompare(b.trigger));
 }
 
-export async function listSkillCatalog(repoRoots: string[] = []): Promise<SkillCatalogItem[]> {
+export async function listSkillCatalog(repoRoots: string[] = [], agent?: string): Promise<SkillCatalogItem[]> {
+  const scope = agent ?? "";
   const key = cacheKey(repoRoots);
-  const now = Date.now();
-  if (skillIndex?.key === key) {
-    const age = now - skillIndex.builtAt;
-    if (age < SKILL_INDEX_TTL_MS) return skillIndex.items;
-    if (age < SKILL_INDEX_STALE_MS) {
-      if (!skillIndexRefresh || skillIndexRefreshKey !== key) {
-        skillIndexRefreshKey = key;
-        skillIndexRefresh = buildSkillCatalog(repoRoots)
-          .then((items) => {
-            skillIndex = { key, builtAt: Date.now(), items };
-            return items;
-          })
-          .finally(() => {
-            skillIndexRefresh = null;
-            skillIndexRefreshKey = "";
-          });
-      }
-      return skillIndex.items;
-    }
-  }
-  if (!skillIndexRefresh || skillIndexRefreshKey !== key) {
-    skillIndexRefreshKey = key;
-    skillIndexRefresh = buildSkillCatalog(repoRoots)
+  const index = skillIndexes.get(scope);
+  const age = index ? Date.now() - index.builtAt : Infinity;
+  if (index?.key === key && age < SKILL_INDEX_TTL_MS) return index.items;
+  const refreshKey = JSON.stringify([scope, key]);
+  let refresh = skillRefreshes.get(refreshKey);
+  if (!refresh) {
+    refresh = buildSkillCatalog(skillCatalogRoots(repoRoots, agent))
       .then((items) => {
-        skillIndex = { key, builtAt: Date.now(), items };
+        skillIndexes.set(scope, { key, builtAt: Date.now(), items });
         return items;
       })
-      .finally(() => {
-        skillIndexRefresh = null;
-        skillIndexRefreshKey = "";
-      });
+      .finally(() => skillRefreshes.delete(refreshKey));
+    skillRefreshes.set(refreshKey, refresh);
   }
-  return skillIndexRefresh;
+  if (index?.key === key && age < SKILL_INDEX_STALE_MS) {
+    void refresh.catch(() => {});
+    return index.items;
+  }
+  return refresh;
 }
 
 /** Drop the server-only body text so a catalog can be sent to a client. */
@@ -316,8 +362,9 @@ export async function searchSkillCatalog(
   repoRoots: string[] = [],
   query: string,
   limit = 50,
+  agent?: string,
 ): Promise<SkillCatalogItem[]> {
-  const items = await listSkillCatalog(repoRoots);
+  const items = await listSkillCatalog(repoRoots, agent);
   const q = query.trim().toLowerCase();
   if (!q) return withoutSkillKeywords(items).slice(0, limit);
   const hits = items.filter((skill) =>
