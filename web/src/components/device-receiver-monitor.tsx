@@ -13,9 +13,9 @@ export function DeviceReceiverMonitor({ onOpen, showIndicator = true }: { onOpen
   }, []);
   useEffect(() => { void notices.current?.update(state); }, [state]);
   const count = state?.requests?.length ?? (state?.pending ? 1 : 0);
-  if (!showIndicator || !state || (!count && !state.active)) return null;
+  if (!showIndicator || !state || (!count && !state.active && !state.extension)) return null;
   return <aside aria-label="Incoming device activity" className="fixed bottom-24 right-4 z-50 max-w-[calc(100vw-2rem)] rounded-xl border border-border bg-background p-3 shadow-lg md:bottom-4">
-    <p role="status" className="text-sm font-medium">{state.pending ? "Device request needs approval" : `${count} incoming request${count === 1 ? "" : "s"} · Access ${state.active ? "active" : "stopped"}`}</p>
+    <p role="status" className="text-sm font-medium">{state.pending ? "Device request needs approval" : state.extension ? "An agent asks for more access time" : `${count} incoming request${count === 1 ? "" : "s"} · Access ${state.active ? "active" : "stopped"}`}</p>
     <button type="button" onClick={onOpen} className="mt-1 text-sm underline underline-offset-4">View incoming requests</button>
   </aside>;
 }

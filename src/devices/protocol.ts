@@ -65,6 +65,24 @@ export type WireGrant = {
   ceilingMinutes: number;
 };
 
+/** An agent asks for more time. Only the person at the device can approve it. */
+export type WireExtension = { id: string; minutes: number; reason?: string; requestedBy?: string; createdAt: number; expiresAt: number };
+
+/** Heartbeat from the device while it owns a grant, and once when the grant ends. */
+export type WireGrantReport = {
+  grant: WireGrant | null;
+  /** Why the grant ended, when grant is null. */
+  reason?: string;
+  /** The device's answer to an extension request. */
+  extension?: { id: string; status: "approved" | "denied"; endsAt?: number; reason?: string };
+};
+
+/** A request that ended without reaching a running grant, for the person at the device. */
+export type WireMissedRequest = { id: string; action: string; requestedBy?: string; reason?: string; createdAt: number; updatedAt: number };
+
+export const MAX_EXTENSION_MINUTES = 24 * 60;
+export const EXTENSION_ID_RE = /^dx_[a-z0-9]{1,40}$/;
+
 export const NAME_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;
 export const ACTION_RE = /^[a-z][a-z0-9_]{0,39}$/;
 /** Server-made request ids. The device uses one as a folder name, so it checks this before anything else. */

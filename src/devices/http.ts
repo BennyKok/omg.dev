@@ -16,6 +16,7 @@ import {
   normalizePublicKey,
   POLL_WAIT_MS,
   verifySignature,
+  type WireGrantReport,
   type WireUpdate,
 } from "./protocol.ts";
 import * as store from "./store.ts";
@@ -97,7 +98,16 @@ export async function handleDeviceLink(req: Request): Promise<Response> {
 
   if (path === `${LINK_PREFIX}requests` && req.method === "POST") {
     const rows = await store.listRequests({ deviceId: device.id, activeOnly: true });
-    return json({ requests: rows.map(({ id, action, args, expiresAt, requestedBy, status }) => ({ id, action, args, expiresAt, requestedBy, status })) });
+    return json({
+      requests: rows.map(({ id, action, args, expiresAt, requestedBy, status }) => ({ id, action, args, expiresAt, requestedBy, status })),
+      missed: await store.missedRequests(device.id),
+    });
+  }
+
+  if (path === `${LINK_PREFIX}grant` && req.method === "POST") {
+    const b = parse(body) as WireGrantReport | null;
+    if (!b || typeof b !== "object") return err(400, "a grant report is required");
+    return json({ extension: await store.reportGrant(device.id, b) });
   }
 
   if (path === `${LINK_PREFIX}clear` && req.method === "POST") {
@@ -211,7 +221,7 @@ export async function handleDevicesApi(
   if (path === "/api/devices" && req.method === "GET") {
     const devices = await store.listDevices();
     return json({
-      devices: devices.map(({ publicKey: _pk, ...d }) => d),
+      devices: devices.map(({ publicKey: _pk, ...d }) => ({ ...d, grant: store.grantView(d.id) })),
       requests: (await store.listRequests({ limit: 20 })).map(presentRequest),
     });
   }
@@ -232,7 +242,32 @@ export async function handleDevicesApi(
   if (reqMatch && req.method === "GET") {
     const wait = Math.min(Math.max(Number(url.searchParams.get("wait")) || 0, 0), 120) * 1000;
     const r = wait ? await store.waitForFinal(reqMatch[1], wait) : await store.getRequest(reqMatch[1]);
-    return r ? json({ request: presentRequest(r) }) : err(404, "unknown request");
+    return r ? json({ request: presentRequest(r), grant: store.grantView(r.deviceId) }) : err(404, "unknown request");
+  }
+
+  const extMatch = path.match(/^\/api\/devices\/extensions\/(dx_[a-z0-9]+)$/);
+  if (extMatch && req.method === "GET") {
+    const wait = Math.min(Math.max(Number(url.searchParams.get("wait")) || 0, 0), 120) * 1000;
+    const x = wait ? await store.waitForExtension(extMatch[1], wait) : store.getExtension(extMatch[1]);
+    return x ? json({ extension: x, grant: store.grantView(x.deviceId) }) : err(404, "unknown extension request");
+  }
+
+  const ext = path.match(/^\/api\/devices\/([a-z0-9][a-z0-9-]{0,39})\/extend$/);
+  if (ext && req.method === "POST") {
+    const b = (await req.json().catch(() => null)) as { minutes?: unknown; reason?: unknown; wait?: unknown } | null;
+    try {
+      const x = await store.requestExtension({
+        deviceId: ext[1],
+        minutes: Number(b?.minutes),
+        reason: typeof b?.reason === "string" ? b.reason : undefined,
+        requestedBy: ctx.callerSessionId,
+      });
+      const wait = Math.min(Math.max(Number(b?.wait) || 0, 0), 120) * 1000;
+      const latest = wait ? ((await store.waitForExtension(x.id, wait)) ?? x) : x;
+      return json({ extension: latest, grant: store.grantView(ext[1]) });
+    } catch (e) {
+      return err(400, e instanceof Error ? e.message : String(e));
+    }
   }
 
   const one = path.match(/^\/api\/devices\/([a-z0-9][a-z0-9-]{0,39})(\/requests)?$/);
@@ -264,7 +299,7 @@ export async function handleDevicesApi(
       });
       const wait = Math.min(Math.max(Number(b.wait) || 0, 0), 120) * 1000;
       const latest = wait ? ((await store.waitForFinal(r.id, wait)) ?? r) : r;
-      return json({ request: presentRequest(latest) });
+      return json({ request: presentRequest(latest), grant: store.grantView(r.deviceId) });
     } catch (e) {
       return err(400, e instanceof Error ? e.message : String(e));
     }

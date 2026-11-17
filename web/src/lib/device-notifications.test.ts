@@ -84,3 +84,37 @@ test("closing one UI tab does not close another tab's worker notifications", asy
   await notices.dispose();
   expect(shown[0].closed).toBe(false);
 });
+
+test("access ending within ten minutes notifies once, and Extend closes the notice", async () => {
+  const now = Date.now();
+  const grant = { startedAt: now - 60_000, endsAt: now + 9 * 60_000, idleMinutes: null, idleEndsAt: null, busy: false, ceilingMinutes: 240 };
+  state = { ...state, requests: [], active: true, endsAt: grant.endsAt, grant };
+  await notices.update(state); await notices.update({ ...state });
+  expect(shown).toHaveLength(1);
+  expect(shown[0].title).toBe("Access ends in 9 min");
+  expect(shown[0].options.body).toContain("extend");
+  const extended = { ...grant, endsAt: now + 69 * 60_000 };
+  await notices.update({ ...state, endsAt: extended.endsAt, grant: extended });
+  expect(shown[0].closed).toBe(true);
+  expect(shown).toHaveLength(1);
+});
+
+test("an idle stop within ten minutes notifies; a running action does not", async () => {
+  const now = Date.now();
+  const grant = { startedAt: now, endsAt: now + 120 * 60_000, idleMinutes: 15, idleEndsAt: now + 5 * 60_000, busy: false, ceilingMinutes: 240 };
+  state = { ...state, requests: [], active: true, endsAt: grant.endsAt, grant: { ...grant, busy: true, idleEndsAt: null } };
+  await notices.update(state);
+  expect(shown).toHaveLength(0);
+  await notices.update({ ...state, grant });
+  expect(shown[0].title).toBe("Access stops in 5 min if idle");
+});
+
+test("an agent's extension request notifies without its reason or session", async () => {
+  state = { ...state, requests: [], active: true, extension: { token: "t", id: "dx_one", minutes: 120, reason: "private benchmark name", requestedBy: "private-session", createdAt: Date.now(), expiresAt: Date.now() + 60_000 } };
+  await notices.update(state);
+  expect(shown).toHaveLength(1);
+  expect(shown[0].title).toBe("An agent asks to extend access by 2 h");
+  expect(JSON.stringify(shown)).not.toContain("private");
+  await notices.update({ ...state, extension: null });
+  expect(shown[0].closed).toBe(true);
+});

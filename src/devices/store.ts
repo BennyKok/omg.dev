@@ -24,6 +24,11 @@ import {
   MAX_REQUEST_FILE_BYTES,
   NAME_RE,
   APPROVALS,
+  MAX_EXTENSION_MINUTES,
+  type WireExtension,
+  type WireGrant,
+  type WireGrantReport,
+  type WireMissedRequest,
   type ActionInfo,
   type ArgSpec,
   type RequestStatus,
@@ -223,6 +228,8 @@ export function removeDevice(id: string): Promise<boolean> {
     }
     await writeJson(requestsPath(), reqs);
     await logEvent({ kind: "removed", device: id });
+    grants.delete(id);
+    for (const [key, x] of extensions) if (x.deviceId === id) extensions.delete(key);
     wake(id);
     return true;
   });
@@ -375,7 +382,17 @@ export function takeNext(deviceId: string): Promise<WireRequest | null> {
   return serial(async () => {
     const now = Date.now();
     const rows = await readRequests();
-    const changed = expire(rows, now);
+    let changed = expire(rows, now);
+    // The device polls only after it has answered the last request, so a row
+    // still "delivered" here never reached it (the poll was cut off when its
+    // grant ended, or the reply was lost). Queue it again instead of letting
+    // it expire unseen.
+    for (const r of rows) {
+      if (r.deviceId === deviceId && r.status === "delivered") {
+        Object.assign(r, { status: "queued", updatedAt: now });
+        changed = true;
+      }
+    }
     const next = rows.find((r) => r.deviceId === deviceId && r.status === "queued");
     if (next) {
       next.status = "delivered";
@@ -477,4 +494,181 @@ export async function waitForFinal(id: string, ms: number): Promise<DeviceReques
     if (!r || FINAL_STATUSES.has(r.status) || Date.now() >= end) return r;
     await Bun.sleep(Math.min(1000, Math.max(0, end - Date.now())));
   }
+}
+
+// ---- grants and extensions -------------------------------------------------------
+// The device owns its grant. It reports it here so agents can see time left.
+// These reports and extension requests live in memory: a restart forgets them,
+// and the device's next heartbeat (every 15 seconds) restores the grant view.
+// Nothing here can start, extend or approve a grant on the device.
+
+export const GRANT_REPORT_STALE_MS = 60_000;
+export const EXTENSION_TTL_MS = 30 * 60_000;
+const MISSED_WINDOW_MS = 24 * 60 * 60_000;
+
+type GrantRecord = { grant: WireGrant | null; reason?: string; reportedAt: number };
+export type ExtensionRecord = WireExtension & {
+  deviceId: string;
+  status: "pending" | "approved" | "denied" | "expired";
+  decidedAt?: number;
+  endsAt?: number;
+  decisionReason?: string;
+};
+
+const grants = new Map<string, GrantRecord>();
+const extensions = new Map<string, ExtensionRecord>();
+
+function cleanGrant(raw: unknown, now: number): WireGrant | null {
+  if (!raw || typeof raw !== "object") return null;
+  const g = raw as Record<string, unknown>;
+  const time = (v: unknown) => typeof v === "number" && Number.isFinite(v) && v > 0 && v < now + 2 * MAX_EXTENSION_MINUTES * 60_000;
+  if (!time(g.startedAt) || !time(g.endsAt)) return null;
+  const idle = g.idleMinutes === null ? null : Number.isInteger(g.idleMinutes) && (g.idleMinutes as number) > 0 ? (g.idleMinutes as number) : undefined;
+  if (idle === undefined) return null;
+  return {
+    startedAt: g.startedAt as number,
+    endsAt: g.endsAt as number,
+    idleMinutes: idle,
+    idleEndsAt: time(g.idleEndsAt) ? (g.idleEndsAt as number) : null,
+    busy: g.busy === true,
+    ceilingMinutes: Number.isInteger(g.ceilingMinutes) ? Math.min(Math.max(1, g.ceilingMinutes as number), MAX_EXTENSION_MINUTES) : 240,
+  };
+}
+
+function expireExtensions(now: number) {
+  for (const x of extensions.values()) {
+    if (x.status !== "pending") continue;
+    const g = activeGrant(x.deviceId, now);
+    if (now >= x.expiresAt || !g) {
+      Object.assign(x, { status: "expired", decidedAt: now, decisionReason: g ? "no answer at the device in time" : "access ended on the device" });
+      void logEvent({ kind: "extension-expired", device: x.deviceId, extension: x.id });
+    }
+  }
+  for (const [id, x] of extensions) if (x.status !== "pending" && now - (x.decidedAt ?? x.createdAt) > MISSED_WINDOW_MS) extensions.delete(id);
+}
+
+/** The device's live grant, or null when it reported none or went quiet. */
+export function activeGrant(deviceId: string, now = Date.now()): WireGrant | null {
+  const r = grants.get(deviceId);
+  if (!r?.grant || now - r.reportedAt > GRANT_REPORT_STALE_MS || now >= r.grant.endsAt) return null;
+  return r.grant;
+}
+
+/** A device heartbeat. Returns the one extension request waiting for the person at the device, if any. */
+export async function reportGrant(deviceId: string, report: WireGrantReport, now = Date.now()): Promise<WireExtension | null> {
+  const grant = cleanGrant(report?.grant, now);
+  grants.set(deviceId, { grant, reason: grant ? undefined : typeof report?.reason === "string" ? report.reason.slice(0, 200) : undefined, reportedAt: now });
+  const answer = report?.extension;
+  if (answer && typeof answer.id === "string") {
+    const x = extensions.get(answer.id);
+    if (x && x.deviceId === deviceId && x.status === "pending" && (answer.status === "approved" || answer.status === "denied")) {
+      x.status = answer.status;
+      x.decidedAt = now;
+      if (answer.status === "approved" && typeof answer.endsAt === "number" && Number.isFinite(answer.endsAt)) x.endsAt = answer.endsAt;
+      if (typeof answer.reason === "string") x.decisionReason = answer.reason.slice(0, 200);
+      await logEvent({ kind: `extension-${x.status}`, device: deviceId, extension: x.id, minutes: x.minutes, endsAt: x.endsAt });
+    }
+  }
+  expireExtensions(now);
+  const pending = [...extensions.values()].find((x) => x.deviceId === deviceId && x.status === "pending");
+  return pending ? { id: pending.id, minutes: pending.minutes, reason: pending.reason, requestedBy: pending.requestedBy, createdAt: pending.createdAt, expiresAt: pending.expiresAt } : null;
+}
+
+/** An agent asks for more time. It waits for the person at the device; nothing here grants it. */
+export async function requestExtension(input: { deviceId: string; minutes: number; reason?: string; requestedBy?: string }, now = Date.now()): Promise<ExtensionRecord> {
+  const device = await getDevice(input.deviceId);
+  if (!device) throw new Error(`unknown device "${input.deviceId}"`);
+  if (!Number.isInteger(input.minutes) || input.minutes < 1 || input.minutes > MAX_EXTENSION_MINUTES) throw new Error(`minutes: a whole number from 1 to ${MAX_EXTENSION_MINUTES}`);
+  expireExtensions(now);
+  const grant = activeGrant(device.id, now);
+  if (!grant) throw new Error(`device "${device.id}" has no active access${grants.has(device.id) ? "" : " that it reported (an older omg.dev on the device cannot take extension requests)"}. Only the person at the device can start it (Agent access → Start access, or \`omg device run\`). Ask them with omg_input.`);
+  const open = [...extensions.values()].find((x) => x.deviceId === device.id && x.status === "pending");
+  if (open) throw new Error(`an extension request for "${device.id}" is already waiting: ${open.id}`);
+  const x: ExtensionRecord = {
+    id: `dx_${now.toString(36)}${randomBytes(4).toString("hex")}`,
+    deviceId: device.id,
+    minutes: input.minutes,
+    reason: input.reason?.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, " ").trim().slice(0, 200) || undefined,
+    requestedBy: input.requestedBy && /^[A-Za-z0-9_-]{1,64}$/.test(input.requestedBy) ? input.requestedBy : undefined,
+    createdAt: now,
+    expiresAt: Math.min(now + EXTENSION_TTL_MS, grant.endsAt),
+    status: "pending",
+  };
+  extensions.set(x.id, x);
+  await logEvent({ kind: "extension-requested", device: device.id, extension: x.id, minutes: x.minutes, requestedBy: x.requestedBy });
+  return x;
+}
+
+export function getExtension(id: string, now = Date.now()): ExtensionRecord | null {
+  expireExtensions(now);
+  return extensions.get(id) ?? null;
+}
+
+export async function waitForExtension(id: string, ms: number): Promise<ExtensionRecord | null> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const x = getExtension(id);
+    if (!x || x.status !== "pending" || Date.now() >= end) return x;
+    await Bun.sleep(Math.min(1000, Math.max(0, end - Date.now())));
+  }
+}
+
+/** What an agent sees about a device's access. */
+export function grantView(deviceId: string, now = Date.now()) {
+  const record = grants.get(deviceId);
+  const g = activeGrant(deviceId, now);
+  expireExtensions(now);
+  const pending = [...extensions.values()].find((x) => x.deviceId === deviceId && x.status === "pending");
+  const extension = pending ? { id: pending.id, minutes: pending.minutes, status: pending.status, expiresAt: pending.expiresAt } : undefined;
+  if (!g) {
+    if (!record) {
+      // No report since this server started: an older omg.dev on the device sends none.
+      return {
+        active: null,
+        summary: `"${deviceId}" has not reported its access. It may be off, or the device may run an older omg.dev that does not report it. Requests stay queued until they expire.`,
+        extension,
+      };
+    }
+    const why = record.grant === null && record.reason ? ` (${record.reason})` : "";
+    return {
+      active: false as const,
+      summary: `No active access on "${deviceId}"${why}. Requests stay queued until they expire. Only the person at the device can start access.`,
+      extension,
+    };
+  }
+  const left = (at: number) => Math.max(0, Math.ceil((at - now) / 60_000));
+  const minutesLeft = left(g.endsAt);
+  const idleMinutesLeft = g.idleEndsAt === null ? null : left(g.idleEndsAt);
+  const stopsAt = g.idleEndsAt === null ? g.endsAt : Math.min(g.endsAt, g.idleEndsAt);
+  const idleText = g.idleMinutes === null ? "no idle timeout" : g.busy ? `idle timer paused while an action runs (${g.idleMinutes} min idle limit)` : `stops after ${g.idleMinutes} idle min, in ${idleMinutesLeft} min if no request runs`;
+  const summary = `Access ends in ${minutesLeft} min (at ${new Date(g.endsAt).toISOString()}); ${idleText}.`;
+  return {
+    active: true as const,
+    endsAt: g.endsAt,
+    minutesLeft,
+    idleMinutes: g.idleMinutes,
+    idleEndsAt: g.idleEndsAt,
+    idleMinutesLeft,
+    busy: g.busy,
+    stopsAt,
+    maxExtensionMinutes: g.ceilingMinutes,
+    summary,
+    hint: left(stopsAt) <= 10 ? `Access stops in ${left(stopsAt)} min. Ask for more time with omg_device_extend; the person at the device must approve it.` : undefined,
+    extension,
+  };
+}
+
+/** Requests for this device that expired in the last day, for the person at the device. */
+export async function missedRequests(deviceId: string, now = Date.now()): Promise<WireMissedRequest[]> {
+  const rows = await listRequests({ deviceId, limit: REQUESTS_KEEP });
+  return rows
+    .filter((r) => r.status === "expired" && now - r.updatedAt <= MISSED_WINDOW_MS)
+    .slice(0, 20)
+    .map(({ id, action, requestedBy, reason, createdAt, updatedAt }) => ({ id, action, requestedBy, reason, createdAt, updatedAt }));
+}
+
+/** For tests: forget grant reports and extension requests. */
+export function resetGrantState() {
+  grants.clear();
+  extensions.clear();
 }

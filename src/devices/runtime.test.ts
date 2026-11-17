@@ -337,6 +337,134 @@ test("the local event stream emits approvals and rejects remote or cross-origin 
 });
 
 
+async function agentApi(method: string, path: string, body?: unknown) {
+  const req = new Request(`http://127.0.0.1${path}`, { method, headers: { "content-type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+  const res = await handleDevicesApi(req, path, new URL(req.url), { isBot: async () => false, callerSessionId: "agent-session" });
+  return { status: res!.status, body: await res!.json() as any };
+}
+
+test("agents see the device's grant and time left, and see when it ends", async () => {
+  store.resetGrantState();
+  const unknown = (await agentApi("GET", "/api/devices")).body.devices.find((d: any) => d.id === "receiver").grant;
+  expect(unknown.active).toBeNull();
+  expect(unknown.summary).toContain("older omg.dev");
+  await ui("start", { minutes: 60, idle: 15 });
+  await until(() => store.activeGrant("receiver") !== null);
+  const on = (await agentApi("GET", "/api/devices")).body.devices.find((d: any) => d.id === "receiver").grant;
+  expect(on.active).toBe(true);
+  expect(on.minutesLeft).toBe(60);
+  expect(on.idleMinutes).toBe(15);
+  expect(on.idleMinutesLeft).toBe(15);
+  expect(on.summary).toContain("Access ends in 60 min");
+  expect(on.hint).toBeUndefined();
+  const request = await agentApi("POST", "/api/devices/receiver/requests", { action: "inspect", args: {}, wait: 0 });
+  expect(request.body.grant.active).toBe(true);
+  await ui("idle", { idle: "never" });
+  await until(() => store.activeGrant("receiver")?.idleMinutes === null);
+  await ui("stop");
+  await until(() => store.activeGrant("receiver") === null);
+  const ended = (await agentApi("GET", `/api/devices/requests/${request.body.request.id}`)).body.grant;
+  expect(ended.active).toBe(false);
+  expect(ended.summary).toContain("Only the person at the device can start access");
+  await ui("clear");
+});
+
+test("an agent's extension request waits for the person at the device, who allows it", async () => {
+  store.resetGrantState();
+  expect((await agentApi("POST", "/api/devices/receiver/extend", { minutes: 60 })).body.error).toContain("no active access");
+  const started = await ui("start", { minutes: 60, idle: 15 });
+  await until(() => store.activeGrant("receiver") !== null);
+  const asked = await agentApi("POST", "/api/devices/receiver/extend", { minutes: 120, reason: "overnight‮ benchmark", wait: 0 });
+  expect(asked.status).toBe(200);
+  expect(asked.body.extension.status).toBe("pending");
+  expect(asked.body.extension.requestedBy).toBe("agent-session");
+  expect((await agentApi("POST", "/api/devices/receiver/extend", { minutes: 60 })).body.error).toContain("already waiting");
+  for (const minutes of [0, 1441, 1.5, "x"]) expect((await agentApi("POST", "/api/devices/receiver/extend", { minutes })).status).toBe(400);
+  // Nothing changes on the device until the person answers.
+  await runtime.heartbeat();
+  const pending = runtime.snapshot().extension!;
+  expect(pending.minutes).toBe(120);
+  expect(pending.reason).toBe("overnight  benchmark");
+  expect(runtime.snapshot().grant!.endsAt).toBe(started.body.grant.endsAt);
+  expect((await ui("extension", { token: "wrong", allow: true })).status).toBe(400);
+  const allowed = await ui("extension", { token: pending.token, allow: true });
+  expect(allowed.status).toBe(200);
+  expect(allowed.body.extension).toBeNull();
+  expect(allowed.body.grant.endsAt).toBe(started.body.grant.endsAt + 120 * 60_000);
+  await until(() => store.getExtension(asked.body.extension.id)?.status === "approved");
+  const checked = await agentApi("GET", `/api/devices/extensions/${asked.body.extension.id}`);
+  expect(checked.body.extension.endsAt).toBe(allowed.body.grant.endsAt);
+  expect(checked.body.grant.minutesLeft).toBeGreaterThan(170);
+  expect((await ui("extension", { token: pending.token, allow: true })).status).toBe(400);
+});
+
+test("a denied, unanswered or ended extension request never changes the grant", async () => {
+  store.resetGrantState();
+  const started = await ui("start", { minutes: 60, idle: 15 });
+  await until(() => store.activeGrant("receiver") !== null);
+  const first = await agentApi("POST", "/api/devices/receiver/extend", { minutes: 60 });
+  await runtime.heartbeat();
+  await ui("extension", { token: runtime.snapshot().extension!.token, allow: false });
+  await until(() => store.getExtension(first.body.extension.id)?.status === "denied");
+  expect(runtime.snapshot().grant!.endsAt).toBe(started.body.grant.endsAt);
+  // The agent waits with `wait`, and sees the answer when access ends instead.
+  const second = await agentApi("POST", "/api/devices/receiver/extend", { minutes: 60 });
+  await runtime.heartbeat();
+  expect(runtime.snapshot().extension?.id).toBe(second.body.extension.id);
+  await ui("stop");
+  await until(() => store.getExtension(second.body.extension.id)?.status !== "pending");
+  expect(store.getExtension(second.body.extension.id)?.status).toBe("denied");
+  expect(store.getExtension(second.body.extension.id)?.decisionReason).toBe("access ended on the device");
+});
+
+test("a device cannot answer another device's extension request", async () => {
+  store.resetGrantState();
+  await ui("start", { minutes: 60, idle: 15 });
+  await until(() => store.activeGrant("receiver") !== null);
+  const asked = await agentApi("POST", "/api/devices/receiver/extend", { minutes: 60 });
+  const keys = newKeyPair();
+  const pair = await store.createPairing("intruder");
+  await store.completePairing({ code: pair.code, publicKey: keys.publicKey, actions: [] });
+  const { signRequest } = await import("./protocol.ts");
+  const body = JSON.stringify({ grant: null, extension: { id: asked.body.extension.id, status: "approved", endsAt: Date.now() + 1e9 } });
+  const path = `${LINK_PREFIX}grant`;
+  const res = await fetch(`http://127.0.0.1:${controller.port}${path}`, { method: "POST", headers: signRequest("intruder", keys.privateKey, "POST", path, body), body });
+  expect(res.status).toBe(200);
+  expect(store.getExtension(asked.body.extension.id)?.status).toBe("pending");
+  await store.removeDevice("intruder");
+});
+
+test("requests that expired while access was off are shown until dismissed", async () => {
+  const request = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {}, requestedBy: "night-agent", expiresInMs: 30_000 });
+  const now = Date.now;
+  try {
+    const future = now() + 31_000;
+    Date.now = () => future;
+    await store.listRequests();
+  } finally { Date.now = now; }
+  await runtime.refreshRequests();
+  const missed = runtime.snapshot().missed;
+  expect(missed.map((m) => m.id)).toContain(request.id);
+  expect(missed.find((m) => m.id === request.id)?.requestedBy).toBe("night-agent");
+  const dismissed = await ui("dismiss-missed");
+  expect(dismissed.status).toBe(200);
+  expect(dismissed.body.missed).toEqual([]);
+  await runtime.refreshRequests();
+  expect(runtime.snapshot().missed).toEqual([]);
+});
+
+test("a request cut off by the end of a grant is queued again, not lost", async () => {
+  const request = await store.createRequest({ deviceId: "receiver", action: "inspect", args: {} });
+  const first = await store.takeNext("receiver");
+  expect(first?.id).toBe(request.id);
+  expect((await store.getRequest(request.id))?.status).toBe("delivered");
+  // The device polls again, so it never received that answer.
+  const again = await store.takeNext("receiver");
+  expect(again?.id).toBe(request.id);
+  await ui("clear");
+});
+
+
 test("a controller outage cannot prevent local stop and is reported as a failed clear", async () => {
   await ui("start");
   controller.stop(true);

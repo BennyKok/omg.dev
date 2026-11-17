@@ -4,10 +4,16 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, fst
 import { join } from "node:path";
 import { actionInfos, audit, call, deviceHome, deviceLogPath, formatMinutes, Grant, GRANT_MAX_MINUTES, grantCeiling, handleRequest, loadConfig, parseIdle, UnlinkedError, type ApprovalPrompt, type Ask, type DeviceConfig } from "./agent.ts";
 import { deviceIsLocked, lockDevice } from "./lock.ts";
-import { FINAL_STATUSES, LINK_PREFIX, type WireRequest, type WireRequestState, type WireUpdate } from "./protocol.ts";
+import { EXTENSION_ID_RE, FINAL_STATUSES, LINK_PREFIX, MAX_EXTENSION_MINUTES, REQUEST_ID_RE, type WireExtension, type WireGrantReport, type WireMissedRequest, type WireRequest, type WireRequestState, type WireUpdate } from "./protocol.ts";
 
 export type LocalActivity = { at: number; kind: string; request?: WireRequest; update?: WireUpdate; reason?: string };
 type Pending = ApprovalPrompt & { token: string };
+/** An agent's request for more time, waiting for the person at this computer. */
+export type PendingExtension = WireExtension & { token: string };
+
+const HEARTBEAT_MS = 15_000;
+const CONTROL_CHARS = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g;
+const EXTENSION_WAIT_MS = 2 * 60_000; // a terminal prompt, like action approvals
 
 /** Bounded tail: opening Settings never reads an unbounded command log. */
 export function readLocalActivity(): LocalActivity[] {
@@ -41,9 +47,29 @@ export type StartOptions = { minutes?: unknown; idle?: unknown; long?: unknown }
 
 const statePath = () => join(deviceHome(), "state.json");
 
+type DeviceState = { lastStart?: StartChoice; missedSeenAt?: number };
+
+function readState(): DeviceState {
+  try {
+    const raw = JSON.parse(readFileSync(statePath(), "utf8"));
+    return raw && typeof raw === "object" ? raw : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeState(change: Partial<DeviceState>) {
+  try {
+    mkdirSync(deviceHome(), { recursive: true, mode: 0o700 });
+    writeFileSync(statePath(), JSON.stringify({ ...readState(), ...change }, null, 2) + "\n", { mode: 0o600 });
+  } catch {
+    // Remembering is a convenience. It must not block starting or stopping access.
+  }
+}
+
 export function readStartChoice(): StartChoice | null {
   try {
-    const raw = JSON.parse(readFileSync(statePath(), "utf8"))?.lastStart;
+    const raw = readState().lastStart;
     if (!raw || !Number.isInteger(raw.minutes) || raw.minutes < 1) return null;
     return { minutes: raw.minutes, idle: raw.idle === null ? null : parseIdle(raw.idle), long: raw.long === true };
   } catch {
@@ -52,12 +78,7 @@ export function readStartChoice(): StartChoice | null {
 }
 
 function saveStartChoice(choice: StartChoice) {
-  try {
-    mkdirSync(deviceHome(), { recursive: true, mode: 0o700 });
-    writeFileSync(statePath(), JSON.stringify({ lastStart: choice }, null, 2) + "\n", { mode: 0o600 });
-  } catch {
-    // Remembering is a convenience. It must not block starting access.
-  }
+  writeState({ lastStart: choice });
 }
 
 /**
@@ -78,6 +99,13 @@ export function resolveStart(c: Pick<DeviceConfig, "grant">, options: StartOptio
   return { minutes, idle, long, ceiling };
 }
 
+function validMissed(m: WireMissedRequest): boolean {
+  return !!m && typeof m.id === "string" && REQUEST_ID_RE.test(m.id) && typeof m.action === "string" && /^[a-z][a-z0-9_]{0,39}$/.test(m.action)
+    && Number.isFinite(m.updatedAt) && Number.isFinite(m.createdAt)
+    && (m.requestedBy === undefined || (typeof m.requestedBy === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(m.requestedBy)))
+    && (m.reason === undefined || typeof m.reason === "string");
+}
+
 export class DeviceRuntime {
   private grant: Grant | null = null;
   private abort: AbortController | null = null;
@@ -93,6 +121,15 @@ export class DeviceRuntime {
   private watchTimer: ReturnType<typeof setInterval> | null = null;
   private watchRequest: AbortController | null = null;
   private revision = 0;
+  private extension: PendingExtension | null = null;
+  private extensionTimer: ReturnType<typeof setTimeout> | null = null;
+  private extensionAnswer: NonNullable<WireGrantReport["extension"]> | null = null;
+  private seenExtensions = new Set<string>();
+  private heartbeating = false;
+  private heartbeatAgain = false;
+  private terminal: Promise<unknown> = Promise.resolve();
+  private terminalAsk: Ask | undefined;
+  private missed: WireMissedRequest[] = [];
   finished: Promise<void> = Promise.resolve();
 
   snapshot() {
@@ -104,7 +141,8 @@ export class DeviceRuntime {
       endsAt: this.grant?.endsAt ?? null, idleMinutes: this.grant?.idleMinutes ?? null,
       grant: this.grant?.status() ?? null, lastChoice: readStartChoice(),
       longestMinutes: grantCeiling(c, true), standardMinutes: grantCeiling(c, false),
-      pending: this.pending, error: this.error, activity: readLocalActivity(),
+      pending: this.pending, extension: this.extension, missed: this.unseenMissed(),
+      error: this.error, activity: readLocalActivity(),
       requests: this.requests, queueError: this.queueError,
     };
   }
@@ -146,12 +184,14 @@ export class DeviceRuntime {
     try {
       const c = this.activeConfig ?? loadConfig();
       if (!c.deviceId || !c.server) return;
-      const result = await call<{ requests: WireRequestState[] }>(c, "POST", `${LINK_PREFIX}requests`, "{}", abort.signal);
+      const result = await call<{ requests: WireRequestState[]; missed?: WireMissedRequest[] }>(c, "POST", `${LINK_PREFIX}requests`, "{}", abort.signal);
       if (abort.signal.aborted || revision !== this.revision) return;
       if (!Array.isArray(result.requests) || result.requests.length > 20 || result.requests.some((r) => !r || typeof r.id !== "string" || typeof r.action !== "string" || !["queued", "delivered", "waiting-approval", "running"].includes(r.status))) {
         throw new Error("The controller did not return a valid request list. Update omg.dev on both computers.");
       }
       this.requests = result.requests;
+      // An older controller sends no missed list.
+      this.missed = Array.isArray(result.missed) ? result.missed.filter(validMissed).slice(0, 20) : [];
       this.queueError = null;
       this.emit();
     } catch (e) {
@@ -197,6 +237,10 @@ export class DeviceRuntime {
     const timer = setInterval(() => {
       if (grant.over()) abort.abort();
     }, 250);
+    this.terminalAsk = ask;
+    this.seenExtensions.clear();
+    void this.heartbeat();
+    const beat = setInterval(() => void this.heartbeat(), HEARTBEAT_MS);
     this.finished = (async () => {
       let failures = 0;
       while (!abort.signal.aborted) {
@@ -204,7 +248,7 @@ export class DeviceRuntime {
           const { request } = await call<{ request: WireRequest | null }>(c, "POST", `${LINK_PREFIX}poll`, JSON.stringify({ actions: actionInfos(c) }), abort.signal);
           failures = 0;
           this.error = null;
-          if (request) await handleRequest(c, grant, request, (question, prompt) => this.ask(question, prompt, abort.signal, ask), {
+          if (request) await handleRequest(c, grant, request, (question, prompt) => this.ask(question, prompt!, abort.signal, ask && ((q, p, sig) => this.onTerminal(() => ask(q, p, sig)))), {
             signal: abort.signal,
             onUpdate: (request, update) => {
               this.requests = this.requests.filter((r) => r.id !== request.id);
@@ -228,6 +272,13 @@ export class DeviceRuntime {
       }
     })().finally(() => {
       clearInterval(timer);
+      clearInterval(beat);
+      const reason = grant.over() ?? "stopped";
+      this.dropExtension({ status: "denied", reason: "access ended on the device" });
+      // Tell the controller at once, so agents see that access ended. Best effort.
+      void call(c, "POST", `${LINK_PREFIX}grant`, JSON.stringify({ grant: null, reason, extension: this.extensionAnswer ?? undefined } satisfies WireGrantReport)).catch(() => {});
+      this.extensionAnswer = null;
+      this.terminalAsk = undefined;
       this.answer?.(null);
       this.pending = null;
       this.answer = null;
@@ -236,7 +287,7 @@ export class DeviceRuntime {
       this.activeConfig = null;
       unlock();
       this.release = null;
-      this.record({ kind: "access-stopped", reason: grant.over() ?? "stopped" });
+      this.record({ kind: "access-stopped", reason });
       process.removeListener("exit", this.shutdown);
     });
   }
@@ -273,6 +324,7 @@ export class DeviceRuntime {
     if (Date.now() + grant.ceilingMinutes * 60_000 - grant.endsAt < 60_000) throw new Error(`Access already ends at the longest allowed time (${formatMinutes(grant.ceilingMinutes)} from now).`);
     const endsAt = grant.extendBy(Number(minutes));
     this.record({ kind: "access-extended", reason: `ends at ${new Date(endsAt).toLocaleTimeString()}` });
+    void this.heartbeat();
   }
 
   /** The person at this computer changes the idle stop of the active grant. */
@@ -281,6 +333,105 @@ export class DeviceRuntime {
     const minutes = parseIdle(idle);
     this.grant.setIdle(minutes);
     this.record({ kind: "idle-changed", reason: minutes === null ? "never while access lasts" : `after ${formatMinutes(minutes)}` });
+    void this.heartbeat();
+  }
+
+  /**
+   * Reports this grant to the controller and fetches an agent's extension
+   * request. The report is for display only; the controller cannot change the
+   * grant. Runs every 15 seconds while access is active, and after each change.
+   */
+  async heartbeat() {
+    const grant = this.grant;
+    const c = this.activeConfig;
+    if (!grant || !c || this.abort?.signal.aborted) return;
+    if (this.heartbeating) { this.heartbeatAgain = true; return; }
+    this.heartbeating = true;
+    try {
+      const answer = this.extensionAnswer;
+      const body: WireGrantReport = { grant: grant.status(), extension: answer ?? undefined };
+      const result = await call<{ extension?: WireExtension | null }>(c, "POST", `${LINK_PREFIX}grant`, JSON.stringify(body), this.abort?.signal);
+      if (this.extensionAnswer === answer) this.extensionAnswer = null;
+      if (this.grant === grant && result?.extension) this.offerExtension(result.extension);
+    } catch {
+      // An older controller has no grant route, and the poll loop reports outages.
+    } finally {
+      this.heartbeating = false;
+      if (this.heartbeatAgain) { this.heartbeatAgain = false; void this.heartbeat(); }
+    }
+  }
+
+  private onTerminal<T>(run: () => Promise<T>): Promise<T> {
+    // One terminal prompt at a time: an approval and an extension never share stdin.
+    const next = this.terminal.then(run, run);
+    this.terminal = next.catch(() => {});
+    return next;
+  }
+
+  private offerExtension(raw: WireExtension) {
+    const grant = this.grant;
+    if (!grant || !raw || typeof raw.id !== "string" || !EXTENSION_ID_RE.test(raw.id)) return;
+    if (this.seenExtensions.has(raw.id) || this.extension) return;
+    if (!Number.isInteger(raw.minutes) || raw.minutes < 1 || raw.minutes > MAX_EXTENSION_MINUTES) return;
+    this.seenExtensions.add(raw.id);
+    const requestedBy = typeof raw.requestedBy === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(raw.requestedBy) ? raw.requestedBy : undefined;
+    const reason = typeof raw.reason === "string" ? raw.reason.replace(CONTROL_CHARS, " ").trim().slice(0, 200) || undefined : undefined;
+    const expiresAt = Math.min(Number.isFinite(raw.expiresAt) ? raw.expiresAt : 0, grant.endsAt, Date.now() + 30 * 60_000);
+    if (expiresAt <= Date.now()) return;
+    const x: PendingExtension = { id: raw.id, minutes: raw.minutes, reason, requestedBy, createdAt: Number(raw.createdAt) || Date.now(), expiresAt, token: crypto.randomUUID() };
+    this.extension = x;
+    this.extensionTimer = setTimeout(() => this.dropExtension({ status: "denied", reason: "no answer" }), expiresAt - Date.now());
+    this.record({ kind: "extension-requested", reason: `${formatMinutes(x.minutes)}${requestedBy ? ` by session ${requestedBy.slice(0, 8)}` : ""}${reason ? `: ${reason}` : ""}` });
+    const ask = this.terminalAsk;
+    if (ask) {
+      const question = `\n→ ${requestedBy ? `Session ${requestedBy.slice(0, 8)}` : "An agent"} asks to extend access by ${formatMinutes(x.minutes)}${reason ? ` (${reason})` : ""}. Allow? [y/N] `;
+      void this.onTerminal(() => {
+        if (this.extension?.token !== x.token) return Promise.resolve(null);
+        return Promise.race([ask(question, null, this.abort?.signal), Bun.sleep(EXTENSION_WAIT_MS).then(() => null)]);
+      }).then((answer) => {
+        if (this.extension?.token !== x.token) return;
+        try { this.decideExtension(x.token, answer === "y" || answer === "yes"); } catch { /* access ended meanwhile */ }
+      });
+    }
+  }
+
+  private dropExtension(answer: { status: "denied"; reason: string }) {
+    const x = this.extension;
+    if (this.extensionTimer) clearTimeout(this.extensionTimer);
+    this.extensionTimer = null;
+    if (!x) return;
+    this.extension = null;
+    this.extensionAnswer = { id: x.id, ...answer };
+    this.record({ kind: "extension-denied", reason: answer.reason });
+    void this.heartbeat();
+  }
+
+  /** The person at this computer answers an agent's extension request. The server never answers it. */
+  decideExtension(token: string, allow: boolean) {
+    const x = this.extension;
+    if (!x || x.token !== token || !this.grant || this.abort?.signal.aborted || Date.now() >= x.expiresAt) {
+      throw new Error("This extension request is no longer pending. Refresh the page.");
+    }
+    if (!allow) return this.dropExtension({ status: "denied", reason: "the person at the device said no" });
+    if (this.extensionTimer) clearTimeout(this.extensionTimer);
+    this.extensionTimer = null;
+    const endsAt = this.grant.extendBy(x.minutes); // clamped to this session's limit
+    this.extension = null;
+    this.extensionAnswer = { id: x.id, status: "approved", endsAt };
+    this.record({ kind: "extension-approved", reason: `ends at ${new Date(endsAt).toLocaleTimeString()}` });
+    void this.heartbeat();
+  }
+
+  private unseenMissed(): WireMissedRequest[] {
+    const seen = readState().missedSeenAt ?? 0;
+    return this.missed.filter((m) => m.updatedAt > seen);
+  }
+
+  /** The person has seen the requests that expired while access was off. */
+  dismissMissed() {
+    const latest = Math.max(Date.now(), ...this.missed.map((m) => m.updatedAt));
+    writeState({ missedSeenAt: latest });
+    this.emit();
   }
 
   decide(token: string, allow: boolean) {

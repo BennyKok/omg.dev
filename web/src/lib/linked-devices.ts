@@ -107,6 +107,10 @@ export type ReceiverState = {
   grant?: { startedAt: number; endsAt: number; idleMinutes: number | null; idleEndsAt: number | null; busy: boolean; ceilingMinutes: number } | null;
   /** The length and idle stop chosen last time on this computer. */
   lastChoice?: { minutes: number; idle: number | null; long: boolean } | null;
+  /** An agent's request for more time, waiting for the person here. */
+  extension?: { token: string; id: string; minutes: number; reason?: string; requestedBy?: string; createdAt: number; expiresAt: number } | null;
+  /** Requests that expired while access was off, not yet dismissed. */
+  missed?: Array<{ id: string; action: string; requestedBy?: string; reason?: string; createdAt: number; updatedAt: number }>;
   /** Longest session one decision may allow, and the limit without a long-session choice. */
   longestMinutes?: number;
   standardMinutes?: number;

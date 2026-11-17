@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { controllerSessionUrl } from "../lib/device-receiver";
 import type { ReceiverState } from "../lib/linked-devices";
 
 const buttonClass = "rounded-lg bg-foreground px-3 py-2 text-sm font-medium text-background disabled:opacity-50";
@@ -92,4 +93,36 @@ export function ActiveAccess({ state, busy, act }: { state: ReceiverState; busy:
     {grant && roomMinutes < 1 && <p className="text-xs text-muted-foreground">This session already ends at the longest time one decision allows ({durationLabel(grant.ceilingMinutes)} from now).</p>}
     <button type="button" disabled={busy} className="rounded-lg bg-destructive px-3 py-2 text-sm text-white disabled:opacity-50" onClick={() => void act("stop")}>Stop access</button>
   </>;
+}
+
+/** An agent asks for more time. Only an answer here changes the grant; no answer means no. */
+export function ExtensionApproval({ state, busy, act }: { state: ReceiverState; busy: boolean; act: Act }) {
+  const x = state.extension;
+  const now = useNow(!!x);
+  if (!x) return null;
+  const href = controllerSessionUrl(state.server, x.requestedBy);
+  return <section id="device-extension" tabIndex={-1} aria-label="Extension request" className="space-y-3 rounded-xl border border-amber-500/50 bg-amber-500/5 p-4">
+    <h2 className="text-sm font-semibold">{x.requestedBy ? `Session ${x.requestedBy.slice(0, 8)}` : "An agent"} asks to extend access by {durationLabel(x.minutes)}</h2>
+    {x.reason && <p className="break-words text-xs">“{x.reason}”</p>}
+    <p className="text-xs text-muted-foreground">Requested from {state.server}.{href && <> <a href={href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Open requesting session</a></>}</p>
+    <p className="text-xs text-muted-foreground">Allowing moves the end by up to {durationLabel(x.minutes)}, within this session’s limit. No answer means no. Expires in {timeLeft(x.expiresAt, now)}.</p>
+    <div className="flex flex-wrap gap-2">
+      <button type="button" disabled={busy} className={quietButton} onClick={() => void act("extension", { token: x.token, allow: false })}>Deny</button>
+      <button type="button" disabled={busy || x.expiresAt <= now} className={buttonClass} onClick={() => void act("extension", { token: x.token, allow: true })}>Allow {durationLabel(x.minutes)} more</button>
+    </div>
+  </section>;
+}
+
+/** Requests that expired while access was off, shown until the person dismisses them. */
+export function MissedRequests({ state, busy, act }: { state: ReceiverState; busy: boolean; act: Act }) {
+  const missed = state.missed ?? [];
+  if (!missed.length) return null;
+  return <section aria-label="Missed requests" className="space-y-2 rounded-xl border border-border p-4">
+    <h2 className="text-sm font-semibold">{missed.length} request{missed.length === 1 ? "" : "s"} expired while access was off</h2>
+    <ul className="space-y-1 text-xs">
+      {missed.map((m) => <li key={m.id} className="break-all"><strong>{m.action}</strong>{m.requestedBy ? ` · session ${m.requestedBy.slice(0, 8)}` : ""} · {new Date(m.createdAt).toLocaleString()}{m.reason ? ` · ${m.reason}` : ""}</li>)}
+    </ul>
+    <p className="text-xs text-muted-foreground">These did not run. The agent can send them again while access is active.</p>
+    <button type="button" disabled={busy} className={quietButton} onClick={() => void act("dismiss-missed")}>Dismiss</button>
+  </section>;
 }

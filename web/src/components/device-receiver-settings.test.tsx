@@ -193,3 +193,30 @@ test("a running action pauses the idle stop on screen", async () => {
   expect(ui.text()).toContain("An action is running, so the 15 min idle stop is paused");
   expect(button("Extend 4 h")).toBeDefined();
 });
+
+test("an agent's extension request is shown as an approval bound to its token", async () => {
+  const now = Date.now();
+  state = { ...state, active: true, endsAt: now + 30 * 60_000, idleMinutes: 15,
+    grant: { startedAt: now, endsAt: now + 30 * 60_000, idleMinutes: 15, idleEndsAt: now + 15 * 60_000, busy: false, ceilingMinutes: 240 },
+    extension: { token: "ext-token", id: "dx_one", minutes: 120, reason: "<b>overnight</b> loop", requestedBy: "session-abcdef123", createdAt: now, expiresAt: now + 20 * 60_000 } };
+  await render();
+  expect(ui.text()).toContain("Session session- asks to extend access by 2 h");
+  expect(ui.text()).toContain("<b>overnight</b> loop");
+  expect(ui.query("b")).toBeNull();
+  expect(ui.text()).toContain("No answer means no");
+  await click("Allow 2 h more");
+  expect(calls.at(-1)).toEqual({ action: "extension", body: { token: "ext-token", allow: true } });
+  ui.remount();
+  await render();
+  await click("Deny");
+  expect(calls.at(-1)).toEqual({ action: "extension", body: { token: "ext-token", allow: false } });
+});
+
+test("requests that expired while access was off are listed and can be dismissed", async () => {
+  state.missed = [{ id: "dr_old", action: "inspect", requestedBy: "night-session", reason: "the device did not fetch it in time", createdAt: Date.now() - 3_600_000, updatedAt: Date.now() - 3_000_000 }];
+  await render();
+  expect(ui.text()).toContain("1 request expired while access was off");
+  expect(ui.text()).toContain("the device did not fetch it in time");
+  await click("Dismiss");
+  expect(calls.at(-1)).toEqual({ action: "dismiss-missed", body: {} });
+});

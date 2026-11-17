@@ -42,6 +42,13 @@ export async function handleLocalDeviceApi(req: Request, peerAddress?: string, r
       case `${LOCAL_DEVICE_PREFIX}/extend`:
         runtime.extend(b.minutes);
         break;
+      case `${LOCAL_DEVICE_PREFIX}/extension`:
+        if (typeof b.token !== "string" || typeof b.allow !== "boolean") return json({ error: "An extension token and a decision are required." }, 400);
+        runtime.decideExtension(b.token, b.allow);
+        break;
+      case `${LOCAL_DEVICE_PREFIX}/dismiss-missed`:
+        runtime.dismissMissed();
+        break;
       case `${LOCAL_DEVICE_PREFIX}/idle`:
         runtime.setIdle(b.idle);
         break;

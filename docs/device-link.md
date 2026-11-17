@@ -1,6 +1,6 @@
 # Device link
 
-Status: core, controller Settings, and local receiver UI implemented in `src/devices/` and `web/src/` (2026-11-12). Session length, long sessions, Extend and the idle stop choice added 2026-11-17.
+Status: core, controller Settings, and local receiver UI implemented in `src/devices/` and `web/src/` (2026-11-12). Session length, long sessions, Extend, the idle stop choice, agent extension requests and grant status for agents added 2026-11-17.
 
 A device link lets an agent on this computer ask a linked device, such as a
 test Mac, to do one action. The user approves the action on that device. The
@@ -76,6 +76,20 @@ These rules come from the first user's answers and from IR-2026-11-01.
 - Idle time does not count while an approved action runs. A 40-minute
   benchmark keeps the grant open until it ends, and the idle stop counts
   again from that moment. The hard end still stops a running action.
+- An agent can ask for more time with `omg_device_extend`. The request
+  appears on the device as an approval card ("Session abc12345 asks to extend
+  access by 2 h") with a notification. Only the person there can allow or
+  deny it. No answer means no: it lapses after 30 minutes, or when access
+  ends, or after 2 minutes at an `omg device run` prompt. One request per
+  device can wait at a time. An allowed extension follows the same limit as
+  Extend.
+- The device warns 10 minutes before access stops (by its end or by its idle
+  stop) with a notification ("Access ends in 9 min"), and the card shows a
+  live countdown. `omg device run` prints the same warning.
+- Requests that expire while access is off are listed on the device ("2
+  requests expired while access was off") until the person dismisses them.
+  `omg device run` prints them at start. A request that the device fetched
+  just as its grant ended is queued again, not left to expire.
 - The device remembers the last length and idle stop in
   `~/.omg-device/state.json` and offers them next time. A long session must
   still be confirmed again.
@@ -103,7 +117,10 @@ These rules come from the first user's answers and from IR-2026-11-01.
   accepts actions. They do not limit what an action can do. That stays with
   the action registry and its approval levels, which a longer session does not
   change: `once-per-grant` and `each` actions still ask.
-- Only the person at the device can start, extend, or lengthen access. The
+- Only the person at the device can start, extend, or lengthen access. An
+  agent's extension request is a question, not a grant: the controller stores
+  it and shows it to the device, and the device changes its own grant only
+  after a local Allow. A device cannot answer another device's request. The
   receiver routes accept only a direct localhost UI request (see Approval),
   and the CLI reads its choice from the device's own terminal. The controller
   and its agents cannot set the length, the idle stop, or the long-session
@@ -130,7 +147,19 @@ These rules come from the first user's answers and from IR-2026-11-01.
   waits up to `wait` seconds for `done`, `failed` or `denied`. A leading `@` in
   the device name is accepted.
 - `omg_device_request_status(id, wait)` reads a request later.
-- `omg_list_devices` lists devices, their actions and recent requests.
+- `omg_list_devices` lists devices, their actions, each device's `grant`
+  and recent requests. `grant` comes from the device's signed heartbeat (every
+  15 seconds while access is active, and once when it ends): `active`,
+  `endsAt`, `minutesLeft`, `idleMinutes`, `idleMinutesLeft` (null while an
+  action runs or with no idle stop), `busy`, a `summary` line, and a `hint`
+  when access stops within 10 minutes. `omg_device_request` and
+  `omg_device_request_status` return the same `grant`. A heartbeat older than
+  60 seconds counts as no active access. It is shown to agents only; the
+  server never uses it to decide anything for the device.
+- `omg_device_extend(device, minutes, reason, wait)` asks the person at the
+  device for more time and waits up to `wait` seconds for the answer. Pass
+  `id` to check it later. Grant reports and extension requests live in the
+  server's memory; a restart forgets them until the next heartbeat.
 - `omg_pair_device(name)` makes a pairing code. Only the person at the device
   can use it.
 - In the web composer, `@` offers linked devices next to bots. Picking one

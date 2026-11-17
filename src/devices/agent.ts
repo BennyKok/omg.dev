@@ -321,7 +321,8 @@ const update = (c: DeviceConfig, u: WireUpdate) => call(c, "POST", `${LINK_PREFI
 // ---- approval prompt -------------------------------------------------------------
 
 export type ApprovalPrompt = { request: WireRequest; argv: string[]; approval: Approval; expiresAt: number };
-export type Ask = (question: string, prompt: ApprovalPrompt, signal?: AbortSignal) => Promise<string | null>;
+/** The prompt is null for a question that is not an action approval (an extension request). */
+export type Ask = (question: string, prompt: ApprovalPrompt | null, signal?: AbortSignal) => Promise<string | null>;
 export type RunObserver = {
   signal?: AbortSignal;
   onUpdate?: (request: WireRequest, update: WireUpdate) => void;
@@ -610,7 +611,26 @@ function terminalConfirm(question: string): Promise<boolean> {
 async function cmdRun(args: string[]) {
   const { DeviceRuntime } = await import("./runtime.ts");
   const runtime = new DeviceRuntime();
+  // Requests that expired while access was off: show them once, then mark them seen.
+  await runtime.refreshRequests();
+  const missed = runtime.snapshot().missed;
+  if (missed.length) {
+    console.log(`${missed.length} request(s) expired while access was off:`);
+    for (const m of missed) console.log(printable(`  ${m.action}${m.requestedBy ? ` from session ${m.requestedBy.slice(0, 8)}` : ""} at ${new Date(m.createdAt).toLocaleString()}${m.reason ? `: ${m.reason}` : ""}`));
+    runtime.dismissMissed();
+  }
   runtime.start(await runStartOptions(args, terminalConfirm), terminalAsk());
+  let warned = 0;
+  const warn = setInterval(() => {
+    const g = runtime.snapshot().grant;
+    if (!g) return;
+    const stopsAt = g.idleEndsAt === null ? g.endsAt : Math.min(g.endsAt, g.idleEndsAt);
+    if (stopsAt - Date.now() <= 10 * 60_000 && warned !== stopsAt) {
+      warned = stopsAt;
+      console.log(`\nAccess ${stopsAt === g.endsAt ? "ends" : "stops if idle"} at ${new Date(stopsAt).toLocaleTimeString()}. To keep going, start a new session with omg device run after it ends. Agents can also ask you for more time here.`);
+    }
+  }, 5000);
+  warn.unref();
   const stop = () => { void runtime.stop(); process.exitCode = 130; };
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
@@ -624,6 +644,7 @@ async function cmdRun(args: string[]) {
     console.log(error ? `Device access stopped: ${error}` : "Device access stopped.");
     if (error && !process.exitCode) process.exitCode = 1;
   } finally {
+    clearInterval(warn);
     process.removeListener("SIGINT", stop);
     process.removeListener("SIGTERM", stop);
   }

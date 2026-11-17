@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { changeDeviceReceiver, controllerSessionUrl, useDeviceReceiver } from "../lib/device-receiver";
 import { DeviceNotificationSettings } from "./device-receiver-monitor";
 import { DevicePermissions } from "./device-activity";
-import { ActiveAccess, StartAccess } from "./device-access-controls";
+import { ActiveAccess, ExtensionApproval, MissedRequests, StartAccess } from "./device-access-controls";
 import { SettingsFold, SettingsGroup } from "./settings-ui";
 
 const inputClass = "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm";
@@ -50,6 +50,8 @@ export function DeviceReceiverSettings() {
         </div>
       </section>}
 
+      <ExtensionApproval state={state} busy={busy} act={act} />
+
       {!state.deviceId ? <SettingsGroup label="Connect">
         <form className="space-y-3 px-4 py-3" onSubmit={(e) => { e.preventDefault(); void act("connect", { server: server.trim(), code: code.trim() }); }}>
           <p className="text-xs text-muted-foreground">On the other computer, open Agent access and choose “Add a computer”. Enter its address and code here.</p>
@@ -68,6 +70,8 @@ export function DeviceReceiverSettings() {
           {state.error && <p role="alert" className="text-sm text-destructive">{state.error}</p>}
         </div>
       </SettingsGroup>}
+
+      {state.deviceId && <MissedRequests state={state} busy={busy} act={act} />}
 
       <SettingsGroup>
         {state.deviceId && <SettingsFold
