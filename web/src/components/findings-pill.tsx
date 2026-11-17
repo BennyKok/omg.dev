@@ -20,6 +20,7 @@
 import { type ReactNode } from "react";
 import { Drawer, DrawerContent, DrawerTitle } from "@/components/ui/drawer";
 import { ChevronUp } from "lucide-react";
+import { cn } from "../lib/utils";
 
 /**
  * The pill's height and the gap it keeps above the composer.
@@ -59,7 +60,13 @@ export function FindingsPill({
       // The band behind the pill fades the list out before it reaches the
       // pill. Without it a chat title ran under the pill and the two labels
       // read as one ("weekly re 10 updates").
-      className="pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-4 before:absolute before:inset-x-0 before:-top-5 before:-bottom-2 before:bg-gradient-to-t before:from-background before:from-60% before:to-transparent before:content-['']"
+      // Above the composer the band runs down through the gap and the
+      // button bar's 1rem fade, so the list cannot show through between the
+      // pill and the button (a card edge did, 2026-11-17).
+      className={cn(
+        "pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-4 before:absolute before:inset-x-0 before:-top-5 before:bg-gradient-to-t before:from-background before:from-60% before:to-transparent before:content-['']",
+        aboveComposer ? "before:-bottom-6" : "before:-bottom-2",
+      )}
       style={{ bottom: findingsPillBottom(aboveComposer) }}
     >
       <button

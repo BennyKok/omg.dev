@@ -43,7 +43,7 @@ export function MobileNewSessionButton({ onOpen, hidden = false }: { onOpen: () 
       inert={hidden}
       aria-hidden={hidden}
       className={cn(
-        "relative z-[55] mt-auto shrink-0 bg-gradient-to-t from-background from-60% to-transparent px-4 pt-4 pb-[max(var(--lfg-device-safe-bottom),0.75rem)]",
+        "relative z-[55] mt-auto shrink-0 bg-gradient-to-t from-background from-[calc(100%-1rem)] to-transparent px-4 pt-4 pb-[max(var(--lfg-device-safe-bottom),0.75rem)]",
         hidden && "invisible pointer-events-none",
       )}
     >
@@ -55,13 +55,17 @@ export function MobileNewSessionButton({ onOpen, hidden = false }: { onOpen: () 
         className="pointer-events-none absolute left-0 top-0 h-px w-px opacity-0"
         style={{ fontSize: 16 }}
       />
+      {/* A tonal surface, not solid white: a full-width white bar was the
+          brightest thing on a dark screen (owner, 2026-11-17). Only the top
+          1rem of the bar fades, so the updates pill's band can cover it and
+          no list row shows through between the two. */}
       <button
         type="button"
         onClick={() => {
           keyboardRef.current?.focus({ preventScroll: true });
           onOpen();
         }}
-        className="mx-auto flex h-12 w-full max-w-lg items-center justify-center gap-2 rounded-full bg-foreground text-[15px] font-semibold text-background shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-transform active:scale-[0.98]"
+        className="mx-auto flex h-12 w-full max-w-lg items-center justify-center gap-2 rounded-full border border-border bg-secondary text-[15px] font-semibold text-secondary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-[transform,background-color] active:scale-[0.98] active:bg-accent"
       >
         <Plus className="size-5" strokeWidth={2.5} />
         New session
