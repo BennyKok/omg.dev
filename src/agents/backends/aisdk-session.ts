@@ -276,6 +276,36 @@ export function describeAisdkFailure(msg: Record<string, unknown>): string {
   return parts.join(" ");
 }
 
+/**
+ * The transcript row for a turn that ended in an error result, or null when
+ * there is nothing to show: the turn succeeded, or it was interrupted.
+ *
+ * The transcript is the only channel the web UI reads, so a failure that only
+ * reaches the serve journal looks like a turn that just stopped. The Codex, Pi
+ * and managed-SDK harnesses already write an `apiError` row for a failed turn.
+ *
+ * An interrupted turn also ends in `error_during_execution`, with
+ * terminal_reason `aborted_streaming` or `aborted_tools`. That is the user
+ * stopping it, not a failure. `interrupted` covers an older CLI that does not
+ * report terminal_reason.
+ */
+export function aisdkTurnFailureRow(
+  msg: Record<string, unknown>,
+  opts: { interrupted: boolean; id: string; ts: number },
+): SessionMsg | null {
+  if (msg.subtype === "success") return null;
+  if (opts.interrupted) return null;
+  if (msg.terminal_reason === "aborted_streaming" || msg.terminal_reason === "aborted_tools") return null;
+  return {
+    id: opts.id,
+    role: "assistant",
+    kind: "text",
+    text: `Claude turn failed: ${describeAisdkFailure(msg).slice(0, 800)}`,
+    ts: opts.ts,
+    apiError: true,
+  };
+}
+
 function safeJson(value: unknown): string | null {
   try {
     return JSON.stringify(value) ?? null;
@@ -467,6 +497,8 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
   let closing = false;
   let draft = "";
   let busy = false;
+  // An interrupt was sent for the running turn, so its error result is expected.
+  let turnInterrupted = false;
   let restartRequested = false;
   let lastSdkEventAt = Date.now();
   let sdkMessagesSeen = 0;
@@ -693,6 +725,8 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       return;
     }
     if (type === "result") {
+      // Idle maintenance writes its own notice below; it is not the user's turn.
+      const maintenanceTurn = idleCompacting;
       if (idleCompacting) {
         idleCompacting = false;
         cacheNotice("Automatic context maintenance ended without a confirmed summary.");
@@ -727,6 +761,19 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
         console.error(
           `aisdk-session ${sessionId} turn ended with error: ${describeAisdkFailure(msg).slice(0, 2000)}`,
         );
+      }
+      const failure = aisdkTurnFailureRow(msg as Record<string, unknown>, {
+        interrupted: turnInterrupted || closing,
+        id: crypto.randomUUID(),
+        ts: Date.now(),
+      });
+      turnInterrupted = false;
+      if (failure && !maintenanceTurn) {
+        try {
+          indexSessionMessagesDirect(sessionId, [failure]);
+        } catch (e) {
+          console.error(`aisdk-session ${sessionId} could not record the failed turn: ${e instanceof Error ? e.message : e}`);
+        }
       }
       draft = "";
       publishDraft("", true);
@@ -797,8 +844,10 @@ export async function cmdAisdkSession(argv: string[]): Promise<void> {
       // Stop waiting first: the SDK interrupt aborts the pending tool call,
       // but clear the card now rather than after the round trip.
       askBridge.dismiss();
+      if (busy) turnInterrupted = true;
       userRows.interrupted(busy);
       void q.interrupt().catch(() => {
+        turnInterrupted = false;
         userRows.turnEnded();
       });
     } else if (cmd.type === "set_thinking_level") {
