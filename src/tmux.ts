@@ -1892,8 +1892,11 @@ export async function dismissPrompt(
 // dropped Enter leaves text stranded in the box). sendq drives these and reads
 // `inputBoxText` back to confirm each step landed.
 
+// `-l` makes the keys literal but does not end tmux's flag parsing: without
+// "--", a message starting with "-" ("- [ ] item", "--force") is read as flags
+// and tmux types nothing.
 export function tmuxType(target: string, text: string): boolean {
-  return Bun.spawnSync(["tmux", "send-keys", "-t", target, "-l", text]).exitCode === 0;
+  return Bun.spawnSync(["tmux", "send-keys", "-t", target, "-l", "--", text]).exitCode === 0;
 }
 
 export function tmuxEnter(target: string): boolean {
