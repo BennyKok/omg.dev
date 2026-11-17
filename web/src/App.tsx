@@ -1340,7 +1340,8 @@ type ServerStats = {
     freeBytes: number;
     badge?: string | null;
   }[];
-  cpu: { cores: number; load1: number; load5: number; load15: number };
+  /** `pct`: the server's CPU figure. Absent on older servers. */
+  cpu: { cores: number; load1: number; load5: number; load15: number; pct?: number | null };
   network?: { rxBps: number; txBps: number };
   // PSI — share of time tasks stalled on a resource. Leads "percent used".
   pressure?: {
@@ -28841,7 +28842,11 @@ function MetricCard({
 }
 
 function ServerPerformancePanel({ stats }: { stats: ServerStats | null }) {
-  const cpuPct = stats ? Math.min(100, Math.round((stats.cpu.load1 / Math.max(1, stats.cpu.cores)) * 100)) : 0;
+  // The server's figure first: on macOS load average overstates use, so the
+  // server measures CPU time there. Older servers send only the load.
+  const cpuPct = stats
+    ? stats.cpu.pct ?? Math.min(100, Math.round((stats.cpu.load1 / Math.max(1, stats.cpu.cores)) * 100))
+    : 0;
   const hostUsed = stats ? stats.memory.hostTotalBytes - stats.memory.hostFreeBytes : 0;
   const hostPct = stats && stats.memory.hostTotalBytes > 0
     ? Math.round((hostUsed / stats.memory.hostTotalBytes) * 100)

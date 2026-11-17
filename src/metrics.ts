@@ -7,12 +7,14 @@
 // fine — which is the lead time a warning needs. On the 2026-08-02 outage the
 // host logged memory-pressure events for ~40 minutes before it went down.
 //
-// Everything here is best-effort and Linux-only: on a kernel without PSI (or
-// on macOS) the readers return null and the UI degrades to "unavailable"
+// PSI is Linux-only. Memory, CPU and network have macOS readers too. On a
+// kernel without PSI (or on macOS) the pressure readers return null and the UI degrades to "unavailable"
 // rather than breaking the panel.
 
+import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { cpus, freemem, loadavg, totalmem } from "node:os";
+import { cpus, loadavg } from "node:os";
+import { hostMemory } from "./host-memory.ts";
 
 export type PressureKind = "cpu" | "memory" | "io";
 
@@ -22,7 +24,10 @@ export type PressureReading = { some10: number; full10: number } | null;
 
 export type MetricSample = {
   t: number;
-  cpuPct: number; // load1 normalised by core count, clamped to 100
+  // Linux: load1 normalised by core count, clamped to 100. Elsewhere: share
+  // of CPU time not idle since the last sample. macOS load average counts
+  // threads waiting on more than the CPU, so an idle Mac read 30-50 % "load".
+  cpuPct: number;
   memPct: number; // host RAM in use
   rxBps: number; // network bytes/sec in
   txBps: number; // network bytes/sec out
@@ -37,6 +42,7 @@ const SAMPLE_MS = 5_000;
 const history: MetricSample[] = [];
 let timer: ReturnType<typeof setInterval> | null = null;
 let lastNet: { t: number; rx: number; tx: number } | null = null;
+let lastCpuTimes: { busy: number; total: number } | null = null;
 
 // Parse one /proc/pressure/<kind> file. Format:
 //   some avg10=0.00 avg60=0.00 avg300=0.00 total=0
@@ -72,7 +78,58 @@ export async function readAllPressure(): Promise<Record<PressureKind, PressureRe
 // bridges so the number reflects actual off-box traffic.
 const SKIP_IFACE = /^(lo|docker|br-|veth|virbr|tailscale)/;
 
+/**
+ * Sum bytes from macOS `netstat -ibn`. One `<Link#N>` row per interface holds
+ * its byte counters. Columns end with `Ibytes Opkts Oerrs Obytes Coll`, and
+ * the Address column is empty for some interfaces, so count from the end.
+ */
+export function netTotalsFromNetstat(text: string): { rx: number; tx: number } | null {
+  let rx = 0;
+  let tx = 0;
+  let rows = 0;
+  for (const line of text.split("\n").slice(1)) {
+    const f = line.trim().split(/\s+/);
+    if (f.length < 8 || !f[2]?.startsWith("<Link#")) continue;
+    const name = f[0]!.replace(/\*$/, "");
+    if (SKIP_IFACE.test(name) || DARWIN_SKIP_IFACE.test(name)) continue;
+    const ibytes = Number(f[f.length - 5]);
+    const obytes = Number(f[f.length - 2]);
+    if (!Number.isFinite(ibytes) || !Number.isFinite(obytes)) continue;
+    rx += ibytes;
+    tx += obytes;
+    rows++;
+  }
+  return rows ? { rx, tx } : null;
+}
+
+// macOS virtual interfaces: tunnels (Tailscale is utun), AirDrop, bridges.
+const DARWIN_SKIP_IFACE = /^(utun|awdl|llw|anpi|ap\d|bridge|gif|stf)/;
+
+function readDarwinNetTotals(): Promise<{ rx: number; tx: number } | null> {
+  return new Promise((done) => {
+    execFile("/usr/sbin/netstat", ["-ibn"], { encoding: "utf8", timeout: 2_000 }, (error, stdout) => {
+      done(error ? null : netTotalsFromNetstat(stdout));
+    });
+  });
+}
+
+/** Share of CPU time not idle since the previous call, from os.cpus(). */
+function cpuTimePct(): number | null {
+  let busy = 0;
+  let total = 0;
+  for (const cpu of cpus()) {
+    const { user, nice, sys, irq, idle } = cpu.times;
+    busy += user + nice + sys + irq;
+    total += user + nice + sys + irq + idle;
+  }
+  const previous = lastCpuTimes;
+  lastCpuTimes = { busy, total };
+  if (!previous || total <= previous.total) return null;
+  return Math.max(0, Math.min(100, Math.round(((busy - previous.busy) / (total - previous.total)) * 100)));
+}
+
 async function readNetTotals(): Promise<{ rx: number; tx: number } | null> {
+  if (process.platform === "darwin") return readDarwinNetTotals();
   try {
     const raw = await readFile("/proc/net/dev", "utf8");
     let rx = 0;
@@ -94,10 +151,13 @@ async function readNetTotals(): Promise<{ rx: number; tx: number } | null> {
 
 async function sample(): Promise<void> {
   const now = Date.now();
-  const total = totalmem();
-  const free = freemem();
+  const memory = hostMemory(now);
+  const total = memory.totalBytes;
+  const free = memory.availableBytes;
   const cores = Math.max(1, cpus().length);
   const [load1] = loadavg();
+  const loadPct = Math.min(100, Math.round((load1 / cores) * 100));
+  const cpuPct = process.platform === "linux" ? loadPct : cpuTimePct() ?? loadPct;
 
   let rxBps = 0;
   let txBps = 0;
@@ -118,7 +178,7 @@ async function sample(): Promise<void> {
 
   history.push({
     t: now,
-    cpuPct: Math.min(100, Math.round((load1 / cores) * 100)),
+    cpuPct,
     memPct: total > 0 ? Math.round(((total - free) / total) * 100) : 0,
     rxBps: Math.round(rxBps),
     txBps: Math.round(txBps),

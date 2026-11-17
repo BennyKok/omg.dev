@@ -23,7 +23,8 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { freemem, totalmem, uptime } from "node:os";
+import { uptime } from "node:os";
+import { hostMemory } from "./host-memory.ts";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { PATHS } from "./config.ts";
 
@@ -894,8 +895,7 @@ export function buildLiveRuntimeViews(input: LiveRuntimeDashboardInput): Dashboa
   const enabledSchedules = input.autoAgents.filter((a) => a.enabled).length;
   const runningSchedules = input.autoAgents.filter((a) => a.running).length;
 
-  const memFree = freemem();
-  const memTotal = totalmem();
+  const { availableBytes: memFree, totalBytes: memTotal } = hostMemory();
   const memUsedPct = memTotal > 0 ? Math.round(((memTotal - memFree) / memTotal) * 100) : 0;
 
   const diskFree = input.diskFreeBytes ?? null;

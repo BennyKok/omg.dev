@@ -1,6 +1,7 @@
 // Volumes the storage page should name. One row per real mount, so a second
 // disk (session worktrees on /mnt/data) is not hidden behind the system disk.
-import { statfsSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { readFileSync, statfsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { PATHS, WORKTREE_ROOT, worktreeRoots } from "./config.ts";
 
@@ -15,7 +16,7 @@ export type HostDisk = {
   badge: string | null;
 };
 
-type Mount = { mount: string };
+export type Mount = { mount: string };
 
 /** Decode the octal escapes `/proc/mounts` uses for spaces and slashes. */
 export function decodeMountPath(raw: string): string {
@@ -35,6 +36,49 @@ export function parseMountTable(text: string): Mount[] {
   }
   return mounts;
 }
+
+/**
+ * Parse the output of macOS `mount`. macOS has no /proc/mounts. A line reads
+ * `/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)`.
+ */
+export function parseDarwinMountTable(text: string): Mount[] {
+  const mounts: Mount[] = [];
+  for (const line of text.split("\n")) {
+    const match = line.match(/^.+? on (.+) \([^()]*\)\s*$/);
+    if (match?.[1]) mounts.push({ mount: match[1] });
+  }
+  return mounts;
+}
+
+/**
+ * The host's mount table. Linux reads /proc/mounts. macOS runs `mount`.
+ * Anywhere else, or on failure, every path resolves to `/`, which still
+ * gives one correct row for the system volume.
+ */
+export function readHostMounts(): Mount[] {
+  try {
+    return parseMountTable(readFileSync("/proc/mounts", "utf8"));
+  } catch {
+    // Not Linux.
+  }
+  if (process.platform === "darwin") {
+    // The settings panel polls every 3 s. Mounts rarely change, so one
+    // `mount` run per half minute is enough.
+    const now = Date.now();
+    if (darwinMounts && now - darwinMounts.at < DARWIN_MOUNT_CACHE_MS) return darwinMounts.mounts;
+    try {
+      const mounts = parseDarwinMountTable(execFileSync("/sbin/mount", { encoding: "utf8", timeout: 2_000 }));
+      darwinMounts = { at: now, mounts };
+      return mounts;
+    } catch {
+      // Fall through to the root-only table.
+    }
+  }
+  return [];
+}
+
+const DARWIN_MOUNT_CACHE_MS = 30_000;
+let darwinMounts: { at: number; mounts: Mount[] } | null = null;
 
 /** Longest mount that contains `path`. `/` always wins over a shorter miss. */
 export function mountForPath(path: string, mounts: readonly Mount[]): string {
@@ -65,10 +109,9 @@ function bytesOf(path: string): { total: number; free: number } | null {
 
 /**
  * Distinct volumes for the paths omg writes to.
- * `mountText` is `/proc/mounts` contents. Tests pass a fixture.
+ * `mounts` comes from readHostMounts(). Tests pass a fixture.
  */
-export function hostDisks(mountText: string): HostDisk[] {
-  const mounts = parseMountTable(mountText);
+export function hostDisks(mounts: readonly Mount[]): HostDisk[] {
   const targets = ["/", PATHS.data, WORKTREE_ROOT, ...worktreeRoots()];
   const createMount = mountForPath(WORKTREE_ROOT, mounts);
   const seen = new Set<string>();

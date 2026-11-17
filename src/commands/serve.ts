@@ -18,7 +18,7 @@ import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app
 import { readinessBootstrap } from "../bootstrap-readiness.ts";
 import { mkdir, open, readdir, realpath, stat } from "node:fs/promises";
 import { appendFileSync, existsSync, statSync, mkdirSync, readFileSync } from "node:fs";
-import { tmpdir, homedir, loadavg, cpus, totalmem, freemem } from "node:os";
+import { tmpdir, homedir, loadavg, cpus, totalmem } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { marked } from "marked";
@@ -32,7 +32,8 @@ import {
   recentAdmissionSessions,
 } from "../agent-admission.ts";
 import { PATHS, appVersion, installInfo, localServeBaseUrl } from "../config.ts";
-import { hostDisks } from "../host-disks.ts";
+import { hostDisks, readHostMounts } from "../host-disks.ts";
+import { hostMemory } from "../host-memory.ts";
 import { desktopRuntimeReadyPayload } from "../desktop-parent.ts";
 import { handleServerAccessRequest, serverAccessInfo } from "../server-access.ts";
 import {
@@ -986,13 +987,11 @@ const agentAdmission = new AgentAdmissionController();
  * callers that would BLOCK on it must check `trusted` first.
  */
 function hostAvailableMemory(): { bytes: number; trusted: boolean } {
-  try {
-    const match = readFileSync("/proc/meminfo", "utf8").match(/^MemAvailable:\s+(\d+)\s+kB$/m);
-    if (match) return { bytes: Number(match[1]) * 1024, trusted: true };
-  } catch {
-    // Non-Linux standalone installs fall back to Node's portable reading.
-  }
-  return { bytes: freemem(), trusted: false };
+  // src/host-memory.ts reads MemAvailable on Linux and `vm_stat` on macOS.
+  // The macOS reading stays untrusted: admission rules were written against
+  // Linux MemAvailable, and this change only fixes what the panels show.
+  const memory = hostMemory();
+  return { bytes: memory.availableBytes, trusted: memory.trusted };
 }
 
 function hostAvailableMemoryBytes(): number {
@@ -1115,9 +1114,9 @@ async function activationGate(
       // A self-hosted box trusts its own count-based cap. An override has
       // just discarded that cap, so the budget becomes the last thing between
       // "start one more" and an OOM — but only where the reading means what
-      // the budget assumes. Off Linux this is `freemem()`, which ignores
-      // reclaimable cache and would refuse every override on a perfectly
-      // healthy Mac. Better to honour the owner's explicit decision about
+      // the budget assumes. Off Linux this is `vm_stat` on macOS or
+      // `freemem()` elsewhere, neither of which the budget was tuned on, and
+      // the latter would refuse every override on a perfectly healthy Mac. Better to honour the owner's explicit decision about
       // their own machine than to block it on a number we know is wrong.
       enforceMemory: computer !== null || (overLimit && available.trusted),
     };
@@ -1205,9 +1204,11 @@ function hostDiskReport(): {
   disk: { total: number | null; free: number | null };
   disks: { label: string; mount: string; totalBytes: number; freeBytes: number; badge: string | null }[];
 } {
+  // macOS has no /proc/mounts. Reading only that file left the storage
+  // panel empty on a Mac. readHostMounts() covers both.
   let disks: { label: string; mount: string; totalBytes: number; freeBytes: number; badge: string | null }[] = [];
   try {
-    disks = hostDisks(readFileSync("/proc/mounts", "utf8"));
+    disks = hostDisks(readHostMounts());
   } catch {
     disks = [];
   }
@@ -1251,14 +1252,17 @@ async function serverStats() {
       sliceCurrentBytes: slice.current,
       sliceMaxBytes: slice.max,
       hostTotalBytes: totalmem(),
-      hostFreeBytes: freemem(),
+      // Available, not untouched: freemem() made a healthy Mac look full.
+      hostFreeBytes: hostMemory().availableBytes,
     },
     disk: {
       totalBytes: diskReport.disk.total,
       freeBytes: diskReport.disk.free,
     },
     disks: diskReport.disks,
-    cpu: { cores: cpus().length, load1, load5, load15 },
+    // `pct` is the sampler's figure: load-based on Linux, CPU time on macOS,
+    // where load average overstates use. Older clients ignore it.
+    cpu: { cores: cpus().length, load1, load5, load15, pct: latest?.cpuPct ?? null },
     network: { rxBps: latest?.rxBps ?? 0, txBps: latest?.txBps ?? 0 },
     pressure,
     history,

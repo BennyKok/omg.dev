@@ -28,7 +28,8 @@
 // the operator's call (and archiveIdleDurableAgentsForMemory's job).
 
 import { readFile, readdir, readlink } from "node:fs/promises";
-import { cpus, freemem, loadavg, totalmem } from "node:os";
+import { cpus, loadavg, totalmem } from "node:os";
+import { hostMemory } from "./host-memory.ts";
 
 import { findSessionWorktree } from "./worktree.ts";
 import { sessionNameFromWorktreePath } from "./config.ts";
@@ -530,7 +531,7 @@ async function readMeminfo(): Promise<Record<string, number>> {
       if (match) out[match[1]!] = Number(match[2]) * 1024;
     }
   } catch {
-    // Non-Linux: the caller falls back to os.freemem()/totalmem().
+    // Non-Linux: the caller falls back to hostMemory() and totalmem().
   }
   return out;
 }
@@ -538,7 +539,9 @@ async function readMeminfo(): Promise<Record<string, number>> {
 async function hostSnapshot(): Promise<SessionUsageHost> {
   const info = await readMeminfo();
   const memTotalBytes = info.MemTotal ?? totalmem();
-  const memAvailableBytes = info.MemAvailable ?? freemem();
+  // Off Linux, host-memory.ts reads `vm_stat` on macOS. freemem() there
+  // counts only untouched pages and made a healthy Mac look full.
+  const memAvailableBytes = info.MemAvailable ?? hostMemory().availableBytes;
   const [load1, load5, load15] = loadavg();
   return {
     memTotalBytes,
