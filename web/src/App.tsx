@@ -32,8 +32,8 @@ import { MobileHomeComposer } from "./components/mobile-home-composer";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
-import { ComputerGroupSection } from "./components/computer-group";
-import { groupByComputer, hasSeveralComputers, LOCAL_COMPUTER_ID, readClosedComputers, writeClosedComputers } from "./lib/computer-groups";
+import { ComputerGroupSection, useClosedComputers } from "./components/computer-group";
+import { groupByComputer, hasSeveralComputers, LOCAL_COMPUTER_ID, type ComputerGroup } from "./lib/computer-groups";
 import { PhoneHeaderActions, PhoneHeaderSlotContext, usePhoneHeaderSlot } from "./components/phone-header-actions";
 import { mobileHeader, sideNavRows, tabFallsToSettings, type SideNavRow } from "./lib/side-nav-items";
 import { settledParagraphs } from "./lib/paragraph-stream";
@@ -11736,6 +11736,23 @@ function BoardInStage({
   );
 }
 
+
+/**
+ * Split chat roots by the computer that runs them. The phone list and the
+ * wide rail both call this, so the two cannot disagree on which chats belong
+ * to which computer. The fleet tags this computer's own chats with the
+ * "local" id.
+ */
+function groupNodesByComputer(roots: readonly SessionTreeNode[]): ComputerGroup<SessionTreeNode>[] {
+  return groupByComputer(
+    roots,
+    (node) =>
+      node.session.peerId && node.session.peerId !== LOCAL_COMPUTER_ID
+        ? { id: node.session.peerId, name: node.session.peerName ?? "" }
+        : null,
+    LOCAL_MACHINE.name,
+  );
+}
 function LiveView({
   // Defense-in-depth: `sessions`/`findings`/`autoAgents` are read via `.length`
   // unconditionally below (the original `findings.length` crash site). The fetch
@@ -12004,25 +12021,9 @@ function LiveView({
   );
   // With chats from more than one computer, the computer is a level above
   // the folders (lib/computer-groups.ts). One computer: the list is as it was.
-  const computerGroups = groupByComputer(
-    listRoots,
-    // The fleet tags this computer's own chats with the "local" id.
-    (node) =>
-      node.session.peerId && node.session.peerId !== LOCAL_COMPUTER_ID
-        ? { id: node.session.peerId, name: node.session.peerName ?? "" }
-        : null,
-    LOCAL_MACHINE.name,
-  );
+  const computerGroups = groupNodesByComputer(listRoots);
   const severalComputers = hasSeveralComputers(computerGroups);
-  const [closedComputers, setClosedComputers] = useState(() => readClosedComputers(window.localStorage));
-  const toggleComputer = (id: string) =>
-    setClosedComputers((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      writeClosedComputers(window.localStorage, next);
-      return next;
-    });
+  const [closedComputers, toggleComputer] = useClosedComputers();
 
   const pinnedNodes = tree.roots.filter(
     (node) => nodeContainsPin(node) && (shouldShowBotsInSessionList() || !nodeIsBot(node)),
@@ -13166,14 +13167,31 @@ function RailStage({
   // Folder groups follow the box's saved folder order, as the pills do.
   const folderOrder = useFolderMenuPrefs().order;
   // Memoized by React Compiler on railTree, topPinned and folderOrder.
+  const railListRoots = railTree.roots.filter(
+    (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
+  );
   const projectRailGroups = groupNodesByProject(
-    railTree.roots.filter(
-      (item) => !railNodeContainsTopPin(item) && !railNodeIsBot(item),
-    ),
+    railListRoots,
     (node) => railTree.flatten([node]).length,
     shortProject,
     folderOrder,
   );
+  // With chats from more than one computer the computer is a level above the
+  // folders, as on the phone. The icon rail draws no headers, so it keeps the
+  // flat folder order.
+  const railComputers = railCollapsed
+    ? []
+    : groupNodesByComputer(railListRoots).map((computer) => ({
+        ...computer,
+        folders: groupNodesByProject(
+          computer.items,
+          (node) => railTree.flatten([node]).length,
+          shortProject,
+          folderOrder,
+        ),
+      }));
+  const railSeveralComputers = hasSeveralComputers(railComputers);
+  const [closedRailComputers, toggleRailComputer] = useClosedComputers();
 
   // A folded group takes its rows out of the DOM, so they must leave the
   // keyboard order too. Otherwise j/k walks an invisible cursor and Enter
@@ -13203,9 +13221,17 @@ function RailStage({
   const railOrderedSessions = [
     ...(isRailGroupFolded("__pinned") ? [] : railVisible(topPinnedNodes)),
     ...botSessions,
-    ...projectRailGroups.flatMap((group) =>
-      isRailGroupFolded(group.key) ? [] : railVisible(group.nodes),
-    ),
+    ...(railSeveralComputers
+      ? railComputers.flatMap((computer) =>
+          closedRailComputers.has(computer.id)
+            ? []
+            : computer.folders.flatMap((group) =>
+                isRailGroupFolded(group.key) ? [] : railVisible(group.nodes),
+              ),
+        )
+      : projectRailGroups.flatMap((group) =>
+          isRailGroupFolded(group.key) ? [] : railVisible(group.nodes),
+        )),
   ];
 
   // Flat rail order the keyboard cursor walks (matching the visible rail;
@@ -14018,7 +14044,9 @@ function RailStage({
             </div>
           ) : null}
           <SessionGroups
-            groups={projectRailGroups}
+            // Pinned chats and threads stay above every computer. The folders
+            // move under their computer when there is more than one.
+            groups={railSeveralComputers ? [] : projectRailGroups}
             pinnedNodes={topPinnedNodes}
             pinnedCount={topPinnedSessions.length}
             collapsed={railCollapsed}
@@ -14053,6 +14081,36 @@ function RailStage({
             headerless={showFolderMenu && projectFilter !== "__all"}
             dense
           />
+          {railSeveralComputers
+            ? railComputers.map((computer) => {
+                const sessionsHere = railTree.flatten(computer.items);
+                return (
+                  <ComputerGroupSection
+                    key={computer.id}
+                    id={computer.id}
+                    name={computer.name}
+                    local={computer.id === LOCAL_COMPUTER_ID}
+                    chats={sessionsHere.length}
+                    working={sessionsHere.filter((session) => !!busyBySid[session.sessionId ?? ""]).length}
+                    open={!closedRailComputers.has(computer.id)}
+                    onToggle={() => toggleRailComputer(computer.id)}
+                  >
+                    <SessionGroups
+                      groups={computer.folders}
+                      pinnedNodes={[]}
+                      pinnedCount={0}
+                      projectFilter={projectFilter}
+                      onProjectChange={onProjectChange}
+                      renderItem={renderRailItem}
+                      card={compactRail}
+                      activeIds={columnIds}
+                      headerless={showFolderMenu && projectFilter !== "__all"}
+                      dense
+                    />
+                  </ComputerGroupSection>
+                );
+              })
+            : null}
           </>}
         </div>
         {/* Host-owned footer. A host embedding LFG as its whole desktop surface

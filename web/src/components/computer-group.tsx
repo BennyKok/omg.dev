@@ -4,9 +4,28 @@
  * (lib/computer-groups.ts). Drawn only when the list holds chats from more
  * than one computer.
  */
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronRight, Monitor } from "lucide-react";
+import { readClosedComputers, writeClosedComputers } from "@/lib/computer-groups";
 import { cn } from "@/lib/utils";
+
+/**
+ * The computers the reader closed, saved across reloads. The phone list and
+ * the wide rail read the same key, so a computer closed in one stays closed
+ * in the other after a reload.
+ */
+export function useClosedComputers(): [ReadonlySet<string>, (id: string) => void] {
+  const [closed, setClosed] = useState(() => readClosedComputers(window.localStorage));
+  const toggle = (id: string) =>
+    setClosed((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      writeClosedComputers(window.localStorage, next);
+      return next;
+    });
+  return [closed, toggle];
+}
 
 export function ComputerGroupSection({
   id,
