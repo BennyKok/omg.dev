@@ -4,7 +4,7 @@ import { ChevronDown, Folder, History, Plus, Search, X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { NO_PROJECT_FILTER } from "../lib/project-filter";
 import { byRecent, useFolderActivity } from "../lib/folder-activity";
-import { projectFaviconSrc } from "../lib/session-ui";
+import { useProjectFavicon } from "../lib/session-ui";
 import { arrangeFolders, useFolderMenuPrefs } from "../lib/folder-menu-prefs";
 
 /**
@@ -79,9 +79,8 @@ const FOLDER_CHIPS = 6;
 
 /** The folder's favicon, else a plain folder mark. */
 function FolderMark({ project }: { project: string }) {
-  const src = projectFaviconSrc(project);
-  const [failed, setFailed] = useState<string | null>(null);
-  if (src && failed !== src) {
+  const { src, onLoad, onError } = useProjectFavicon(project);
+  if (src) {
     return (
       <img
         src={src}
@@ -89,7 +88,8 @@ function FolderMark({ project }: { project: string }) {
         aria-hidden="true"
         loading="lazy"
         className="size-3.5 shrink-0 rounded-[3px] object-contain"
-        onError={() => setFailed(src)}
+        onLoad={onLoad}
+        onError={onError}
       />
     );
   }

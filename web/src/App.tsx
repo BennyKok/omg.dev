@@ -264,7 +264,7 @@ import {
   GALLERY_PAGE,
   blockedSessionAction,
   pausedProviderErrorDetail,
-  projectFaviconSrc,
+  useProjectFavicon,
   resolveSessionHeaderIdentity,
   titleForSession,
   useClaudeAccountNumber,
@@ -15196,8 +15196,7 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
   // it on changed nothing. The status mark stays first: it is what the row
   // is scanned for. The favicon follows it at the size of the text.
   const { showSidebarFavicons: showFavicons } = useContext(ViewPrefsContext);
-  const faviconSrc = projectFaviconSrc(session.project);
-  const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
+  const favicon = useProjectFavicon(session.project);
   const title = titleForSession(session);
   const unread = !!session.sessionId && unreadSessions.has(session.sessionId);
   return (
@@ -15216,20 +15215,21 @@ function CompactSessionRow({ session, busy, onOpen, users, userFilter, active = 
       )}
     >
       {busy ? <Spinner /> : <Check className="size-3.5 shrink-0 text-emerald-500" aria-hidden="true" />}
-      {/* Every row keeps the slot while the switch is on, so titles line up
-          when a chat has no project or its logo does not load. */}
-      {showFavicons ? (
+      {/* The slot exists only for a project with an icon. Rows sit in one
+          card per project, so every row in a card agrees; an empty slot on
+          every iconless folder was a wide gap before each title (owner,
+          2026-11-17). */}
+      {showFavicons && favicon.src ? (
         <span data-session-favicon="" className="flex size-4 shrink-0 items-center justify-center">
-          {faviconSrc && failedFaviconSrc !== faviconSrc ? (
-            <img
-              src={faviconSrc}
-              alt=""
-              aria-hidden="true"
-              loading="lazy"
-              className="size-4 rounded-[4px] object-contain"
-              onError={() => setFailedFaviconSrc(faviconSrc)}
-            />
-          ) : null}
+          <img
+            src={favicon.src}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            className="size-4 rounded-[4px] object-contain"
+            onLoad={favicon.onLoad}
+            onError={favicon.onError}
+          />
         </span>
       ) : null}
       {/* Whose session it is, while the list shows everyone's. Every row keeps
@@ -15297,12 +15297,12 @@ const RailItem = memo(function RailItem({
   const botDirectory = useContext(BotDirectoryContext);
   const drivingBotId = productBotId(session);
   const drivingBot = drivingBotId ? botDirectory.get(drivingBotId) : undefined;
-  const faviconSrc = projectFaviconSrc(session.project);
-  const [failedFaviconSrc, setFailedFaviconSrc] = useState<string | null>(null);
+  const favicon = useProjectFavicon(session.project);
+  const faviconSrc = favicon.src;
   // The favicon has its own switch. Favicons on with agent icons off keeps
   // the project logo as the row's only mark, with no agent badge in the
   // corner. Favicons off with agent icons on falls back to the harness mark.
-  const showFavicon = showFavicons && !!faviconSrc && failedFaviconSrc !== faviconSrc;
+  const showFavicon = showFavicons && !!faviconSrc;
   // Both off means no identity mark at all in the expanded row: no harness,
   // no favicon, and no placeholder box holding the space. Busy and blocked
   // move to the indicator slot. A collapsed rail is only marks, so it keeps
@@ -15378,7 +15378,8 @@ const RailItem = memo(function RailItem({
                 className={cn("rounded-md object-contain", collapsed || dense ? "size-7" : "size-9")}
                 loading="lazy"
                 decoding="async"
-                onError={() => setFailedFaviconSrc(faviconSrc)}
+                onLoad={favicon.onLoad}
+                onError={favicon.onError}
               />
             </>
           ) : showAgentIcons ? (

@@ -57,3 +57,14 @@ describe("project favicon", () => {
     expect(projectFaviconMime("favicon.png")).toBe("image/png");
   });
 });
+
+describe("project favicon miss", () => {
+  test("a 404 for a project without an icon is cacheable", async () => {
+    const { projectFaviconMissResponse, PROJECT_FAVICON_MISS_CACHE_CONTROL } = await import("./project-favicon.ts");
+    const res = projectFaviconMissResponse();
+    expect(res.status).toBe(404);
+    expect(res.headers.get("cache-control")).toBe(PROJECT_FAVICON_MISS_CACHE_CONTROL);
+    expect(PROJECT_FAVICON_MISS_CACHE_CONTROL).toContain("max-age=");
+    expect(await res.json()).toEqual({ error: "project favicon not found" });
+  });
+});

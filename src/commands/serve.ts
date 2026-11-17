@@ -89,7 +89,7 @@ import {
   setSessionUserFilter,
 } from "../session-user-filter.ts";
 import { seenTailnetPerson, tailnetGateResponse, tailnetIdentityFromEnv, tailnetPerson, tailnetPersonOf, tailnetPortFromEnv } from "../tailnet-gate.ts";
-import { findProjectFavicon, projectFaviconMime } from "../project-favicon.ts";
+import { findProjectFavicon, projectFaviconMime, projectFaviconMissResponse } from "../project-favicon.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
   applyReleaseUpdate,
@@ -9090,7 +9090,7 @@ a{color:#60a5fa}
         const repo = (await listRepos()).find((entry) => entry.project === project);
         if (!repo) return err(404, "project not found");
         const favicon = await findProjectFavicon(repo.cwd);
-        if (!favicon) return err(404, "project favicon not found");
+        if (!favicon) return projectFaviconMissResponse();
         return staticAssetResponse(req, url, favicon, projectFaviconMime(favicon));
       }
 

@@ -73,3 +73,19 @@ export function projectFaviconMime(path: string): string {
       return "application/octet-stream";
   }
 }
+
+/**
+ * How long a browser may reuse "this project has no icon".
+ *
+ * Most projects have none. Without a cache header the 404 was asked again on
+ * every row mount, and each ask walks the candidate list above. Ten minutes
+ * keeps that quiet while an icon added to a repository still shows up soon.
+ */
+export const PROJECT_FAVICON_MISS_CACHE_CONTROL = "private, max-age=600";
+
+export function projectFaviconMissResponse(): Response {
+  return Response.json(
+    { error: "project favicon not found" },
+    { status: 404, headers: { "Cache-Control": PROJECT_FAVICON_MISS_CACHE_CONTROL } },
+  );
+}

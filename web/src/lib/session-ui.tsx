@@ -5,7 +5,7 @@
 // them too: a static import back into App from a lazy module would pull that
 // module's whole graph into the entry chunk, which is exactly how a code split
 // ends up saving nothing.
-import { createContext, useContext, useMemo } from "react";
+import { createContext, useCallback, useContext, useMemo, useSyncExternalStore } from "react";
 import type { ClaudeAccountInfo, CodingAgentInfo, PersistentBot, Session } from "../App";
 import { omgAssetUrl } from "./omg-client";
 import { cn } from "./utils";
@@ -61,6 +61,100 @@ export function projectFaviconSrc(project?: string | null): string | null {
   const key = project?.trim();
   if (!key) return null;
   return omgAssetUrl(`/api/repos/favicon?project=${encodeURIComponent(key)}`);
+}
+
+/**
+ * What the page knows about each project favicon URL, shared by every row.
+ *
+ * Each row used to keep its own "this image failed" flag. A remount (a group
+ * expanding, coming back to the list) forgot it, asked the server again, and
+ * the row reserved an empty icon slot until the 404 came back. One record
+ * here answers for every row, and it survives a reload through
+ * localStorage so a folder without an icon gets no slot from the first paint.
+ *
+ * A miss is remembered for a day only, so an icon added to a repository
+ * later still shows up. A hit needs no expiry: the image itself is
+ * HTTP-cached, and a later failure flips it to a miss.
+ */
+const FAVICON_STATUS_KEY = "omg.projectFavicons.v1";
+const FAVICON_MISS_TTL_MS = 24 * 60 * 60 * 1000;
+type FaviconRecord = { ok: true } | { ok: false; at: number };
+let faviconRecords: Record<string, FaviconRecord> | null = null;
+let faviconVersion = 0;
+const faviconListeners = new Set<() => void>();
+
+function readFaviconRecords(): Record<string, FaviconRecord> {
+  if (faviconRecords) return faviconRecords;
+  faviconRecords = {};
+  try {
+    const raw = JSON.parse(globalThis.localStorage?.getItem(FAVICON_STATUS_KEY) ?? "{}");
+    if (raw && typeof raw === "object") {
+      const now = Date.now();
+      for (const [src, rec] of Object.entries(raw as Record<string, FaviconRecord>)) {
+        if (rec?.ok === true) faviconRecords[src] = { ok: true };
+        else if (rec?.ok === false && typeof rec.at === "number" && now - rec.at < FAVICON_MISS_TTL_MS) {
+          faviconRecords[src] = { ok: false, at: rec.at };
+        }
+      }
+    }
+  } catch {
+    // Unreadable storage only costs one request per icon.
+  }
+  return faviconRecords;
+}
+
+function recordFavicon(src: string, ok: boolean): void {
+  const records = readFaviconRecords();
+  const prev = records[src];
+  if (ok ? prev?.ok === true : prev?.ok === false) return;
+  records[src] = ok ? { ok: true } : { ok: false, at: Date.now() };
+  try {
+    globalThis.localStorage?.setItem(FAVICON_STATUS_KEY, JSON.stringify(records));
+  } catch {
+    // Full or blocked storage: the in-page record still holds.
+  }
+  faviconVersion += 1;
+  for (const listener of faviconListeners) listener();
+}
+
+function subscribeFavicons(listener: () => void): () => void {
+  faviconListeners.add(listener);
+  return () => faviconListeners.delete(listener);
+}
+
+/** Test seam: forget every record, in memory and in storage. */
+export function resetProjectFaviconRecords(): void {
+  faviconRecords = null;
+  try {
+    globalThis.localStorage?.removeItem(FAVICON_STATUS_KEY);
+  } catch {
+    // Nothing to clear.
+  }
+  faviconVersion += 1;
+  for (const listener of faviconListeners) listener();
+}
+
+/**
+ * The favicon to draw for a project, or null when there is none to draw:
+ * no project, or the server already said it has no icon. `src` non-null
+ * means "draw the image and reserve its slot"; pass `onLoad` and `onError`
+ * to the <img> so the answer is remembered for every other row.
+ */
+export function useProjectFavicon(project?: string | null): {
+  src: string | null;
+  onLoad: () => void;
+  onError: () => void;
+} {
+  const url = projectFaviconSrc(project);
+  useSyncExternalStore(subscribeFavicons, () => faviconVersion, () => faviconVersion);
+  const missing = !!url && readFaviconRecords()[url]?.ok === false;
+  const onLoad = useCallback(() => {
+    if (url) recordFavicon(url, true);
+  }, [url]);
+  const onError = useCallback(() => {
+    if (url) recordFavicon(url, false);
+  }, [url]);
+  return { src: missing ? null : url, onLoad, onError };
 }
 
 /** Recovery copy for a provider failure, scoped to the session that failed. */
