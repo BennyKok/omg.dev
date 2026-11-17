@@ -76,7 +76,9 @@ export function projectFaviconSrc(project?: string | null): string | null {
  * later still shows up. A hit needs no expiry: the image itself is
  * HTTP-cached, and a later failure flips it to a miss.
  */
-const FAVICON_STATUS_KEY = "omg.projectFavicons.v1";
+// v2: the server learned to find more icons (index.html links, apps/web,
+// macOS .icns), so misses recorded under v1 are dropped, not trusted for a day.
+const FAVICON_STATUS_KEY = "omg.projectFavicons.v2";
 const FAVICON_MISS_TTL_MS = 24 * 60 * 60 * 1000;
 type FaviconRecord = { ok: true } | { ok: false; at: number };
 let faviconRecords: Record<string, FaviconRecord> | null = null;

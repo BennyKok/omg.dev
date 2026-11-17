@@ -45,7 +45,7 @@ test("a miss is remembered across a reload through storage", async () => {
   ui.flush(() => {
     ui.query("img")!.dispatchEvent(new Event("error"));
   });
-  const stored = JSON.parse(localStorage.getItem("omg.projectFavicons.v1") ?? "{}");
+  const stored = JSON.parse(localStorage.getItem("omg.projectFavicons.v2") ?? "{}");
   const entry = Object.entries(stored).find(([src]) => src.includes("erase-mac"));
   expect((entry?.[1] as { ok: boolean }).ok).toBe(false);
 });
