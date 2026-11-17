@@ -2,6 +2,16 @@
 
 Recent product updates and deployment notes.
 
+## November 17, 2026 - Longer agent access sessions, a new-session screen on the phone (v0.7.11)
+
+- Agent access → Share this computer: when you start access, choose the session length (1 h, 4 h, 8 h, 12 h or 24 h) and when it stops for idleness (15 min, 1 h, 4 h, or never while the session lasts). A session longer than 4 hours needs one more confirmation.
+- While access is active, the card shows the time left. Select Extend 1 h to move the end (Extend 4 h in a long session), or change the idle stop. You can still stop access at any time.
+- An action that runs for a long time, such as a 40-minute benchmark, no longer counts as idle time.
+- This computer remembers your last choice. A long session must still be confirmed again.
+- `omg device run` takes `--hours`, `--idle 15|60|240|never` and `--long`.
+- Update omg.dev on the computer that shares access. Defaults without a choice do not change.
+- On the phone, the home list has one "New session" button instead of a composer at the bottom. It opens the composer on its own screen, with a "Start in" folder list above the field. The draft stays when you close and open it again, and Back closes the screen.
+
 ## November 17, 2026 - Computer groups on the wide layout, correct numbers on a Mac (v0.7.10)
 
 - The wide-layout chat list groups chats by computer when it holds chats from more than one, as the phone list already did. Each computer is one line that you can close, with its folders under it.
