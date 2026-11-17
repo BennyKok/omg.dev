@@ -28,7 +28,7 @@ import {
   useSessionPlan,
 } from "./components/session-plan";
 import { ProjectFolderMenu } from "./components/project-folder-menu";
-import { MobileHomeComposer } from "./components/mobile-home-composer";
+import { MobileNewSessionButton, MobileNewSessionScreen } from "./components/mobile-home-composer";
 import { SessionReparentProvider, SessionReparentTarget, useSessionDragMenuGuard } from "./components/session-reparent";
 import { HostDrawerSlot, SideNavButton, SideNavGlyph, SideNavPanel } from "./components/side-nav";
 import { FindingsPill, FindingsSheet } from "./components/findings-pill";
@@ -5946,6 +5946,45 @@ export function App() {
     nonce: number;
   } | null>(null);
   const [composerFocusNonce, setComposerFocusNonce] = useState(0);
+  // Phone: the new-session screen over the home list. Closed, the composer
+  // keeps its draft; the list shows a "New session" button in its place.
+  const [mobileNewOpen, setMobileNewOpen] = useState(false);
+  // The screen takes part in browser history the way the artifact viewer
+  // does: opening pushes an entry, so Back or the swipe-back closes the
+  // screen instead of leaving the page.
+  const openMobileNew = useCallback(() => {
+    if (!window.history.state?.omgNewSession) {
+      try {
+        window.history.pushState({ omgNewSession: true }, "");
+      } catch {}
+    }
+    setMobileNewOpen(true);
+    setComposerFocusNonce((n) => n + 1);
+  }, []);
+  // `leaving`: the close is part of a navigation (to the new chat, to
+  // Settings). Going back then would race that navigation, so the entry is
+  // replaced instead, and Back from the next page lands on the list.
+  const closeMobileNew = useCallback((leaving = false) => {
+    const ours = window.history.state?.omgNewSession;
+    if (ours && !leaving) {
+      // Balanced close: pop our own entry; the popstate handler clears state.
+      window.history.back();
+      return;
+    }
+    if (ours) {
+      try {
+        window.history.replaceState(null, "");
+      } catch {}
+    }
+    setMobileNewOpen(false);
+  }, []);
+  useEffect(() => {
+    const onPop = () => {
+      if (!window.history.state?.omgNewSession) setMobileNewOpen(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
   // Text that a surface outside the composer writes into it (the dashboard's
   // Edit). Cleared once a composer has applied it.
   const [promptRequest, setPromptRequest] = useState<{ text: string; nonce: number } | null>(null);
@@ -9077,7 +9116,7 @@ export function App() {
     if (isMobile) {
       setTab("live");
       setComposerExpanded(true);
-      setComposerFocusNonce((n) => n + 1);
+      openMobileNew();
     } else {
       setNewOpen(true);
     }
@@ -9744,9 +9783,13 @@ export function App() {
               onRefresh={refreshSessions}
               onRenameSession={renameSession}
               onRemove={removeSession}
-              onNew={() =>
-                isMobile ? setComposerFocusNonce((n) => n + 1) : setNewOpen(true)
-              }
+              onNew={() => {
+                if (!isMobile) {
+                  setNewOpen(true);
+                  return;
+                }
+                openMobileNew();
+              }}
               // The Updates pill floats over this list and has to clear the
               // composer, which the shell owns.
               composerVisible={mobileComposerVisible}
@@ -9932,17 +9975,24 @@ export function App() {
       {!bare ? (
         <>
           {mobileComposerVisible ? (
-            // Mobile bottom composer: the create flow belongs to the Live root
-            // page and is anchored at the bottom (same component as the desktop
-            // drawer, `variant="inline"`). Secondary pages intentionally omit
-            // it so they read as pushed page navigation. Hidden behind any full-page
+            // Mobile home: a "New session" button at the bottom of the list
+            // opens the composer as its own full screen. The create flow
+            // belongs to the Live root page; secondary pages omit it so they
+            // read as pushed page navigation. Hidden behind any full-page
             // surface (artifact viewer, pulled-up terminal) so it cannot stack
             // above the content — `mobileComposerVisible` is the single source
             // of truth, shared with the <main> padding that reserves its space.
+            <>
+            <MobileNewSessionButton
+              hidden={openSessionId !== null || openThreadId !== null}
+              onOpen={() => {
+                feedback.tap();
+                openMobileNew();
+              }}
+            />
             <NewSessionDialog
               variant="inline"
-              open
-              covered={openSessionId !== null || openThreadId !== null}
+              open={mobileNewOpen && openSessionId === null && openThreadId === null}
               // The phone shows no starter row: the list above is the page.
               starters={false}
               expanded={composerExpanded}
@@ -9954,7 +10004,7 @@ export function App() {
               onPromptRequestApplied={clearPromptRequest}
               users={users}
               repos={repos}
-              // The folder in view. The composer's folder pill writes it back,
+              // The folder in view. The screen's folder list writes it back,
               // so a pick there also filters the list.
               scopedProject={projectFilter}
               projectCounts={projectSessionCounts}
@@ -9962,8 +10012,14 @@ export function App() {
               onReposChanged={loadCore}
               codingAgents={codingAgents}
               defaultUser={composerDefaultOwner(identity, userFilter)}
-              onClose={() => setComposerExpanded(false)}
+              onClose={(options) => {
+                setComposerExpanded(false);
+                closeMobileNew(options?.leaving);
+              }}
               onCreated={async (result) => {
+                // The new chat replaces the screen in history: Back from the
+                // chat lands on the list, not on an empty composer.
+                closeMobileNew(true);
                 const launchId = result?.launchId;
                 await refreshSessions({
                   ...(launchId ? { retireLaunchId: launchId } : {}),
@@ -9976,6 +10032,7 @@ export function App() {
                 if (sid) openSessionPage(sid);
               }}
             />
+            </>
           ) : null}
         </>
       ) : null}
@@ -10106,11 +10163,10 @@ export function App() {
             accountId: kind === "aisdk" ? usageAccountId : undefined,
             nonce: (prev?.nonce ?? 0) + 1,
           }));
-          // Mobile composer is always mounted and expands in place; desktop opens
-          // the drawer.
+          // Mobile opens the new-session screen; desktop opens the drawer.
           if (isMobile) {
             setComposerExpanded(true);
-            setComposerFocusNonce((n) => n + 1);
+            openMobileNew();
           } else {
             setNewOpen(true);
           }
@@ -23311,7 +23367,6 @@ async function unlinkRepoFromList(
 
 function NewSessionDialog({
   open,
-  covered = false,
   starters = true,
   repos,
   users,
@@ -23347,8 +23402,6 @@ function NewSessionDialog({
    *  starts new work from Create, which has the host's tutorial cards. */
   starters?: boolean;
   open: boolean;
-  /** Keep a phone's home draft mounted but inactive beneath an open chat. */
-  covered?: boolean;
   repos: Repo[];
   users: User[];
   defaultUser: string;
@@ -23363,7 +23416,8 @@ function NewSessionDialog({
   /** Desktop home: session counts in the shared folder menu. */
   projectCounts?: ReadonlyMap<string, number>;
   onProjectChange?: (value: string) => void;
-  onClose: () => void;
+  /** `leaving`: the close is part of a navigation away (phone screen only). */
+  onClose: (options?: { leaving?: boolean }) => void;
   onCreated: (result?: { launchId?: string; sessionId?: string; session?: Session | null }) => Promise<void>;
   // Inline only: horizontal swipes cycle the live-view project filter.
   onProjectSwipe?: (dir: 1 | -1) => boolean;
@@ -23709,30 +23763,13 @@ function NewSessionDialog({
   // external affordance bumps `focusNonce`. The shadcn Textarea isn't a
   // forwardRef, so reach it through the wrapping element.
   const fieldRef = useRef<HTMLDivElement>(null);
-  const inlineBarRef = useRef<HTMLDivElement>(null);
   const inlineShellRef = useRef<HTMLDivElement>(null);
+  // The phone screen takes focus each time it opens, so the keyboard is up
+  // for the first word. The "New session" button raised it inside the tap.
   useEffect(() => {
-    if (variant !== "inline" || !focusNonce) return;
-    fieldRef.current?.querySelector("textarea")?.focus();
-  }, [focusNonce, variant]);
-  useLayoutEffect(() => {
-    if (variant !== "inline") return;
-    const bar = inlineBarRef.current;
-    if (!bar) return;
-    const sync = () => {
-      const rect = bar.getBoundingClientRect();
-      document.documentElement.style.setProperty("--lfg-inline-composer-height", `${Math.ceil(rect.height)}px`);
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    ro.observe(bar);
-    window.addEventListener("resize", sync);
-    return () => {
-      ro.disconnect();
-      window.removeEventListener("resize", sync);
-      document.documentElement.style.removeProperty("--lfg-inline-composer-height");
-    };
-  }, [variant]);
+    if (variant !== "inline" || !open) return;
+    fieldRef.current?.querySelector("textarea")?.focus({ preventScroll: true });
+  }, [focusNonce, variant, open]);
   // True while the post-commit swap animation is in flight. Committing a swipe
   // changes project/tab, which recreates onProjectSwipe and re-attaches the
   // effect below — without this guard its cleanup wipes the in-flight
@@ -24435,11 +24472,11 @@ function NewSessionDialog({
     // Get the composer out of the way FIRST, in whichever shape it has.
     // The drawer is a modal sheet, so leaving it up parks it squarely over
     // the settings page we just navigated to — the tap looked like it did
-    // nothing. The inline composer only needs its controls row collapsed;
-    // the bar itself is meant to stay.
+    // nothing. The phone screen is full screen, so it closes too; its draft
+    // stays for the next open.
     feedback.tap();
     onExpandedChange?.(false);
-    if (variant === "drawer") onClose();
+    if (variant !== "stage") onClose({ leaving: true });
     openSettingsPage("coding-agents");
   };
   const onAgentSelect = (key: AgentKind, option?: { accountId?: string; selectorId?: string }) => {
@@ -24465,6 +24502,15 @@ function NewSessionDialog({
   // "All chats" is the Folders page's, not the composer's: here the menu only
   // names a folder, and with none chosen the next chat has no project.
   const ownsFolder = variant === "inline";
+  const pickFolder = (next: string) => {
+    if (next === "__all" || next === NO_PROJECT_FILTER) {
+      setFolderPicked(false);
+      onProjectChange?.(next);
+      return;
+    }
+    const target = repos.find((candidate) => repoProject(candidate) === next);
+    if (target) chooseComposerRepo(target);
+  };
   const folderPicker = (trigger: "chip" | "pill") => (
     <ProjectFolderMenu
       trigger={trigger}
@@ -24475,15 +24521,7 @@ function NewSessionDialog({
       projects={[NO_PROJECT_FILTER, ...new Set(repos.map(repoProject))]}
       labelFor={(value) => projectFilterLabel(value, shortProject)}
       counts={projectCounts}
-      onChange={(next) => {
-        if (next === "__all" || next === NO_PROJECT_FILTER) {
-          setFolderPicked(false);
-          onProjectChange?.(next);
-          return;
-        }
-        const target = repos.find((candidate) => repoProject(candidate) === next);
-        if (target) chooseComposerRepo(target);
-      }}
+      onChange={pickFolder}
       canRemove={(project) => repos.some((candidate) => repoProject(candidate) === project)}
       onRemove={async (project) => {
         const target = repos.find((candidate) => repoProject(candidate) === project);
@@ -24902,9 +24940,10 @@ function NewSessionDialog({
           skillAgent={agent}
           mentionScope={{ cwd: selectedRepo }}
           onMultilineChange={variant === "inline" ? setPromptMultiline : undefined}
-          // The inline bar sits over the page, so it stops at three lines.
-          // The stage and sheet are prompt editors with their own tall box.
-          maxLines={variant === "inline" ? 3 : undefined}
+          // The phone screen keeps room above the field for the folder list,
+          // so the field stops at six lines. The stage and sheet are prompt
+          // editors with their own tall box.
+          maxLines={variant === "inline" ? 6 : undefined}
           scrollToEndNonce={dictationScrollNonce}
           holdHeight={dictationHold}
           onPaste={files.onPasteFiles}
@@ -24950,9 +24989,6 @@ function NewSessionDialog({
                 first words expand the composer. */}
             {inlineExpanded ? agentPopover : null}
             {attachButton}
-            {/* Where the next chat starts. A pick also filters the list,
-                through the same folder value the Folders page sets. */}
-            {variant === "inline" ? folderPill : null}
             {inlineExpanded ? <span className="flex-1" /> : null}
             {micButton}
             {inlineExpanded ? startButton : null}
@@ -25038,34 +25074,45 @@ function NewSessionDialog({
     </>
   );
 
-  // Mobile home screen: render the shared composer as a real bottom flex child
-  // of the app shell. The App root is pinned to visualViewport.height, so this
-  // participates in layout and moves above the soft keyboard instead of relying
-  // on fixed-position keyboard offsets (which vary across iOS PWA/Safari modes).
   // Keep this component alive while the resume picker is open. On desktop its
   // owning dialog closes first, otherwise the dialog's modal backdrop and focus
   // trap sit above the full-screen picker and dismissing the dialog unmounts it.
+  // Closed, it renders nothing but keeps its state, so a phone draft survives
+  // closing and reopening the new-session screen.
   if (!open && !resumeOpen) return null;
 
-  if (variant === "inline") {
+  // Phone: the composer is its own full screen, opened from the "New session"
+  // button at the bottom of the list. The folder list fills the space above
+  // the field; the field sits over the keyboard.
+  if (variant === "inline" && open) {
     return (
-      <MobileHomeComposer covered={covered} busy={launching} containerRef={inlineBarRef}>
-        <div ref={inlineShellRef} className="mx-auto max-w-lg will-change-transform">
-          {formBody}
-        </div>
-      </MobileHomeComposer>
+      <MobileNewSessionScreen
+        projects={[NO_PROJECT_FILTER, ...new Set(repos.map(repoProject))]}
+        folder={unassigned ? NO_PROJECT_FILTER : composerProject}
+        labelFor={(value) => projectFilterLabel(value, shortProject)}
+        counts={projectCounts}
+        onFolder={pickFolder}
+        onClose={() => onClose()}
+        onHistory={() => setResumeOpen(true)}
+        onAddFolder={() => openFolderBrowser(false)}
+        busy={launching}
+      >
+        <div ref={inlineShellRef}>{formBody}</div>
+      </MobileNewSessionScreen>
     );
   }
 
-  // Desktop resume is a page-level surface, independent of the dialog it was
+  // Resume is a page-level surface, independent of the dialog it was
   // launched from. Rendering it without the Drawer removes the dialog's z-160
-  // overlay/focus trap and lets Back close only the resume page.
+  // overlay/focus trap and lets Back close only the resume page. On a phone,
+  // an app's "find sessions" opens it here with the new-session screen shut.
   if (!open && resumeOpen) {
     return (
       <Suspense fallback={null}>
         <ResumeSessionSheet
-          initial={resumable}
-          scopedProject={resumeScope}
+          initial={resumeSearch ? null : resumable}
+          scopedProject={resumeSearch ? "__all" : resumeScope}
+          initialSearch={resumeSearch}
           onRestore={(entry) => setPrompt(entry.text)}
           onPick={(session) => {
             closeResume();
