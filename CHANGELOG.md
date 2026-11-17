@@ -2,6 +2,12 @@
 
 Recent product updates and deployment notes.
 
+## November 17, 2026 - Computer groups on the wide layout, correct numbers on a Mac (v0.7.10)
+
+- The wide-layout chat list groups chats by computer when it holds chats from more than one, as the phone list already did. Each computer is one line that you can close, with its folders under it.
+- On a Mac, Settings shows correct memory, storage, CPU and network numbers. Memory used to read about 99 % full, the storage list was empty, network showed 0, and CPU read high on an idle Mac. Memory now matches Activity Monitor. Linux numbers do not change.
+- Skill suggestions in the composer show only the skills that the chat's agent can load.
+
 ## November 16, 2026 - One menu on the phone, one-page Settings (v0.7.9)
 
 - Phone navigation has one menu. The Menu page lists every page (Chats, Dashboard, Schedules, Inbox, Artifacts, Computer, Settings), then your five most recent folders and one "All folders" row. The Chats header keeps the menu and the Inbox.
