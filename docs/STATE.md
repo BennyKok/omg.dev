@@ -2,41 +2,43 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-16.
+Last refresh: 2026-11-18.
 
 ## Active work (last 14 days)
 
-- **Local runtime and repository**: the README presents the self-run version
-  (#501). Native clients, legacy deploy templates, and internal files were
-  removed (#498). Snapshot fork bases install nested Bun projects so forks
-  share the installs (#497).
+- **Agent sessions**: failed Claude turns appear in the transcript (#513).
+  tmux passes typed text as text after ending option parsing (#512). Skill
+  suggestions use the active agent's skill catalog (#509).
+- **Local runtime and repository**: the README describes the self-run version
+  (#501). Native clients and legacy deploy templates were removed (#498).
+  Snapshot fork bases install dependencies for nested Bun projects (#497).
 - **Computer**: native macOS screen capture, input, and clipboard landed
-  (#505). Personal Computer connections were retired (#493).
-- **Security and dependencies**: audit fixes and mobile install patches
-  landed (#494). A production host address and tailnet name were removed
-  (#496). Actions use pinned SHAs; releases have approval gates; npm uses
+  (#505). Personal Computer connections were removed (#493).
+- **Security and dependencies**: audit fixes and mobile install patches landed
+  (#494). A production host address and tailnet name were removed (#496).
+  GitHub Actions use pinned SHAs, releases have approval gates, and npm uses
   trusted publishing (#491).
-- **Earlier hosted work**: finding autopilot starts sessions for open
-  findings (#490). This merged PR does not establish current cloud support.
-- **Docs**: the former Cloud and deploy design is marked superseded (#504).
-  STATE.md refreshes landed in #492, #495, #499, #500, #503, #506, #507,
-  #508, and #510.
+- **Automations**: finding autopilot starts sessions for open findings (#490).
+- **Docs**: the former Cloud and deploy design was marked superseded (#504).
+  STATE.md refreshes landed in #495, #499, #500, #503, #506, #507, #508, #510,
+  and #511.
 
 ## Open pull requests
 
-- In progress: #509 (scope skill suggestions to the active agent).
+- In progress: none at refresh time.
 - Stale (no update for 30+ days): none at refresh time.
 
 ## Where things are
 
-- Ownership, task contract, verification, and release rules: `AGENTS.md`.
-- Local CLI, server, lifecycle, and agent adapters: `src/`.
-- Local web UI: `web/`. Desktop shell: `desktop/`.
-- Protocol and client libraries: `packages/protocol/` and `packages/client/`.
-- Device linking: `src/devices/` and `docs/device-link.md`. Peers: `src/peer-machines.ts`.
-- Event hooks: `src/events/` and `docs/event-hooks.md`.
-- Session plans: `docs/session-plan.md`. Terminal: `docs/terminal.md`.
-- Hosted product, billing, and fleet: the separate `vibes` repository.
-- Native clients: removed from this repository (#498).
-- Design and protocol documents: `docs/`. Verify top `Status:` lines in code.
-- Old plans: `docs/archive/`. Search tools skip this history folder.
+- Ownership, verification, and release rules are in `AGENTS.md`.
+- The local CLI, server, lifecycle, and agent adapters are in `src/`.
+- The local web UI is in `web/`. The desktop shell is in `desktop/`.
+- The protocol and client libraries are in `packages/protocol/` and
+  `packages/client/`.
+- Device linking is in `src/devices/` and `docs/device-link.md`. Peer machines
+  are in `src/peer-machines.ts`.
+- Event hooks are in `src/events/` and `docs/event-hooks.md`.
+- Session plan and terminal docs are `docs/session-plan.md` and `docs/terminal.md`.
+- The separate `vibes` repository owns the hosted product, billing, and fleet.
+- Design and protocol documents are in `docs/`. Check their status against the
+  code. Search tools skip old plans in `docs/archive/`.
