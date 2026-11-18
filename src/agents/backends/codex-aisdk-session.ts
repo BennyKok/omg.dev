@@ -40,7 +40,7 @@ import {
   withCodexServiceTierConfig,
   type CodexServiceTier,
 } from "../../service-tier.ts";
-import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { initialCmdOffset, readNewCmdLines, writeCursor } from "./cmd-tail.ts";
 import {
   AISDK_STREAM_STALL_MS,
@@ -48,25 +48,17 @@ import {
   isAisdkStreamStalled,
 } from "./aisdk-session.ts";
 import { extractAttachments } from "../../attachment-images.ts";
+import { resolveCodexSessionBinary } from "../../codex-binary.ts";
 
 function arg(argv: string[], name: string): string | undefined {
   const i = argv.indexOf(name);
   return i >= 0 ? argv[i + 1] : undefined;
 }
 
-// Only an EXPLICIT override redirects the SDK away from its bundled codex
-// binary. The SDK pins a matching @openai/codex dependency (protocol-tested
-// pairing); pointing it at an older global CLI risks a protocol mismatch, so —
-// unlike the old provider — we no longer prefer the global binary by default.
+// Sessions run the newer of the bundled SDK binary and the global CLI that
+// Settings → Update installs. See ../../codex-binary.ts for the rule and why.
 function resolveCodexPathOverride(): string | undefined {
-  const explicit = process.env.LFG_CODEX_PATH;
-  if (!explicit) return undefined;
-  try {
-    const real = realpathSync(explicit);
-    return existsSync(real) ? real : undefined;
-  } catch {
-    return undefined;
-  }
+  return resolveCodexSessionBinary();
 }
 
 /**
