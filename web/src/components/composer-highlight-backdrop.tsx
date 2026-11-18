@@ -26,14 +26,14 @@ export function ComposerHighlightBackdrop({
           seg.kind === "command" ? (
             <mark
               key={idx}
-              className="rounded-full bg-primary/15 text-transparent ring-2 ring-primary/15"
+              className="rounded-md bg-primary/12 text-transparent ring-1 ring-primary/35 shadow-[0_0_0_2px_rgba(0,122,255,0.08)]"
             >
               {seg.text}
             </mark>
           ) : seg.kind === "mention" ? (
             <mark
               key={idx}
-              className="rounded-full bg-amber-500/15 text-transparent ring-2 ring-amber-500/15 dark:bg-amber-400/20 dark:ring-amber-400/20"
+              className="rounded-md bg-amber-500/12 text-transparent ring-1 ring-amber-500/35 shadow-[0_0_0_2px_rgba(245,158,11,0.08)] dark:bg-amber-400/15 dark:ring-amber-400/35"
             >
               {seg.text}
             </mark>

@@ -61,7 +61,9 @@ export function BtwDrawer({
     <div className="flex min-h-0 flex-1 flex-col">
       <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 px-3">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="font-mono text-xs font-semibold text-foreground">/btw</span>
+          <span className="rounded-md border border-primary/25 bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-primary">
+            /btw
+          </span>
           <span className="truncate text-[11px] text-muted-foreground">
             {streaming ? "Answering…" : "Tools off · Not saved"}
           </span>
