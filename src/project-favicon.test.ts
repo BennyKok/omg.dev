@@ -135,8 +135,11 @@ describe("project favicon", () => {
     const picked = pngFromIcns(icns)!;
     expect(new DataView(picked.buffer, picked.byteOffset).getUint32(16)).toBe(128);
     const res = await icnsFaviconResponse(new Request("http://x/"), path);
-    expect(res.headers.get("content-type")).toBe("image/png");
-    expect(new Uint8Array(await res.arrayBuffer()).subarray(0, 4)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+    // The PNG, cropped to Apple's icon grid: 100 px of 1024 off each side.
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    const svg = await res.text();
+    expect(svg).toContain('viewBox="12.5 12.5 103 103"');
+    expect(svg).toContain("data:image/png;base64,");
     const again = await icnsFaviconResponse(new Request("http://x/", { headers: { "if-none-match": res.headers.get("etag")! } }), path);
     expect(again.status).toBe(304);
   });

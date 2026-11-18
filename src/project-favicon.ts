@@ -299,11 +299,29 @@ export function pngFromIcns(bytes: Uint8Array): Uint8Array | null {
 // push lands, with no file on disk to bump.
 const ICON_CACHE_CONTROL = "public, max-age=3600, stale-while-revalidate=86400";
 
-/** Bytes with a fixed version tag; .icns becomes the PNG inside it. */
+/**
+ * A macOS app icon PNG trimmed to its artwork.
+ *
+ * Apple's icon grid draws the shape in the centre 824 of 1024 px and leaves
+ * the rest transparent for the shadow. At 16 px that margin made the mark
+ * visibly smaller than every favicon beside it (erase-mac, 2026-11-18). An
+ * SVG wrapper crops to the grid without decoding the PNG.
+ */
+export function icnsArtworkSvg(png: Uint8Array): Uint8Array {
+  const width = new DataView(png.buffer, png.byteOffset).getUint32(16);
+  const inset = (width * 100) / 1024;
+  const size = width - inset * 2;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${inset} ${inset} ${size} ${size}">` +
+    `<image width="${width}" height="${width}" href="data:image/png;base64,${Buffer.from(png).toString("base64")}"/></svg>`;
+  return new TextEncoder().encode(svg);
+}
+
+/** Bytes with a fixed version tag; .icns becomes the artwork inside it. */
 function iconBytesResponse(req: Request, path: string, etag: string, bytes: () => Promise<Uint8Array>): Promise<Response> {
   const icns = path.toLowerCase().endsWith(".icns");
   const headers = {
-    "Content-Type": icns ? "image/png" : projectFaviconMime(path),
+    "Content-Type": icns ? "image/svg+xml" : projectFaviconMime(path),
     "Cache-Control": ICON_CACHE_CONTROL,
     ETag: etag,
   };
@@ -311,7 +329,8 @@ function iconBytesResponse(req: Request, path: string, etag: string, bytes: () =
     return Promise.resolve(new Response(null, { status: 304, headers }));
   }
   return bytes().then((raw) => {
-    const body = icns ? pngFromIcns(raw) : raw;
+    const png = icns ? pngFromIcns(raw) : null;
+    const body = icns ? (png ? icnsArtworkSvg(png) : null) : raw;
     return body ? new Response(body, { headers }) : projectFaviconMissResponse();
   });
 }
@@ -320,7 +339,7 @@ function iconBytesResponse(req: Request, path: string, etag: string, bytes: () =
 export async function icnsFaviconResponse(req: Request, path: string): Promise<Response> {
   const info = await stat(path).catch(() => null);
   if (!info) return projectFaviconMissResponse();
-  const etag = `"icns-${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
+  const etag = `"icns2-${info.size.toString(16)}-${Math.floor(info.mtimeMs).toString(16)}"`;
   return iconBytesResponse(req, path, etag, async () => new Uint8Array(await readFile(path)));
 }
 
@@ -330,7 +349,7 @@ export async function icnsFaviconResponse(req: Request, path: string): Promise<R
  * the branch is a new ETag.
  */
 export function gitIconResponse(req: Request, icon: Extract<ProjectIcon, { source: "git" }>): Promise<Response> {
-  return iconBytesResponse(req, icon.path, `"git-${icon.blob}"`, async () => (await git(icon.root, ["cat-file", "blob", icon.blob])).out);
+  return iconBytesResponse(req, icon.path, `"git-${icon.path.toLowerCase().endsWith(".icns") ? "icns2-" : ""}${icon.blob}"`, async () => (await git(icon.root, ["cat-file", "blob", icon.blob])).out);
 }
 
 export function projectFaviconMime(path: string): string {
