@@ -89,7 +89,7 @@ import {
   setSessionUserFilter,
 } from "../session-user-filter.ts";
 import { seenTailnetPerson, tailnetGateResponse, tailnetIdentityFromEnv, tailnetPerson, tailnetPersonOf, tailnetPortFromEnv } from "../tailnet-gate.ts";
-import { findProjectFavicon, icnsFaviconResponse, projectFaviconMime, projectFaviconMissResponse } from "../project-favicon.ts";
+import { findProjectIcon, gitIconResponse, icnsFaviconResponse, projectFaviconMime, projectFaviconMissResponse } from "../project-favicon.ts";
 import { claudeOauthToken as sharedClaudeOauthToken } from "../claude-creds.ts";
 import {
   applyReleaseUpdate,
@@ -9089,10 +9089,11 @@ a{color:#60a5fa}
         // cannot become a local-file reader for arbitrary paths.
         const repo = (await listRepos()).find((entry) => entry.project === project);
         if (!repo) return err(404, "project not found");
-        const favicon = await findProjectFavicon(repo.cwd);
-        if (!favicon) return projectFaviconMissResponse();
-        if (favicon.toLowerCase().endsWith(".icns")) return icnsFaviconResponse(req, favicon);
-        return staticAssetResponse(req, url, favicon, projectFaviconMime(favicon));
+        const icon = await findProjectIcon(repo.cwd);
+        if (!icon) return projectFaviconMissResponse();
+        if (icon.source === "git") return gitIconResponse(req, icon);
+        if (icon.path.toLowerCase().endsWith(".icns")) return icnsFaviconResponse(req, icon.path);
+        return staticAssetResponse(req, url, icon.path, projectFaviconMime(icon.path));
       }
 
       if (path === "/api/sessions") {

@@ -11,6 +11,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   findProjectFavicon,
+  findProjectIcon,
+  gitIconResponse,
   icnsFaviconResponse,
   pageIconHrefs,
   pngFromIcns,
@@ -137,6 +139,51 @@ describe("project favicon", () => {
     expect(new Uint8Array(await res.arrayBuffer()).subarray(0, 4)).toEqual(new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
     const again = await icnsFaviconResponse(new Request("http://x/", { headers: { "if-none-match": res.headers.get("etag")! } }), path);
     expect(again.status).toBe(304);
+  });
+
+  function repoWithNewerRemoteIcon(): { root: string; oldHead: string } {
+    const root = sandbox();
+    const run = (...args: string[]) => {
+      const r = Bun.spawnSync(["git", "-C", root, ...args], {
+        env: { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@t", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@t" },
+      });
+      if (r.exitCode !== 0) throw new Error(r.stderr.toString());
+      return r.stdout.toString().trim();
+    };
+    run("init", "-q", "-b", "main");
+    writeFileSync(join(root, "favicon.svg"), "<svg>old</svg>");
+    run("add", ".");
+    run("commit", "-qm", "old icon");
+    const oldHead = run("rev-parse", "HEAD");
+    writeFileSync(join(root, "favicon.svg"), "<svg>new</svg>");
+    run("commit", "-qam", "new icon");
+    // The pushed branch has the new icon; the checkout is left behind.
+    run("update-ref", "refs/remotes/origin/main", "HEAD");
+    run("reset", "-q", "--hard", oldHead);
+    return { root, oldHead };
+  }
+
+  test("reads the icon from the default branch when the checkout is behind it", async () => {
+    const { root } = repoWithNewerRemoteIcon();
+    const icon = await findProjectIcon(root);
+    expect(icon?.source).toBe("git");
+    expect(icon?.path).toBe("favicon.svg");
+    const res = await gitIconResponse(new Request("http://x/"), icon as Extract<typeof icon, { source: "git" }>);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(await res.text()).toBe("<svg>new</svg>");
+    const again = await gitIconResponse(
+      new Request("http://x/", { headers: { "if-none-match": res.headers.get("etag")! } }),
+      icon as Extract<typeof icon, { source: "git" }>,
+    );
+    expect(again.status).toBe(304);
+  });
+
+  test("keeps the folder on disk when the checkout is at or ahead of the branch", async () => {
+    const { root } = repoWithNewerRemoteIcon();
+    Bun.spawnSync(["git", "-C", root, "merge", "-q", "--ff-only", "refs/remotes/origin/main"]);
+    writeFileSync(join(root, "favicon.svg"), "<svg>local, not pushed</svg>");
+    const icon = await findProjectIcon(root);
+    expect(icon).toEqual({ source: "file", path: join(root, "favicon.svg") });
   });
 
   test("maps browser image types", () => {

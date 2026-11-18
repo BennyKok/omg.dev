@@ -60,7 +60,10 @@ export function agentIconAlt(agent?: string): string {
 export function projectFaviconSrc(project?: string | null): string | null {
   const key = project?.trim();
   if (!key) return null;
-  return omgAssetUrl(`/api/repos/favicon?project=${encodeURIComponent(key)}`);
+  // `r` changes the browser cache key when the server's icon choice changes
+  // (r=2: read from the default branch, so Subtract replaced the Erase
+  // icon). Not `v`: the server serves `?v=` as immutable for a year.
+  return omgAssetUrl(`/api/repos/favicon?project=${encodeURIComponent(key)}&r=2`);
 }
 
 /**

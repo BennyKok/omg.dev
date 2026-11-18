@@ -82,7 +82,7 @@ describe("pausedProviderErrorDetail", () => {
 describe("projectFaviconSrc", () => {
   test("addresses the project by its encoded identity, never by a local path", () => {
     expect(projectFaviconSrc("my app/日本語")).toBe(
-      "/api/repos/favicon?project=my%20app%2F%E6%97%A5%E6%9C%AC%E8%AA%9E",
+      "/api/repos/favicon?project=my%20app%2F%E6%97%A5%E6%9C%AC%E8%AA%9E&r=2",
     );
     expect(projectFaviconSrc("  ")).toBeNull();
   });
