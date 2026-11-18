@@ -154,10 +154,11 @@ test("No project reads as a selection: no icon on its row or the trigger, folder
   ui.flush(() => trigger.click());
   await ui.flushAsync();
   const rows = Array.from(body().querySelectorAll('[data-testid="project-folder-menu"] button[aria-pressed]'));
-  // Row 0 is All projects. The check mark is the one svg on the No project
-  // row; each folder row adds a folder icon.
-  expect(rows[1]!.querySelectorAll("svg")).toHaveLength(1);
-  expect(rows[2]!.querySelectorAll("svg")).toHaveLength(2);
+  // Row 0 is All projects. The check mark is the one mark on the No project
+  // row; each folder row adds its project mark (the favicon, else a folder).
+  expect(rows[1]!.querySelectorAll("svg, img")).toHaveLength(1);
+  expect(rows[2]!.querySelectorAll("svg, img")).toHaveLength(2);
+  expect(rows[2]!.querySelector("[data-project-mark]")?.getAttribute("src")).toContain("project=alpha");
 });
 
 test("marks folders whose project has a live app", async () => {

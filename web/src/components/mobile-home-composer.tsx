@@ -1,10 +1,10 @@
 import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { ChevronDown, Folder, History, Plus, Search, X } from "lucide-react";
+import { ChevronDown, History, Plus, Search, X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { NO_PROJECT_FILTER } from "../lib/project-filter";
 import { byRecent, useFolderActivity } from "../lib/folder-activity";
-import { useProjectFavicon } from "../lib/session-ui";
+import { ProjectMark } from "./project-mark";
 import { arrangeFolders, useFolderMenuPrefs } from "../lib/folder-menu-prefs";
 import { useSwipeBack } from "../lib/use-swipe-back";
 
@@ -78,24 +78,6 @@ export function MobileNewSessionButton({ onOpen, hidden = false }: { onOpen: () 
 /** How many folders show before "More". One or two rows on a phone. */
 const FOLDER_CHIPS = 6;
 
-/** The folder's favicon, else a plain folder mark. */
-function FolderMark({ project }: { project: string }) {
-  const { src, onLoad, onError } = useProjectFavicon(project);
-  if (src) {
-    return (
-      <img
-        src={src}
-        alt=""
-        aria-hidden="true"
-        loading="lazy"
-        className="size-3.5 shrink-0 rounded-[3px] object-contain"
-        onLoad={onLoad}
-        onError={onError}
-      />
-    );
-  }
-  return <Folder className="size-3.5 shrink-0 opacity-60" />;
-}
 
 /**
  * Where the next chat starts, as a few chips: "No project" and the first
@@ -156,7 +138,7 @@ function FolderChips({
           selected ? "bg-foreground text-background" : "bg-muted text-foreground hover:bg-muted/70",
         )}
       >
-        {folder === NO_PROJECT_FILTER ? null : <FolderMark project={folder} />}
+        {folder === NO_PROJECT_FILTER ? null : <ProjectMark project={folder} className="[&:is(svg)]:opacity-60" />}
         <span className="min-w-0 truncate">{labelFor(folder)}</span>
       </button>
     );

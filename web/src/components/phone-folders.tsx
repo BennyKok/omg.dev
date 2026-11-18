@@ -17,6 +17,7 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown, Folder, FolderPlus, MessagesSquare, Plus } from "lucide-react";
 import { Github } from "./icons/github";
+import { ProjectMark } from "./project-mark";
 import { cn } from "@/lib/utils";
 import { arrangeFolders, useFolderMenuPrefs, type ArrangedFolder } from "../lib/folder-menu-prefs";
 import { NO_PROJECT_FILTER } from "../lib/project-filter";
@@ -230,7 +231,7 @@ export function PhoneFolders({
       {active.map((folder) => (
         <FolderRow
           key={folder.value}
-          icon={<Folder className="size-[18px]" />}
+          icon={<ProjectMark project={folder.value} className="size-[18px] rounded-[4px]" />}
           label={labelFor(folder.value)}
           running={running?.get(folder.value)}
           detail={counts?.get(folder.value)}
@@ -265,7 +266,7 @@ export function PhoneFolders({
                 ({ folder, muted }) => (
                   <FolderRow
                     key={folder.value}
-                    icon={<Folder className="size-[18px]" />}
+                    icon={<ProjectMark project={folder.value} className="size-[18px] rounded-[4px]" />}
                     label={labelFor(folder.value)}
                     running={running?.get(folder.value)}
                     detail={counts?.get(folder.value)}

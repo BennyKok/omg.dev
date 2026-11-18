@@ -45,6 +45,7 @@ import {
   setFolderMenuOrder,
   useFolderMenuPrefs,
 } from "../lib/folder-menu-prefs";
+import { ProjectMark } from "./project-mark";
 
 export type ProjectFolderMenuProps = {
   /** The current filter value. */
@@ -165,7 +166,7 @@ export function ProjectFolderMenu({
             {/* No project is a selection, not an action, and not a folder:
                 it gets no icon. Only real folders show the folder icon. */}
             {value === NO_PROJECT_FILTER ? null : (
-              <Folder className={cn("shrink-0 text-muted-foreground", "size-3.5")} />
+              <ProjectMark project={value} className="[&:is(svg)]:text-muted-foreground" />
             )}
             <span className="min-w-0 flex-1 truncate">{label}</span>
             <ChevronDown className={cn("shrink-0 text-muted-foreground/70", "size-3.5")} />
@@ -233,7 +234,7 @@ export function ProjectFolderMenu({
                       touch={touch}
                       key={folder.value}
                       selected={value === folder.value}
-                      icon={<Folder className="size-3.5" />}
+                      icon={<ProjectMark project={folder.value} />}
                       label={labelFor(folder.value)}
                       live={liveProjects?.has(folder.value)}
                       count={counts?.get(folder.value)}
@@ -258,7 +259,7 @@ export function ProjectFolderMenu({
                           touch={touch}
                           key={folder.value}
                           selected={value === folder.value}
-                          icon={<Folder className="size-3.5" />}
+                          icon={<ProjectMark project={folder.value} />}
                           label={labelFor(folder.value)}
                           live={liveProjects?.has(folder.value)}
                           count={counts?.get(folder.value)}
