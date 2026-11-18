@@ -68,7 +68,7 @@ async function killAgy(pid: number): Promise<void> {
   await Bun.sleep(50);
 }
 
-function start(thinkingLevel: string): void {
+function start(thinkingLevel: string, initialPrompt = "hello"): void {
   done = runManagedSdkSession({
     key: KEY,
     agent: "antigravity",
@@ -76,8 +76,10 @@ function start(thinkingLevel: string): void {
     model: "default",
     managedName: "agy-restart",
     thinkingLevel,
-    initialPrompt: "hello",
+    initialPrompt,
     exitProcess: () => {},
+    backgroundQuietMs: 150,
+    backgroundToolMs: 5_000,
     createRuntime: antigravityRuntimeFactory({
       key: KEY,
       cwd: root,
@@ -169,5 +171,31 @@ describe("managed Antigravity session when agy ends between turns", () => {
     }
     expect(new Set(logged().map((entry) => entry.pid)).size).toBe(1);
     expect(await texts()).not.toContain(managedRestartResumedNotice("antigravity"));
+  });
+});
+
+describe("managed Antigravity session when agy continues after a turn", () => {
+  test("reads as working until the continuation ends, and keeps its text once", async () => {
+    start("medium", "start the background build");
+    await waitForPrompt();
+    const pid = logged()[0]!.pid;
+    await waitForText(`reply from ${pid}`);
+
+    // The turn returned, then agy started a tool call by itself. The tool
+    // stays open longer than the quiet window, and the session stays busy.
+    for (let i = 0; i < 100 && readEntry(KEY)?.busy !== true; i++) await Bun.sleep(10);
+    expect(readEntry(KEY)?.busy).toBe(true);
+    await Bun.sleep(300);
+    expect(readEntry(KEY)?.busy).toBe(true);
+
+    // When it goes quiet, its text is in the transcript and busy clears.
+    await waitForText("background done");
+    for (let i = 0; i < 100 && readEntry(KEY)?.busy !== false; i++) await Bun.sleep(10);
+    expect(readEntry(KEY)?.busy).toBe(false);
+    expect(readEntry(KEY)?.draftText ?? null).toBeNull();
+
+    // The turn's reply was not committed a second time at the tool call.
+    expect((await texts()).filter((text) => text === `reply from ${pid}`)).toHaveLength(1);
+    expect(logged().filter((entry) => entry.method === "session/prompt")).toHaveLength(1);
   });
 });

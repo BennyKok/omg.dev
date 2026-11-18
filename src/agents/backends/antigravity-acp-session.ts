@@ -340,11 +340,22 @@ export async function createAntigravityRuntime(
         sessionId,
         prompt: [{ type: "text", text: prompt }],
       });
-      if (ANTIGRAVITY_VERIFICATION_REPLY.test(state.draft)) {
+      const result = { text: state.draft, thinking: state.thought };
+      // The session commits this result. Clear it so a later tool call in a
+      // continuation agy starts by itself does not commit it a second time.
+      state.draft = "";
+      state.thought = "";
+      if (ANTIGRAVITY_VERIFICATION_REPLY.test(result.text)) {
         const { verifyUrl } = await probeAntigravityAccount(antigravityHarnessPath());
         sink.notice?.(antigravityVerificationNotice(verifyUrl));
       }
-      return { text: state.draft, thinking: state.thought };
+      return result;
+    },
+    takeDraft() {
+      const held = { text: state.draft, thinking: state.thought };
+      state.draft = "";
+      state.thought = "";
+      return held;
     },
     interrupt: () => {
       if (link.alive) return link.connection.agent.notify(acp.methods.agent.session.cancel, { sessionId });

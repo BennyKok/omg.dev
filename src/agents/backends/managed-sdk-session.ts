@@ -65,6 +65,13 @@ export type ManagedSdkRuntime = {
    * reports this is replaced before the next turn; see `liveRuntime`.
    */
   alive?(): boolean;
+  /**
+   * Return and clear the text the runtime streamed outside a turn. An agent
+   * can continue on its own after a turn ended, for example when a background
+   * command it started finishes. The session commits that text when the
+   * activity goes quiet, so the runtime must not offer it again.
+   */
+  takeDraft?(): { text: string; thinking: string };
 };
 
 /**
@@ -116,7 +123,18 @@ export type ManagedSdkSessionOptions = {
   createRuntime(sink: ManagedSdkEventSink, restart?: ManagedSdkRestart): Promise<ManagedSdkRuntime>;
   /** Defaults to process.exit. Tests replace this so shutdown can return. */
   exitProcess?: (code: number) => void;
+  /** Tests shorten the quiet windows of activity outside a turn. */
+  backgroundQuietMs?: number;
+  backgroundToolMs?: number;
 };
+
+/**
+ * Activity outside a turn has no end signal, so it ends after this much quiet.
+ * Gemini pauses a few seconds between steps; 20 seconds covers that.
+ */
+const BACKGROUND_QUIET_MS = 20_000;
+/** A tool call that started outside a turn and has not finished yet. */
+const BACKGROUND_TOOL_MS = 10 * 60_000;
 
 function text(value: unknown): string {
   if (typeof value === "string") return value;
@@ -147,6 +165,8 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
     initialPrompt = "",
     recoveredAt = null,
     exitProcess = (code) => process.exit(code),
+    backgroundQuietMs = BACKGROUND_QUIET_MS,
+    backgroundToolMs = BACKGROUND_TOOL_MS,
   } = options;
   let model = options.model;
   let thinkingLevel = options.thinkingLevel;
@@ -158,6 +178,14 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   const queue: string[] = [];
   const publishDraft = makeDraftPublisher(key);
   const emittedTools = new Set<string>();
+  // True while a turn that a person sent runs. Agent activity outside one is
+  // tracked below so the session still reads as working.
+  let turnActive = false;
+  const background = {
+    active: false,
+    openTools: new Set<string>(),
+    timer: null as ReturnType<typeof setTimeout> | null,
+  };
   let promptResolver: ((index: number | null) => void) | null = null;
   let openPrompt: AisdkPrompt | null = null;
   const commandFile = cmdPath(key);
@@ -192,14 +220,17 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
       if (!closing && body.trim()) indexSessionMessagesDirect(key, [row("assistant", "text", body)]);
     },
     draft(next) {
+      if (next) noteBackgroundActivity();
       draft = next;
       publishDraft(next, false, "text");
     },
     thinking(next) {
+      if (next) noteBackgroundActivity();
       thought = next;
       if (!draft) publishDraft(next, false, "thinking");
     },
     commitText(next) {
+      if (next.trim()) noteBackgroundActivity();
       const body = next.trim();
       draft = "";
       publishDraft("", true);
@@ -207,6 +238,7 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
       indexSessionMessagesDirect(key, [row("assistant", "text", body)]);
     },
     toolStart(id, name, input) {
+      noteBackgroundActivity({ start: id });
       const toolId = `${id}:start`;
       if (emittedTools.has(toolId)) return;
       emittedTools.add(toolId);
@@ -216,6 +248,7 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
       ]);
     },
     toolEnd(id, name, output, error = false) {
+      noteBackgroundActivity({ end: id });
       const toolId = `${id}:end`;
       if (emittedTools.has(toolId)) return;
       emittedTools.add(toolId);
@@ -266,6 +299,50 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   // treat SIGUSR1 as fatal.
   process.on("SIGUSR1", consumeCommands);
   patchEntry(key, { commandWakeSignal: "SIGUSR1" });
+
+  /**
+   * Agent output that arrives while no turn runs. Antigravity does this: a
+   * turn ends while a command it started still runs in the background, and
+   * when the command finishes, agy continues with more tool calls and text on
+   * its own. Without this the session reads as idle the whole time (seen on
+   * 2026-11-18). The session is busy until the activity goes quiet.
+   */
+  function noteBackgroundActivity(tool?: { start?: string; end?: string }): void {
+    if (turnActive || closing) return;
+    if (tool?.start) background.openTools.add(tool.start);
+    if (tool?.end) background.openTools.delete(tool.end);
+    if (!background.active) {
+      background.active = true;
+      patchEntry(key, { busy: true });
+    }
+    if (background.timer) clearTimeout(background.timer);
+    background.timer = setTimeout(
+      () => settleBackground(true),
+      background.openTools.size ? backgroundToolMs : backgroundQuietMs,
+    );
+  }
+
+  /**
+   * End activity outside a turn: commit the text it streamed, which no turn
+   * result will carry, and clear the draft. `idle` also clears busy; a turn
+   * that is about to start sets busy itself.
+   */
+  function settleBackground(idle: boolean): void {
+    if (background.timer) clearTimeout(background.timer);
+    background.timer = null;
+    if (!background.active) return;
+    background.active = false;
+    background.openTools.clear();
+    const held = runtime?.takeDraft?.() ?? { text: draft, thinking: thought };
+    const rows: SessionMsg[] = [];
+    if (held.thinking.trim()) rows.push(row("assistant", "thinking", clipped(held.thinking.trim())));
+    if (held.text.trim()) rows.push(row("assistant", "text", held.text.trim()));
+    if (rows.length && !closing) indexSessionMessagesDirect(key, rows);
+    draft = "";
+    thought = "";
+    publishDraft("", true);
+    if (idle && !closing && !promptResolver) patchEntry(key, { busy: false });
+  }
 
   /**
    * The runtime for the next turn. The agent process behind a runtime can end
@@ -331,10 +408,13 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
     try {
       while (queue.length && !closing) {
         const prompt = queue.shift()!;
+        settleBackground(false);
+        turnActive = true;
         patchEntry(key, { busy: true, prompt: null, draftText: null, draftKind: null, draftUpdatedAt: null });
         try {
           await runTurn(prompt);
         } finally {
+          turnActive = false;
           if (!closing) patchEntry(key, { busy: false, prompt: null, draftText: null, draftKind: null, draftUpdatedAt: null });
         }
       }
@@ -346,6 +426,8 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   async function shutdown(): Promise<void> {
     if (closing) return;
     closing = true;
+    if (background.timer) clearTimeout(background.timer);
+    background.timer = null;
     process.off("SIGUSR1", consumeCommands);
     promptResolver?.(null);
     promptResolver = null;
