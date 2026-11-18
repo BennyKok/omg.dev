@@ -5,6 +5,8 @@ import type { Agent } from "./agents/registry.ts";
 import type { AutoAgent } from "./auto/store.ts";
 import type { CodingAgentInfo, CodingAgentKind } from "./coding-agents.ts";
 import { readModelDiscoveryCacheSync } from "./model-discovery.ts";
+import { claudeAliasVersions } from "./claude-alias-versions.ts";
+import { claudeModelLabel } from "../packages/protocol/src/omg-model-display.ts";
 import { PI_AUTH_PROVIDER_IDS } from "./pi-auth.ts";
 import type { Session } from "./sessions.ts";
 
@@ -821,6 +823,22 @@ function omgModelLabels(models: string[]): { modelLabels?: Record<string, string
   return Object.keys(labels).length ? { modelLabels: labels } : {};
 }
 
+/**
+ * "Opus 5.5" for the `opus` row: the release each alias runs on this box,
+ * learned from recent transcripts (claude-alias-versions.ts). An alias no
+ * session has run yet keeps its plain family name.
+ */
+export function claudeAliasLabels(models: readonly string[]): { modelLabels?: Record<string, string> } {
+  const versions = claudeAliasVersions();
+  const labels: Record<string, string> = {};
+  for (const model of models) {
+    const id = versions[model as keyof typeof versions];
+    const label = id ? claudeModelLabel(id) : null;
+    if (label) labels[model] = label;
+  }
+  return Object.keys(labels).length ? { modelLabels: labels } : {};
+}
+
 export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCatalogItem[] {
   const configured = new Map(codingAgents.map((agent) => [agent.key, agent]));
   const accountConnected = hasConnectedModelAccount(codingAgents);
@@ -858,6 +876,7 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
         ? { thinkingLevelsByModel }
         : {}),
       ...(key === "omg" ? omgModelLabels(models) : {}),
+      ...(key === "claude" || key === "aisdk" || key === "pi" ? claudeAliasLabels(models) : {}),
       session: key !== "claude" && key !== "codex",
       auto: (AUTO_AGENT_BACKENDS as readonly string[]).includes(key),
       visible: status?.visible,

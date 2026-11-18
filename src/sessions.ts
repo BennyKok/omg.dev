@@ -27,6 +27,7 @@ import { isClosing } from "./closing";
 import { userAssignments, userRoster } from "./users";
 import { PATHS } from "./config";
 import { homedir } from "node:os";
+import { claudeAliasVersions, type ClaudeAlias } from "./claude-alias-versions.ts";
 import { projectName } from "./projects";
 import { usesCommandFileRuntime } from "./coding-agent-adapters";
 import type { CodingAgentKind } from "./coding-agents";
@@ -2380,6 +2381,14 @@ async function lastUserText(path: string): Promise<string | null> {
 export function modelAlias(id: string | null | undefined): string | null {
   if (!id) return null;
   const m = id.toLowerCase();
+  // A full id that is not what its alias runs today (Opus 5 after Opus 5.5
+  // shipped, or a pinned older release) keeps the id, so the session shows
+  // its real version instead of the alias's newer one.
+  const family = /^claude-(opus|sonnet|haiku|fable)-\d/.exec(m)?.[1] as ClaudeAlias | undefined;
+  if (family) {
+    const current = claudeAliasVersions()[family];
+    if (current && current !== m) return id;
+  }
   if (m.includes("opus")) return "opus";
   if (m.includes("sonnet")) return "sonnet";
   if (m.includes("haiku")) return "haiku";
