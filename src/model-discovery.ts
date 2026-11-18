@@ -318,6 +318,57 @@ export function parseAntigravityModels(text: string): {
   return { models, labels, variants };
 }
 
+/**
+ * A session observed the Thinking option `agy` actually offered at open
+ * (antigravity-acp-session.ts records it, per model). A plan can change what
+ * its models take between discovery runs, and a model whose option is absent
+ * must lose its knob, so the last observed session is the freshest answer for
+ * the model it ran. An empty `levels` list records that absence.
+ *
+ * Pure: returns the merged provider entry, or null when nothing would change.
+ * A box with no discovery entry yet still records, on a minimal entry whose
+ * model list keeps falling back to the static catalog until discovery answers.
+ */
+export function mergeAntigravityLevels(
+  provider: DiscoveredModelProvider | undefined,
+  model: string,
+  levels: readonly string[],
+): DiscoveredModelProvider | null {
+  const next = { ...(provider?.variants ?? {}), [model]: [...levels] };
+  if (provider && JSON.stringify(provider.variants ?? {}) === JSON.stringify(next)) return null;
+  return {
+    ...(provider ?? {
+      key: "antigravity",
+      ok: false,
+      models: [],
+      refreshedAt: Date.now(),
+      durationMs: 0,
+    }),
+    variants: next,
+  };
+}
+
+/**
+ * Persist one session's observed thinking levels. Returns false when the
+ * observation matches what is stored. Callers never block a session on this:
+ * it is fire-and-forget on the session side.
+ */
+export async function recordAntigravityLevels(model: string, levels: readonly string[]): Promise<boolean> {
+  const cache = readCacheFile();
+  const provider = mergeAntigravityLevels(cache?.providers?.antigravity, model, levels);
+  if (!provider) return false;
+  const next: ModelDiscoveryCache = {
+    version: 1,
+    refreshedAt: cache?.refreshedAt ?? Date.now(),
+    schedule: cache?.schedule ?? refreshCron(),
+    timeZone: cache?.timeZone ?? schedulerTimeZone(),
+    lastScheduledRunAt: cache?.lastScheduledRunAt,
+    providers: { ...(cache?.providers ?? {}), antigravity: provider },
+  };
+  await writeCache(next);
+  return true;
+}
+
 export function parseCodexModels(text: string): { models: string[]; labels: Record<string, string> } {
   const ids: string[] = [];
   const labels: Record<string, string> = {};

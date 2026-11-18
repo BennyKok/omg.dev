@@ -672,17 +672,15 @@ export function thinkingLevelsForAgent(
 /**
  * The levels one Antigravity model offers, from discovery's per-model `variants`.
  * "default" carries the plan-default family's levels for the model that names no
- * family yet. A model id outside the cache offers no knob rather than one that
- * never applies; an empty union still offers something the agent can take.
+ * family yet. An observed empty list (`[]`) means the account offered no
+ * Thinking option for that model: hide the knob rather than fall back. A model
+ * id outside the cache is unobserved, so it offers nothing either.
  */
 export function antigravityLevelsFor(
   variants: Record<string, string[]>,
   model?: string,
 ): readonly string[] | null {
-  if (model) {
-    const levels = variants[model];
-    return levels?.length ? levels : null;
-  }
+  if (model) return variants[model] ?? null;
   const union = [...new Set(Object.values(variants).flat())];
   return union.length ? union : null;
 }
@@ -885,7 +883,12 @@ export function listModelCatalog(codingAgents: CodingAgentInfo[] = []): ModelCat
       ? Object.fromEntries(
           models.flatMap((model) => {
             const levels = thinkingLevelsForAgent(key, model);
-            return levels?.length ? [[model, [...levels]]] : [];
+            // Antigravity records an observed empty list too: it is a real
+            // answer ("no knob"). The other per-model agents keep their old
+            // rule, which drops anything empty.
+            return levels && (levels.length || key === "antigravity")
+              ? [[model, [...levels]] as [string, string[]]]
+              : [];
           }),
         )
       : undefined;

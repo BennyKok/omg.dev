@@ -6,6 +6,7 @@ import {
   antigravityAutoAllowOption,
   antigravityClampedLevel,
   antigravityHarnessArgv,
+  antigravityOfferedLevels,
   antigravityThinkingValue,
   antigravityVerificationNotice,
   isAcpAuthRequired,
@@ -77,39 +78,40 @@ describe("Antigravity ACP launch", () => {
   });
 });
 
+// This plan's picker offers Low, Medium and High only: no Extra, no Max.
+const HIGH_ONLY_OPTIONS: acp.SessionConfigOption[] = [
+  {
+    type: "select",
+    id: "thinking",
+    name: "Thinking level",
+    category: "thought_level",
+    currentValue: "high",
+    options: [
+      {
+        group: "levels",
+        name: "Levels",
+        options: [
+          { value: "low", name: "Low" },
+          { value: "medium", name: "Medium" },
+          { value: "high", name: "High" },
+        ],
+      },
+    ],
+  },
+];
+
 describe("Antigravity thinking level clamp", () => {
-  // This plan's picker offers Low, Medium and High only: no Extra, no Max.
-  const HIGH_ONLY: acp.SessionConfigOption[] = [
-    {
-      type: "select",
-      id: "thinking",
-      name: "Thinking level",
-      category: "thought_level",
-      currentValue: "high",
-      options: [
-        {
-          group: "levels",
-          name: "Levels",
-          options: [
-            { value: "low", name: "Low" },
-            { value: "medium", name: "Medium" },
-            { value: "high", name: "High" },
-          ],
-        },
-      ],
-    },
-  ];
 
   test("keeps a level the plan offers", () => {
-    expect(antigravityClampedLevel(HIGH_ONLY, "high")).toEqual({ configId: "thinking", value: "high", name: "High" });
-    expect(antigravityClampedLevel(HIGH_ONLY, "low")).toEqual({ configId: "thinking", value: "low", name: "Low" });
+    expect(antigravityClampedLevel(HIGH_ONLY_OPTIONS, "high")).toEqual({ configId: "thinking", value: "high", name: "High" });
+    expect(antigravityClampedLevel(HIGH_ONLY_OPTIONS, "low")).toEqual({ configId: "thinking", value: "low", name: "Low" });
   });
 
   test("clamps an ask above the plan's ceiling to its highest level", () => {
     // A stored xhigh (Extra) or max must not be dropped, or the session
     // silently runs on the account default.
-    expect(antigravityClampedLevel(HIGH_ONLY, "xhigh")).toEqual({ configId: "thinking", value: "high", name: "High" });
-    expect(antigravityClampedLevel(HIGH_ONLY, "max")).toEqual({ configId: "thinking", value: "high", name: "High" });
+    expect(antigravityClampedLevel(HIGH_ONLY_OPTIONS, "xhigh")).toEqual({ configId: "thinking", value: "high", name: "High" });
+    expect(antigravityClampedLevel(HIGH_ONLY_OPTIONS, "max")).toEqual({ configId: "thinking", value: "high", name: "High" });
   });
 
   test("stops at Extra when Max is wanted but the plan tops out there", () => {
@@ -141,7 +143,7 @@ describe("Antigravity thinking level clamp", () => {
   test("keeps the account default when the option is missing or unrankable", () => {
     expect(antigravityClampedLevel(OPTIONS, "medium")).toEqual({ configId: "thinking", value: "medium", name: "Medium" });
     expect(antigravityClampedLevel([], "xhigh")).toBeNull();
-    expect(antigravityClampedLevel(HIGH_ONLY, "off")).toBeNull();
+    expect(antigravityClampedLevel(HIGH_ONLY_OPTIONS, "off")).toBeNull();
   });
 
   test("acpConfigChoices exposes the offered values for the clamp", () => {
@@ -149,6 +151,42 @@ describe("Antigravity thinking level clamp", () => {
     expect(offered?.configId).toBe("thinking");
     expect(offered?.choices.map((choice) => choice.value)).toEqual(["low", "medium", "high", "extra", "max"]);
     expect(acpConfigChoices(OPTIONS, "mode")).toBeNull();
+  });
+});
+
+describe("Antigravity offered levels", () => {
+  test("maps what agy offered onto omg.dev's vocabulary, in canonical order", () => {
+    expect(antigravityOfferedLevels(OPTIONS)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(antigravityOfferedLevels(HIGH_ONLY_OPTIONS)).toEqual(["low", "medium", "high"]);
+  });
+
+  test("dedupes Extra and xhigh, and ignores a value the vocabulary cannot rank", () => {
+    const MIXED: acp.SessionConfigOption[] = [
+      {
+        type: "select",
+        id: "thinking",
+        name: "Thinking level",
+        category: "thought_level",
+        currentValue: "extra",
+        options: [
+          {
+            group: "levels",
+            name: "Levels",
+            options: [
+              { value: "extra", name: "Extra" },
+              { value: "xhigh", name: "XHigh" },
+              { value: "ultra", name: "Ultra" },
+            ],
+          },
+        ],
+      },
+    ];
+    expect(antigravityOfferedLevels(MIXED)).toEqual(["xhigh"]);
+  });
+
+  test("an account that offered no Thinking option records none", () => {
+    expect(antigravityOfferedLevels([])).toEqual([]);
+    expect(antigravityOfferedLevels([OPTIONS[0]!])).toEqual([]);
   });
 });
 

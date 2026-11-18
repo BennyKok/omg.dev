@@ -1,11 +1,16 @@
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { defaultModelForCatalogItem } from "./agent-catalog.ts";
 import {
+  mergeAntigravityLevels,
   modelDiscoveryKeysForAgent,
   providersDueForRetry,
   parseFxModels,
   parseJcodeModels,
   parseOpenCodeModels,
+  recordAntigravityLevels,
   retryDelayMs,
   type ModelDiscoveryCache,
   type DiscoveredModelProvider,
@@ -312,5 +317,90 @@ describe("parseAntigravityModels", () => {
 
   test("an agy update re-runs Antigravity discovery", () => {
     expect(modelDiscoveryKeysForAgent("antigravity")).toEqual(["antigravity"]);
+  });
+});
+
+describe("mergeAntigravityLevels", () => {
+  const withVariants = (variants?: Record<string, string[]>): DiscoveredModelProvider | undefined =>
+    variants
+      ? {
+          key: "antigravity",
+          ok: true,
+          models: ["gemini-4-argon", "gemini-4-hydrogen"],
+          labels: { "gemini-4-argon": "Gemini 4 Argon" },
+          variants,
+          refreshedAt: 1,
+          durationMs: 2,
+        }
+      : undefined;
+
+  test("records what a session observed, keeping the rest of the entry", () => {
+    const merged = mergeAntigravityLevels(
+      withVariants({ "gemini-4-argon": ["low", "medium", "high"] }),
+      "gemini-4-hydrogen",
+      ["low", "medium", "high", "xhigh"],
+    );
+    expect(merged?.models).toEqual(["gemini-4-argon", "gemini-4-hydrogen"]);
+    expect(merged?.labels?.["gemini-4-argon"]).toBe("Gemini 4 Argon");
+    expect(merged?.ok).toBe(true);
+    expect(merged?.variants).toEqual({
+      "gemini-4-argon": ["low", "medium", "high"],
+      "gemini-4-hydrogen": ["low", "medium", "high", "xhigh"],
+    });
+  });
+
+  test("an observed empty list records that the model takes no knob", () => {
+    const merged = mergeAntigravityLevels(withVariants({ "gemini-4-argon": ["low", "medium", "high"] }), "gpt-oss-120b-medium", []);
+    expect(merged?.variants?.["gpt-oss-120b-medium"]).toEqual([]);
+  });
+
+  test("returns null when the observation matches what is stored", () => {
+    expect(mergeAntigravityLevels(withVariants({ "gemini-4-argon": ["low", "medium", "high"] }), "gemini-4-argon", [
+      "low",
+      "medium",
+      "high",
+    ])).toBeNull();
+  });
+
+  test("a box with no discovery entry yet still records", () => {
+    const merged = mergeAntigravityLevels(undefined, "gemini-4-argon", ["low", "medium", "high"]);
+    expect(merged?.ok).toBe(false);
+    expect(merged?.models).toEqual([]);
+    expect(merged?.variants).toEqual({ "gemini-4-argon": ["low", "medium", "high"] });
+  });
+});
+
+// The record path is what makes the picker adaptive between discovery runs, so
+// it is checked end to end in a subprocess with its own data dir: write, then
+// read the cache back the way the server does.
+describe("recordAntigravityLevels", () => {
+  test("a session observation reaches the cache the picker reads", async () => {
+    const root = join(tmpdir(), `lfg-record-levels-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    mkdirSync(root, { recursive: true });
+    const script = `
+      import { recordAntigravityLevels, readModelDiscoveryCacheSync } from ${JSON.stringify(join(import.meta.dir, "model-discovery.ts"))};
+      const first = await recordAntigravityLevels("gemini-4-argon", ["low", "medium", "high"]);
+      const again = await recordAntigravityLevels("gemini-4-argon", ["low", "medium", "high"]);
+      await recordAntigravityLevels("gpt-oss-120b-medium", []);
+      const provider = readModelDiscoveryCacheSync()?.providers?.antigravity;
+      console.log(JSON.stringify({ first, again, variants: provider?.variants, models: provider?.models }));
+    `;
+    const proc = Bun.spawn([process.execPath, "-e", script], {
+      env: { ...process.env, OMG_DATA_DIR: root, LFG_DATA_DIR: root },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = await new Response(proc.stdout).text();
+    await proc.exited;
+    rmSync(root, { recursive: true, force: true });
+    expect(JSON.parse(out)).toEqual({
+      first: true,
+      again: false,
+      variants: {
+        "gemini-4-argon": ["low", "medium", "high"],
+        "gpt-oss-120b-medium": [],
+      },
+      models: [],
+    });
   });
 });

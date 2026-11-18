@@ -27,6 +27,7 @@ import {
   type AcpUpdateState,
 } from "./acp-session.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
+import { recordAntigravityLevels } from "../../model-discovery.ts";
 import { ANTIGRAVITY_VERIFICATION_REPLY, probeAntigravityAccount } from "./antigravity-verify.ts";
 import { antigravityEnv } from "./antigravity-env.ts";
 
@@ -107,6 +108,32 @@ export function antigravityClampedLevel(
     (a, b) => ANTIGRAVITY_LEVEL_RANK[b.value]! - ANTIGRAVITY_LEVEL_RANK[a.value]!,
   )[0];
   return best ? { configId: offered.configId, value: best.value, name: best.name ?? best.value } : null;
+}
+
+/** Antigravity's level ids, as omg.dev stores them. */
+const ACP_LEVEL_TO_OMG: Record<string, string> = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+  extra: "xhigh",
+  xhigh: "xhigh",
+  max: "max",
+};
+
+/**
+ * The levels agy offered the session, in omg.dev's vocabulary and canonical
+ * order. An empty list means the account offered no Thinking option this
+ * session could express — worth recording too, so the picker hides the knob
+ * for that model instead of offering levels the plan never applies.
+ */
+export function antigravityOfferedLevels(options: readonly acp.SessionConfigOption[]): string[] {
+  const offered = acpConfigChoices(options, "thought_level");
+  const seen = new Set<string>();
+  for (const choice of offered?.choices ?? []) {
+    const level = ACP_LEVEL_TO_OMG[choice.value.toLowerCase()];
+    if (level) seen.add(level);
+  }
+  return ["low", "medium", "high", "xhigh", "max"].filter((level) => seen.has(level));
 }
 
 /** The text shown when `agy` has no usable Google login. */
@@ -245,6 +272,17 @@ export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
       };
       if (model && model !== "default") await applyChoice("model", model, "model");
       if (thinkingLevel) await applyThinking(thinkingLevel);
+
+      // The session is the only place that sees what agy actually offered at
+      // open time, so record it for the model that ran. The picker then follows
+      // the plan as it changes — discovery's snapshot goes stale between runs,
+      // and a model with no Thinking option at all must lose its knob. Never
+      // fail the session over this.
+      void recordAntigravityLevels(model, antigravityOfferedLevels(configOptions)).catch((error) => {
+        console.error(
+          `antigravity level record failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      });
 
       return {
         nativeSessionId: sessionId,

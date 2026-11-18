@@ -99,7 +99,10 @@ describe("levels offered per agent", () => {
     expect(antigravityLevelsFor(variants, "gpt-oss-120b-medium")).toEqual(["medium"]);
     // The plan default family's levels, before a model is picked.
     expect(antigravityLevelsFor(variants)).toEqual(["low", "medium", "high", "xhigh"]);
-    // An id outside the cache offers no knob rather than one that never applies.
+    // An observed empty list is a real answer: the model takes no knob, so the
+    // picker hides the selector for it instead of falling back to the union.
+    expect(antigravityLevelsFor({ "no-knob": [] }, "no-knob")).toEqual([]);
+    // An id outside the cache is unobserved: it offers nothing either.
     expect(antigravityLevelsFor(variants, "unknown-model")).toBeNull();
     expect(antigravityLevelsFor({}, "unknown-model")).toBeNull();
   });
