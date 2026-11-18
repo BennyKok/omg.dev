@@ -1458,40 +1458,26 @@ type SlashSkillState = {
   query: string;
 };
 
-// Newest release first, the order the server's catalog sends (see
-// sortClaudeModelsByRelease in src/agent-catalog.ts).
-const CLAUDE_MODELS = ["claude-opus-5-5", "opus", "claude-fable-5-1", "fable", "sonnet", "haiku"];
+// Floating aliases only, the same list as CLAUDE_MODELS in
+// src/agent-catalog.ts. The harness resolves each to its newest release.
+const CLAUDE_MODELS = ["opus", "fable", "sonnet", "haiku"];
+// Fallback until the server catalog arrives; `codex debug models` owns the real list.
 const CODEX_MODELS = [
+  "gpt-6.2-sol",
+  "gpt-6.2-astra",
+  "gpt-6.1-terra",
   "gpt-6.1-sol",
   "gpt-6-astra",
-  "gpt-6.1-terra",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex-spark",
 ];
 // Models the one-shot AI-SDK test option supports (the provider maps these
 // aliases). Kept in sync with the AISDK_MODELS allowlist in serve.ts.
 const AISDK_MODELS = CLAUDE_MODELS;
-const CODEX_AISDK_MODELS = [
-  "gpt-6.1-sol",
-  "gpt-6-astra",
-  "gpt-6.1-terra",
-  "gpt-6-sol",
-  "gpt-6-luna",
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex-spark",
-];
+const CODEX_AISDK_MODELS = CODEX_MODELS;
 const GROK_MODELS = ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"];
 const CURSOR_MODELS = [
   "auto",
@@ -23892,7 +23878,7 @@ function NewSessionDialog({
     });
     const resumeModel =
       session.agent === "claude"
-        ? ["fable", "claude-fable-5-1", "opus", "claude-opus-5-5", "sonnet", "haiku"].includes(model)
+        ? CLAUDE_MODELS.includes(model) || /^claude-(?:opus|fable|sonnet|haiku)-[0-9]/.test(model)
           ? model
           : undefined
         : session.agent === "opencode" || session.agent === "omg"

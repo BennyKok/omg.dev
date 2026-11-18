@@ -17,25 +17,37 @@ import {
 } from "./agent-catalog.ts";
 
 test("offers the current Codex models", () => {
-  for (const id of ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"]) {
+  for (const id of ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-sol", "gpt-6-luna"]) {
     expect(CODEX_MODELS).toContain(id);
     expect(CODEX_AISDK_MODELS).toContain(id);
   }
-  expect(CODEX_MODELS[0]).toBe("gpt-6.1-sol");
+  expect(CODEX_MODELS[0]).toBe("gpt-6.2-sol");
 });
 
-// The `opus` alias already resolves to Opus 5.5, so this is about naming a
-// version on purpose: the full id is the only entry that stays on 5.5 when the
-// alias moves to the next Opus, and the only one that shows the version in the
-// picker. Both Claude backends take the same model strings.
-test("Claude and the Agent SDK can name Opus 5.5 by full id", async () => {
+// The harness resolves each alias to the newest release of its family, so
+// the picker offers no pinned version that a new release would leave behind.
+test("Claude pickers offer only the floating aliases", async () => {
   const { CLAUDE_MODELS, AISDK_MODELS } = await import("./agent-catalog.ts");
-  for (const models of [CLAUDE_MODELS, AISDK_MODELS]) {
-    expect(models).toContain("claude-opus-5-5");
-    expect(models).toContain("opus");
+  for (const models of [CLAUDE_MODELS, AISDK_MODELS, modelsForAgent("claude"), modelsForAgent("aisdk")]) {
+    expect(models).toEqual(["opus", "fable", "sonnet", "haiku"]);
   }
-  expect(modelsForAgent("claude")).toContain("claude-opus-5-5");
-  expect(modelsForAgent("aisdk")).toContain("claude-opus-5-5");
+});
+
+// A session, auto agent or API call saved with a full id keeps working.
+test("a full Claude id is still accepted though the picker does not offer it", () => {
+  for (const agent of ["claude", "aisdk"] as const) {
+    expect(isAllowedModelForAgent(agent, "claude-opus-5-5")).toBe(true);
+    expect(isAllowedModelForAgent(agent, "claude-fable-5-1")).toBe(true);
+    expect(isAllowedModelForAgent(agent, "claude-haiku-4-5-20251001")).toBe(true);
+    expect(isAllowedModelForAgent(agent, "claude-opus-5-5; rm -rf /")).toBe(false);
+    expect(isAllowedModelForAgent(agent, "gpt-6.2-sol")).toBe(false);
+  }
+});
+
+test("the Codex default is the first model Codex lists, not a pinned id", () => {
+  expect(defaultModelForCatalogItem("codex", ["gpt-7-sol", "gpt-6.2-sol"], false)).toBe("gpt-7-sol");
+  expect(defaultModelForCatalogItem("codex-aisdk", ["gpt-7-sol", "gpt-6.2-sol"], false)).toBe("gpt-7-sol");
+  expect(defaultModelForCatalogItem("codex", [], false)).toBe(MODEL_OPTIONS.codex.defaultModel);
 });
 
 const DISCOVERED = [
@@ -65,7 +77,8 @@ describe("curateOpenCodeModels", () => {
       "openai/gpt-5.6-sol",
       "openai/gpt-5.6-terra",
       "openai/gpt-5.6-luna",
-      "openai/gpt-5.5",
+      // The newest plain flagship, not a pinned older one.
+      "openai/gpt-5.6",
     ]);
     expect(out).toContain("openai/gpt-5.4-mini");
     expect(out).toContain("openai/gpt-5.3-codex-spark");

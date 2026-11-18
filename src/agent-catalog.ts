@@ -25,89 +25,42 @@ export type SkillCatalogItem = {
   path: string;
 };
 
-// Pinned full ids exist because the short aliases float. `opus`, `fable`,
-// `sonnet` and `haiku` each resolve to the newest release of their family
-// (verified 2026-09-24 against Claude Code: `--model <alias>` reported
-// modelUsage for claude-opus-5-5, claude-fable-5-1, claude-sonnet-5 and
-// claude-haiku-4-5-20251001). `claude-opus-5-5` and `claude-fable-5-1` are the
-// only way to stay on those releases on purpose, and the only entries that
-// name the version in the picker. Claude Code before 2.1.280 rejects
-// `claude-opus-5-5` with "does not support this model; version 2.1.280 or
-// newer is required", so a stale CLI must take the alias instead.
-//
-// Release dates are `created_at` from Anthropic's GET /v1/models, read
-// 2026-09-24. They only order the picker, newest first. Add a row when a new
-// pinned id joins the list; an alias takes the newest date in its family.
-const CLAUDE_RELEASES: Record<string, string> = {
-  "claude-opus-5-5": "2026-09-21",
-  "claude-fable-5-1": "2026-08-28",
-  "claude-opus-5": "2026-07-24",
-  "claude-sonnet-5": "2026-06-29",
-  "claude-fable-5": "2026-06-07",
-  "claude-opus-4-8": "2026-05-28",
-  "claude-haiku-4-5-20251001": "2025-10-15",
-};
-
-function claudeReleaseDate(model: string): string | null {
-  if (CLAUDE_RELEASES[model]) return CLAUDE_RELEASES[model];
-  if (!/^(opus|fable|sonnet|haiku)$/.test(model)) return null;
-  const family = Object.keys(CLAUDE_RELEASES).filter((id) => id.startsWith(`claude-${model}-`));
-  return family.map((id) => CLAUDE_RELEASES[id]!).sort().at(-1) ?? null;
-}
-
+// Claude takes the floating aliases only. `opus`, `fable`, `sonnet` and
+// `haiku` each resolve to the newest release of their family inside the
+// harness, so a new release reaches every session with no omg change. The
+// picker used to carry pinned full ids (claude-opus-5-5, claude-fable-5-1)
+// next to the aliases, and every new release meant a new hard-coded row
+// (owner, 2026-11-18). A full `claude-*` id is still accepted from a saved
+// session, an auto agent or the API (see isAllowedModelForAgent); the picker
+// just does not offer one. Order is the order the families were last released.
+export const CLAUDE_MODELS: string[] = ["opus", "fable", "sonnet", "haiku"];
 /**
- * Newest release first. A tie keeps list order, so a pinned id listed before
- * its alias stays above it. Ids without a known date keep their place after
- * the dated ones.
+ * A full Claude model id, such as `claude-opus-5-5`. The Claude harnesses take
+ * any of these as given, so a saved choice keeps working after the picker
+ * stopped offering it.
  */
-export function sortClaudeModelsByRelease(models: readonly string[]): string[] {
-  return models
-    .map((model, index) => ({ model, index, date: claudeReleaseDate(model) ?? "" }))
-    .sort((a, b) => (a.date === b.date ? a.index - b.index : a.date < b.date ? 1 : -1))
-    .map((item) => item.model);
+export function isFullClaudeModelId(model: string): boolean {
+  return /^claude-(?:opus|fable|sonnet|haiku)-[0-9][0-9a-z.-]{0,40}$/.test(model);
 }
-
-export const CLAUDE_MODELS: string[] = sortClaudeModelsByRelease([
-  "claude-opus-5-5",
-  "opus",
-  "claude-fable-5-1",
-  "fable",
-  "sonnet",
-  "haiku",
-]);
+// Fallback only. `codex debug models` (model-discovery.ts) is authoritative
+// and replaces this list, in Codex's own order, newest first. Copied from
+// codex-cli 0.169.0 on 2026-11-18.
 export const CODEX_MODELS: string[] = [
+  "gpt-6.2-sol",
+  "gpt-6.2-astra",
+  "gpt-6.1-terra",
   "gpt-6.1-sol",
   "gpt-6-astra",
-  "gpt-6.1-terra",
   "gpt-6-sol",
   "gpt-6-luna",
   "gpt-5.6-sol",
   "gpt-5.6-terra",
   "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex-spark",
 ];
 // The Agent SDK takes the same model strings as the CLI, aliases or full ids
-// (see claude-ai-sdk.ts, which passes this straight to query({ model })), so
-// `claude-fable-5-1` and `claude-opus-5-5` are carried here for the same
-// reasons as CLAUDE_MODELS.
+// (see claude-ai-sdk.ts, which passes this straight to query({ model })).
 export const AISDK_MODELS: string[] = [...CLAUDE_MODELS];
-export const CODEX_AISDK_MODELS: string[] = [
-  "gpt-6.1-sol",
-  "gpt-6-astra",
-  "gpt-6.1-terra",
-  "gpt-6-sol",
-  "gpt-6-luna",
-  "gpt-5.6-sol",
-  "gpt-5.6-terra",
-  "gpt-5.6-luna",
-  "gpt-5.5",
-  "gpt-5.4",
-  "gpt-5.4-mini",
-  "gpt-5.3-codex-spark",
-];
+export const CODEX_AISDK_MODELS: string[] = [...CODEX_MODELS];
 export const GROK_MODELS: string[] = ["grok-4.7", "grok-4.7-build-fast", "grok-4.6", "grok-4.5"];
 export const CURSOR_MODELS: string[] = [
   "auto",
@@ -641,6 +594,7 @@ export function modelsForAgent(
 /** True when a session may run this model. */
 export function isAllowedModelForAgent(agent: CodingAgentKind, model: string): boolean {
   if (agent === "omg") return customModelIds().includes(model);
+  if ((agent === "claude" || agent === "aisdk") && isFullClaudeModelId(model)) return true;
   return modelsForAgent(agent).includes(model);
 }
 
@@ -833,6 +787,9 @@ export function defaultModelForCatalogItem(
   // Muse: discovery lists the catalog newest release first, and the newest
   // muse-spark is the one to launch — never a pinned id that ages.
   if (key === "muse") return models[0] ?? MODEL_OPTIONS.muse.defaultModel;
+  // Codex: discovery lists Codex's own order, newest first, so a new GPT
+  // release becomes the default without a pinned id here.
+  if (key === "codex" || key === "codex-aisdk") return models[0] ?? MODEL_OPTIONS[key].defaultModel;
   return models.includes(MODEL_OPTIONS[key].defaultModel)
     ? MODEL_OPTIONS[key].defaultModel
     : models[0] ?? MODEL_OPTIONS[key].defaultModel;

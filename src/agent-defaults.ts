@@ -3,8 +3,8 @@
 export const AGENT_DEFAULT_MODELS = {
   claude: "opus",
   aisdk: "opus",
-  codex: "gpt-6.1-sol",
-  "codex-aisdk": "gpt-6.1-sol",
+  codex: "gpt-6.2-sol",
+  "codex-aisdk": "gpt-6.2-sol",
   grok: "grok-4.7",
   cursor: "auto",
   fx: "auto",
