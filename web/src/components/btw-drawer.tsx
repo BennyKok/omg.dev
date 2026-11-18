@@ -100,28 +100,28 @@ export function BtwDrawer({
         className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3"
       >
         {turns.length === 0 ? (
-          <p className="my-auto px-2 text-center text-xs leading-relaxed text-muted-foreground">
+          <p className="my-auto px-2 text-center text-sm leading-relaxed text-muted-foreground md:text-xs">
             Ask a quick side question without adding to the main conversation.
           </p>
         ) : (
           turns.map((turn) => (
             <div key={turn.id} className="flex flex-col gap-2">
-              <div className="ml-6 self-end rounded-[18px] bg-accent/70 px-3 py-1.5 text-[13px] leading-snug text-foreground">
+              <div className="ml-6 self-end rounded-[18px] bg-accent/70 px-3 py-1.5 text-[15px] leading-snug text-foreground md:text-[13px]">
                 {turn.question}
               </div>
 
-              <div className="min-w-0 text-[13px] leading-relaxed text-foreground">
+              <div className="min-w-0 text-[15px] leading-relaxed text-foreground md:text-[13px]">
                 {turn.error ? (
-                  <p className="text-xs text-destructive">{turn.error}</p>
+                  <p className="text-sm text-destructive md:text-xs">{turn.error}</p>
                 ) : turn.answer ? (
                   <MessageResponse
-                    className="markdown msg-text text-[13px] leading-relaxed"
+                    className="markdown msg-text text-[15px] leading-relaxed md:text-[13px]"
                     mode={turn.streaming ? "streaming" : "static"}
                   >
                     {turn.answer}
                   </MessageResponse>
                 ) : (
-                  <span className="text-xs text-muted-foreground">Thinking…</span>
+                  <span className="text-sm text-muted-foreground md:text-xs">Thinking…</span>
                 )}
 
                 {!turn.streaming && turn.answer ? (
@@ -189,7 +189,7 @@ export function BtwDrawer({
               }
             }}
             placeholder={turns.length > 0 ? "Follow-up in /btw" : "Ask /btw"}
-            className="max-h-24 min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none"
+            className="max-h-24 min-h-[28px] flex-1 resize-none bg-transparent py-1 text-base leading-5 text-foreground placeholder:text-muted-foreground focus:outline-none md:text-[13px] md:leading-snug"
           />
           <Button
             type="submit"
@@ -232,7 +232,7 @@ export function BtwDrawer({
       label="Side question"
       slot="btw-sheet"
       refreshKey={turns.length}
-      className="inset-x-0 bottom-0 flex max-h-[78dvh] flex-col rounded-t-[20px] border-t border-border bg-[var(--stage-surface,var(--card))] pb-[var(--lfg-safe-bottom)] shadow-2xl"
+      className="inset-x-0 bottom-0 flex max-h-[80dvh] flex-col overflow-hidden rounded-t-[20px] border-t border-border bg-[var(--stage-surface,var(--card))] pb-[var(--lfg-safe-bottom)] shadow-2xl"
     >
       <div className="flex shrink-0 justify-center pt-2 pb-1">
         <div className="h-1 w-9 rounded-full bg-border-strong/60" />
