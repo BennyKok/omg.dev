@@ -59,6 +59,11 @@ the current repository, runtime, or authoritative service.
 - Do not deploy, publish, release, or modify external state unless delivery is
   part of the task.
 - Bind temporary servers to `127.0.0.1`. Stop them before you finish.
+- Stop only the process IDs that you started. Do not stop agent CLIs by name,
+  for example `pkill -f "agy acp"`, `pkill -x agy` or `killall codex`. Live
+  managed sessions on this machine run the same binaries. On 2026-11-18 a
+  debugging `pkill -f "agy acp"` killed the `agy` process of two idle
+  Antigravity sessions.
 
 ## Verification
 

@@ -26,7 +26,11 @@ import {
   resolveAcpConfigChoice,
   type AcpUpdateState,
 } from "./acp-session.ts";
-import { runManagedSdkSession } from "./managed-sdk-session.ts";
+import {
+  runManagedSdkSession,
+  type ManagedSdkEventSink,
+  type ManagedSdkRuntime,
+} from "./managed-sdk-session.ts";
 import { recordAntigravityLevels } from "../../model-discovery.ts";
 import { ANTIGRAVITY_VERIFICATION_REPLY, probeAntigravityAccount } from "./antigravity-verify.ts";
 import { antigravityEnv } from "./antigravity-env.ts";
@@ -157,6 +161,223 @@ export function isAcpAuthRequired(error: unknown): boolean {
   return record.code === -32000 || /authentication required/i.test(String(record.message ?? ""));
 }
 
+export type AntigravityRuntimeOptions = {
+  key: string;
+  cwd: string;
+  model: string;
+  thinkingLevel?: string;
+  resume?: string;
+  /** Tests replace this so they do not write the real discovery cache. */
+  recordLevels?: (model: string, levels: string[]) => Promise<unknown>;
+};
+
+/** Shown when a turn had to start a new `agy` because the old one was gone. */
+export const ANTIGRAVITY_RESTARTED_NOTICE =
+  "The Antigravity process for this session had stopped. omg.dev started it again and resumed the same conversation.";
+
+type AntigravityLink = {
+  child: ReturnType<typeof spawn>;
+  connection: ReturnType<ReturnType<typeof acp.client>["connect"]>;
+  sessionId: string;
+  configOptions: acp.SessionConfigOption[];
+  canClose: boolean;
+  /** False once the `agy` process exits, for any reason. */
+  alive: boolean;
+  shutdown(): void;
+};
+
+/**
+ * One managed Antigravity session over `agy acp`.
+ *
+ * The session owns its `agy` child, and that child can end while the session
+ * waits for the next message: a crash, an out-of-memory kill, or any process
+ * on the box that signals every `agy` (`pkill -f "agy acp"` from a debugging
+ * shell did exactly this on 2026-11-18). The pipe is then dead, and a turn
+ * sent on it fails at once with "ACP connection closed". So each turn checks
+ * the child first. When it is gone, the turn starts a new `agy` and resumes
+ * the same Antigravity conversation by id, then re-applies the model and the
+ * current thinking level. A child that dies DURING a turn still fails that
+ * turn: the prompt may have run tools, so it is not sent twice.
+ */
+export async function createAntigravityRuntime(
+  options: AntigravityRuntimeOptions,
+  sink: ManagedSdkEventSink,
+): Promise<ManagedSdkRuntime> {
+  const { key, cwd, model } = options;
+  const recordLevels = options.recordLevels ?? recordAntigravityLevels;
+  let thinkingLevel = options.thinkingLevel;
+  const state: AcpUpdateState = { draft: "", thought: "", replaying: false };
+
+  async function open(resume: string | undefined, quiet: boolean): Promise<AntigravityLink> {
+    const child = spawn(antigravityHarnessPath(), antigravityHarnessArgv(), {
+      cwd,
+      env: antigravityEnv(),
+      stdio: ["pipe", "pipe", "inherit"],
+    });
+    if (!child.stdin || !child.stdout) throw new Error("Antigravity ACP stdio was not available");
+    const stream = acp.ndJsonStream(
+      Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
+      Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
+    );
+    const app = acp.client({ name: "omg.dev" })
+      .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {
+        const allow = antigravityAutoAllowOption(params.options);
+        if (allow) return { outcome: { outcome: "selected", optionId: allow } };
+        const selected = await sink.ask(
+          params.toolCall.title ?? "Antigravity tool permission",
+          params.options.map((option) => ({ label: option.name ?? option.optionId, description: option.kind })),
+          "Antigravity permission",
+        );
+        if (selected == null) return { outcome: { outcome: "cancelled" } };
+        return { outcome: { outcome: "selected", optionId: params.options[selected]!.optionId } };
+      })
+      .onRequest(acp.methods.client.fs.readTextFile, async ({ params }) => ({
+        content: await Bun.file(params.path).text(),
+      }))
+      .onRequest(acp.methods.client.fs.writeTextFile, async ({ params }) => {
+        await Bun.write(params.path, params.content);
+        return {};
+      })
+      .onNotification(acp.methods.client.session.update, async ({ params }) => {
+        applyAcpSessionUpdate(params.update, sink, state);
+      });
+    const connection = app.connect(stream);
+    const link: AntigravityLink = {
+      child,
+      connection,
+      sessionId: "",
+      configOptions: [],
+      canClose: false,
+      alive: true,
+      shutdown() {
+        connection.close();
+        child.kill();
+      },
+    };
+    child.once("exit", () => {
+      link.alive = false;
+    });
+    child.once("error", () => {
+      link.alive = false;
+    });
+
+    let opened: Awaited<ReturnType<typeof bindAcpConversation>>;
+    try {
+      opened = await bindAcpConversation({
+        context: connection.agent,
+        cwd,
+        mcpServers: omgAcpMcpServers(key),
+        resume,
+        state,
+        sink,
+      });
+    } catch (error) {
+      link.shutdown();
+      if (isAcpAuthRequired(error)) throw new Error(ANTIGRAVITY_SIGN_IN_HINT);
+      throw error;
+    }
+    link.sessionId = opened.sessionId;
+    link.configOptions = opened.configOptions;
+    link.canClose = opened.methods.close;
+
+    // Model and thinking level are ACP session options whose values belong
+    // to the signed-in plan. Apply a choice only when the agent offers it;
+    // otherwise keep the account default and say so, never fail the session.
+    // A restart re-applies them quietly: the person saw these notices once.
+    if (model && model !== "default") {
+      const choice = resolveAcpConfigChoice(link.configOptions, "model", model);
+      if (!choice) {
+        if (!quiet) sink.notice?.(`Antigravity does not offer model "${model}" for this account. It keeps its default.`);
+      } else {
+        await connection.agent.request(acp.methods.agent.session.setConfigOption, {
+          sessionId: link.sessionId,
+          configId: choice.configId,
+          value: choice.value,
+        });
+      }
+    }
+    if (thinkingLevel) await applyThinking(link, thinkingLevel, quiet);
+
+    // The session is the only place that sees what agy actually offered at
+    // open time, so record it for the model that ran. The picker then follows
+    // the plan as it changes — discovery's snapshot goes stale between runs,
+    // and a model with no Thinking option at all must lose its knob. Never
+    // fail the session over this.
+    void recordLevels(model, antigravityOfferedLevels(link.configOptions)).catch((error) => {
+      console.error(
+        `antigravity level record failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    return link;
+  }
+
+  // A level above the plan's ceiling clamps to what the plan offers, and
+  // says so, instead of quietly keeping the account default.
+  async function applyThinking(link: AntigravityLink, wanted: string, quiet = false): Promise<void> {
+    const level = antigravityClampedLevel(link.configOptions, wanted);
+    if (!level) {
+      if (!quiet) sink.notice?.(`Antigravity does not offer thinking level "${wanted}" for this account. It keeps its default.`);
+      return;
+    }
+    if (!quiet && level.value.toLowerCase() !== antigravityThinkingValue(wanted).toLowerCase()) {
+      sink.notice?.(
+        `Antigravity offers thinking levels up to ${level.name} on this account. It uses that instead of "${wanted}".`,
+      );
+    }
+    await link.connection.agent.request(acp.methods.agent.session.setConfigOption, {
+      sessionId: link.sessionId,
+      configId: level.configId,
+      value: level.value,
+    });
+  }
+
+  let link = await open(options.resume, false);
+  const sessionId = link.sessionId;
+
+  /** The live link, after a restart and resume when the old `agy` is gone. */
+  async function liveLink(): Promise<AntigravityLink> {
+    if (link.alive) return link;
+    link.shutdown();
+    link = await open(sessionId, true);
+    sink.notice?.(ANTIGRAVITY_RESTARTED_NOTICE);
+    return link;
+  }
+
+  return {
+    nativeSessionId: sessionId,
+    async runTurn(prompt) {
+      const current = await liveLink();
+      state.draft = "";
+      state.thought = "";
+      await current.connection.agent.request(acp.methods.agent.session.prompt, {
+        sessionId,
+        prompt: [{ type: "text", text: prompt }],
+      });
+      if (ANTIGRAVITY_VERIFICATION_REPLY.test(state.draft)) {
+        const { verifyUrl } = await probeAntigravityAccount(antigravityHarnessPath());
+        sink.notice?.(antigravityVerificationNotice(verifyUrl));
+      }
+      return { text: state.draft, thinking: state.thought };
+    },
+    interrupt: () => {
+      if (link.alive) return link.connection.agent.notify(acp.methods.agent.session.cancel, { sessionId });
+    },
+    async setThinkingLevel(level) {
+      thinkingLevel = level;
+      // A dead link picks the new level up when the next turn reopens it.
+      if (link.alive) await applyThinking(link, level);
+    },
+    async close() {
+      if (link.alive && link.canClose) {
+        try {
+          await link.connection.agent.request(acp.methods.agent.session.close, { sessionId });
+        } catch {}
+      }
+      link.shutdown();
+    },
+  };
+}
+
 export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
   const key = arg(argv, "--key");
   const cwd = arg(argv, "--cwd") ?? process.cwd();
@@ -179,138 +400,7 @@ export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
     thinkingLevel,
     recoveredAt,
     initialPrompt,
-    async createRuntime(sink) {
-      const child = spawn(antigravityHarnessPath(), antigravityHarnessArgv(), {
-        cwd,
-        env: antigravityEnv(),
-        stdio: ["pipe", "pipe", "inherit"],
-      });
-      if (!child.stdin || !child.stdout) throw new Error("Antigravity ACP stdio was not available");
-      const stream = acp.ndJsonStream(
-        Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
-        Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
-      );
-      const state: AcpUpdateState = { draft: "", thought: "", replaying: false };
-      const app = acp.client({ name: "omg.dev" })
-        .onRequest(acp.methods.client.session.requestPermission, async ({ params }) => {
-          const allow = antigravityAutoAllowOption(params.options);
-          if (allow) return { outcome: { outcome: "selected", optionId: allow } };
-          const selected = await sink.ask(
-            params.toolCall.title ?? "Antigravity tool permission",
-            params.options.map((option) => ({ label: option.name ?? option.optionId, description: option.kind })),
-            "Antigravity permission",
-          );
-          if (selected == null) return { outcome: { outcome: "cancelled" } };
-          return { outcome: { outcome: "selected", optionId: params.options[selected]!.optionId } };
-        })
-        .onRequest(acp.methods.client.fs.readTextFile, async ({ params }) => ({
-          content: await Bun.file(params.path).text(),
-        }))
-        .onRequest(acp.methods.client.fs.writeTextFile, async ({ params }) => {
-          await Bun.write(params.path, params.content);
-          return {};
-        })
-        .onNotification(acp.methods.client.session.update, async ({ params }) => {
-          applyAcpSessionUpdate(params.update, sink, state);
-        });
-      const connection = app.connect(stream);
-      const shutdown = () => {
-        connection.close();
-        child.kill();
-      };
-      let opened: Awaited<ReturnType<typeof bindAcpConversation>>;
-      try {
-        opened = await bindAcpConversation({
-          context: connection.agent,
-          cwd,
-          mcpServers: omgAcpMcpServers(key),
-          resume,
-          state,
-          sink,
-        });
-      } catch (error) {
-        shutdown();
-        if (isAcpAuthRequired(error)) throw new Error(ANTIGRAVITY_SIGN_IN_HINT);
-        throw error;
-      }
-      const sessionId = opened.sessionId;
-      const configOptions = opened.configOptions;
-
-      // Model and thinking level are ACP session options whose values belong
-      // to the signed-in plan. Apply a choice only when the agent offers it;
-      // otherwise keep the account default and say so, never fail the session.
-      const applyChoice = async (category: string, wanted: string, label: string) => {
-        const choice = resolveAcpConfigChoice(configOptions, category, wanted);
-        if (!choice) {
-          sink.notice?.(`Antigravity does not offer ${label} "${wanted}" for this account. It keeps its default.`);
-          return;
-        }
-        await connection.agent.request(acp.methods.agent.session.setConfigOption, {
-          sessionId,
-          configId: choice.configId,
-          value: choice.value,
-        });
-      };
-      // A level above the plan's ceiling clamps to what the plan offers, and
-      // says so, instead of quietly keeping the account default.
-      const applyThinking = async (wanted: string) => {
-        const level = antigravityClampedLevel(configOptions, wanted);
-        if (!level) {
-          sink.notice?.(`Antigravity does not offer thinking level "${wanted}" for this account. It keeps its default.`);
-          return;
-        }
-        if (level.value.toLowerCase() !== antigravityThinkingValue(wanted).toLowerCase()) {
-          sink.notice?.(
-            `Antigravity offers thinking levels up to ${level.name} on this account. It uses that instead of "${wanted}".`,
-          );
-        }
-        await connection.agent.request(acp.methods.agent.session.setConfigOption, {
-          sessionId,
-          configId: level.configId,
-          value: level.value,
-        });
-      };
-      if (model && model !== "default") await applyChoice("model", model, "model");
-      if (thinkingLevel) await applyThinking(thinkingLevel);
-
-      // The session is the only place that sees what agy actually offered at
-      // open time, so record it for the model that ran. The picker then follows
-      // the plan as it changes — discovery's snapshot goes stale between runs,
-      // and a model with no Thinking option at all must lose its knob. Never
-      // fail the session over this.
-      void recordAntigravityLevels(model, antigravityOfferedLevels(configOptions)).catch((error) => {
-        console.error(
-          `antigravity level record failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      });
-
-      return {
-        nativeSessionId: sessionId,
-        async runTurn(prompt) {
-          state.draft = "";
-          state.thought = "";
-          await connection.agent.request(acp.methods.agent.session.prompt, {
-            sessionId,
-            prompt: [{ type: "text", text: prompt }],
-          });
-          if (ANTIGRAVITY_VERIFICATION_REPLY.test(state.draft)) {
-            const { verifyUrl } = await probeAntigravityAccount(antigravityHarnessPath());
-            sink.notice?.(antigravityVerificationNotice(verifyUrl));
-          }
-          return { text: state.draft, thinking: state.thought };
-        },
-        interrupt: () => connection.agent.notify(acp.methods.agent.session.cancel, { sessionId }),
-        setThinkingLevel: (level) => applyThinking(level),
-        async close() {
-          if (opened.methods.close) {
-            try {
-              await connection.agent.request(acp.methods.agent.session.close, { sessionId });
-            } catch {}
-          }
-          shutdown();
-        },
-      };
-    },
+    createRuntime: (sink) => createAntigravityRuntime({ key, cwd, model, thinkingLevel, resume }, sink),
   });
 }
 
