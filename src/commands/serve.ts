@@ -11684,6 +11684,91 @@ a{color:#60a5fa}
       }
 
       {
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/btw$/);
+        if (m && req.method === "POST") {
+          const body = (await req.json().catch(() => null)) as {
+            question?: unknown;
+            history?: unknown;
+          } | null;
+          const question = typeof body?.question === "string" ? body.question.trim() : "";
+          if (!question) return err(400, "expected { question }");
+
+          const rawHistory = Array.isArray(body?.history) ? body.history : [];
+          const history = rawHistory
+            .filter(
+              (item): item is { role: "user" | "assistant"; text: string } =>
+                Boolean(item) &&
+                typeof item === "object" &&
+                ((item as { role?: unknown }).role === "user" ||
+                  (item as { role?: unknown }).role === "assistant") &&
+                typeof (item as { text?: unknown }).text === "string",
+            )
+            .slice(-20);
+
+          const sessions = await listSessionsCached();
+          const sess = sessions.find(
+            (s) => s.sessionId === m[1] || s.nativeSessionId === m[1],
+          );
+          const tp = await resolveTranscript(m[1]);
+          let messages: Array<{ role: string; kind: string; text: string; toolName?: string }> = [];
+          if (tp) {
+            await ensureChatTranscriptCaughtUp(tp, m[1], "api-btw");
+            const page = await indexedMessagePage(tp, m[1], { limit: 80 });
+            messages = transcriptMessagesForClient(m[1], page.messages, {});
+          }
+
+          const { buildBtwPrompt, streamBtwAnswer } = await import("../btw.ts");
+          const prompt = buildBtwPrompt({
+            sessionTitle: sess?.title,
+            agent: sess?.agent,
+            cwd: sess?.cwd ?? undefined,
+            messages,
+            history,
+            question,
+          });
+
+          const enc = new TextEncoder();
+          const stream = new ReadableStream({
+            async start(controller) {
+              const send = (payload: Record<string, unknown>) => {
+                try {
+                  controller.enqueue(enc.encode(`data: ${JSON.stringify(payload)}\n\n`));
+                } catch {
+                  // Stream already closed by client.
+                }
+              };
+              try {
+                const text = await streamBtwAnswer({
+                  prompt,
+                  signal: req.signal,
+                  onDelta: (chunk) => send({ type: "delta", text: chunk }),
+                });
+                send({ type: "done", text });
+              } catch (e) {
+                if (!req.signal.aborted) {
+                  send({ type: "error", error: e instanceof Error ? e.message : String(e) });
+                }
+              } finally {
+                try {
+                  controller.close();
+                } catch {
+                  // Already closed.
+                }
+              }
+            },
+          });
+
+          return new Response(stream, {
+            headers: {
+              "Content-Type": "text/event-stream",
+              "Cache-Control": "no-cache",
+              Connection: "keep-alive",
+            },
+          });
+        }
+      }
+
+      {
         // The other half of the deferToolArgs capability: the arguments of ONE
         // tool call, fetched when a reader opens its pill.
         //

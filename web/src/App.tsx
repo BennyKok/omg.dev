@@ -406,6 +406,8 @@ import {
   readFastMode,
   writeFastMode,
 } from "./lib/fast-mode";
+import { BtwDrawer } from "./components/btw-drawer";
+import { parseBtwCommand, useBtwSession } from "./lib/btw";
 import { ConnectionStatusToasts } from "./ConnectionStatus";
 import type {
   ClipboardEvent,
@@ -17173,6 +17175,12 @@ function SessionChatBody({
     });
   }, [applySnapshot, onSubscribeTranscript, ownedChatStreams, setMessages, showServerHeld, sid]);
 
+  const btw = useBtwSession({
+    sid,
+    onPromoteText: setMessageText,
+    focusInputRef: messageInputRef,
+  });
+
   async function sendMessage(
     e?: FormEvent,
     overrideText?: string,
@@ -17185,6 +17193,19 @@ function SessionChatBody({
     const text = (overrideText ?? messageText).trim();
     const files = attachments;
     if (!sid || (!text && !files.length)) return;
+    const btwCommand = parseBtwCommand(text);
+    if (btwCommand.matched) {
+      if (files.length) {
+        toast.error("Send the files separately", { description: "/btw only asks a side question." });
+        return;
+      }
+      setMessageTextState("");
+      btw.setOpen(true);
+      if (btwCommand.question) {
+        void btw.ask(btwCommand.question);
+      }
+      return;
+    }
     const fastCommand = parseFastChatCommand(text);
     if (fastCommand.matched) {
       if (files.length) {
@@ -17568,8 +17589,9 @@ function SessionChatBody({
   );
 
   return (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <PausedBanner session={session} onRefresh={onRefresh} />
+    <div className="relative flex min-h-0 min-w-0 flex-1 flex-row">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <PausedBanner session={session} onRefresh={onRefresh} />
       <ChatStream
         sid={sid}
         messages={chatMessages}
@@ -17813,6 +17835,17 @@ function SessionChatBody({
         </form>
       ) : null}
       {files.annotator}
+      </div>
+      <BtwDrawer
+        open={btw.open}
+        desktop={desktopComposer}
+        turns={btw.turns}
+        streaming={btw.streaming}
+        onAsk={(q) => void btw.ask(q)}
+        onClear={btw.clear}
+        onClose={btw.close}
+        onPromoteToMain={btw.promote}
+      />
     </div>
   );
 }
