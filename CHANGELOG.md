@@ -2,6 +2,15 @@
 
 Recent product updates and deployment notes.
 
+## November 18, 2026 - GPT-6.2 in Codex sessions, project icons, a new phone new-session screen (v0.7.13)
+
+- Codex sessions can run GPT-6.2 Sol and GPT-6.2 Astra. Before, these models showed in the model picker, but each message failed with `model_not_found ... not supported when using Codex with a ChatGPT account`. omg.dev now includes Codex 0.169.0.
+- A Codex session now runs the Codex that Settings → Update installs when that copy is newer than the one in omg.dev. When OpenAI releases a new model, update Codex in Settings. An older Codex install never replaces the newer copy. `LFG_CODEX_PATH` still overrides both.
+- The default Codex model is the first model that Codex lists. The Claude pickers show only opus, fable, sonnet and haiku. Each shows the release it runs, for example Opus 5.5. A session on an older release shows its real version.
+- Folders show the project icon in the new-session folder list, on the phone Folders page and in the folder menu. omg.dev finds icons in `index.html` links, `apps/web/public`, Expo `assets/icon.png` and macOS `.icns` files. macOS app icons now show at the same size as other icons. When the folder is behind its default branch, the icon comes from that branch, so a renamed product shows its new icon. A folder with no icon no longer shows an empty space.
+- On the phone, the new-session screen shows the message field at the top. Folders show as a few chips with icons. More opens a search over the other folders. The screen starts on the last folder that you chose. Swipe right closes the screen. The New session button is less bright, and no gap shows under the updates pill.
+- Auto agents that are off no longer add their folders to the folder list. They still show on the Schedules page.
+
 ## November 17, 2026 - Agents can ask for more access time (v0.7.12)
 
 - An agent can ask the computer that shares access for more time. The request shows in Agent access on that computer, with a notification, for example "Session abc12345 asks to extend access by 2 h". Only you can allow or deny it there. No answer means no.
