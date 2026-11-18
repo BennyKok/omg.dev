@@ -13,8 +13,8 @@ afterEach(() => {
 });
 
 describe("ComposerHighlightBackdrop", () => {
-  test("marks leading /btw token and syncs scroll offset", () => {
-    const text = "/btw what changed?\n";
+  test("marks command and mention tokens as pills and preserves exact text", () => {
+    const text = "/btw ask @reviewer what changed?\n";
     const segments = tokenizeComposerText(text);
     ui.render(
       <ComposerHighlightBackdrop
@@ -24,11 +24,12 @@ describe("ComposerHighlightBackdrop", () => {
       />,
     );
 
-    const mark = ui.query("mark");
-    expect(mark).toBeTruthy();
-    expect(mark!.textContent).toBe("/btw");
+    const marks = ui.queryAll("mark");
+    expect(marks.length).toBe(2);
+    expect(marks[0]!.textContent).toBe("/btw");
+    expect(marks[1]!.textContent).toBe("@reviewer");
     const backdrop = ui.query("[data-composer-highlight-backdrop]");
     expect(backdrop).toBeTruthy();
-    expect(backdrop!.textContent).toBe("/btw what changed?\n ");
+    expect(backdrop!.textContent).toBe("/btw ask @reviewer what changed?\n ");
   });
 });
