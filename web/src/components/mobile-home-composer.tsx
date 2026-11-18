@@ -6,6 +6,7 @@ import { NO_PROJECT_FILTER } from "../lib/project-filter";
 import { byRecent, useFolderActivity } from "../lib/folder-activity";
 import { useProjectFavicon } from "../lib/session-ui";
 import { arrangeFolders, useFolderMenuPrefs } from "../lib/folder-menu-prefs";
+import { useSwipeBack } from "../lib/use-swipe-back";
 
 /**
  * Phone home: the bottom of the list is one "New session" button, not a live
@@ -221,7 +222,7 @@ function FolderChips({
  * Phone: the new-session composer as its own full screen. The header closes
  * it and opens history; the flat composer sits right under it; a few folder
  * chips follow. The shell is pinned to the visual viewport the same
- * way a mobile chat is.
+ * way a mobile chat is, and a swipe right closes it the same way too.
  */
 export function MobileNewSessionScreen({
   projects,
@@ -245,6 +246,8 @@ export function MobileNewSessionScreen({
   busy?: boolean;
   children: ReactNode;
 }) {
+  const pageRef = useRef<HTMLElement>(null);
+  useSwipeBack(pageRef, onClose);
   return createPortal(
     <div
       className="fixed inset-x-0 z-[95]"
@@ -254,6 +257,7 @@ export function MobileNewSessionScreen({
       }}
     >
       <section
+        ref={pageRef}
         role="dialog"
         aria-modal="true"
         aria-label="New session"

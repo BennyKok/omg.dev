@@ -102,3 +102,53 @@ test("Escape closes the screen", () => {
   ui.flush(() => field.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
   expect(closed).toBe(1);
 });
+
+// The same swipe back as an open chat (lib/use-swipe-back).
+function drag(target: Element, points: Array<[number, number]>) {
+  const touch = (x: number, y: number) => ({ clientX: x, clientY: y, identifier: 1, target }) as unknown as Touch;
+  const fire = (type: string, x: number, y: number, ended = false) => {
+    const event = new Event(type, { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "touches", { value: ended ? [] : [touch(x, y)] });
+    target.dispatchEvent(event);
+  };
+  const [first, ...rest] = points;
+  fire("touchstart", ...first);
+  for (const [x, y] of rest) fire("touchmove", x, y);
+  const last = points[points.length - 1];
+  fire("touchend", last[0], last[1], true);
+}
+
+function renderScreen(onClose: () => void) {
+  ui.render(
+    <MobileNewSessionScreen projects={[NO_PROJECT_FILTER, "lfg"]} folder="lfg" labelFor={label} onFolder={() => {}} onClose={onClose}>
+      <form data-composer-kind="home">
+        <textarea aria-label="Prompt" />
+      </form>
+    </MobileNewSessionScreen>,
+  );
+  return document.querySelector('[data-testid="mobile-new-session"]') as HTMLElement;
+}
+
+test("a swipe right closes the screen", async () => {
+  let closed = 0;
+  const screen = renderScreen(() => closed++);
+  const title = screen.querySelector("h2")!;
+  drag(title, [[20, 100], [40, 102], [160, 104], [260, 106]]);
+  expect(screen.style.transform).toBe("translate3d(100%, 0, 0)");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(closed).toBe(1);
+});
+
+test("a vertical drag, a left drag, or a drag in the field being edited does not close it", async () => {
+  let closed = 0;
+  const screen = renderScreen(() => closed++);
+  const chips = screen.querySelector('[role="radiogroup"]')!;
+  drag(chips, [[100, 100], [102, 140], [104, 260]]);
+  drag(chips, [[200, 100], [150, 100], [40, 100]]);
+  const field = screen.querySelector('[aria-label="Prompt"]') as HTMLTextAreaElement;
+  field.focus();
+  drag(field, [[20, 100], [160, 100], [260, 100]]);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  expect(closed).toBe(0);
+  expect(screen.style.transform).toBe("");
+});

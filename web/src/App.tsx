@@ -504,6 +504,7 @@ import { feedback } from "@/lib/feedback";
 import { type AutoAgentRefine } from "@/lib/auto-refine";
 import { useUiFeedbackPrefs, setUiFeedbackPrefs } from "@/lib/ui-feedback-prefs";
 import { chatSwipeIntent, planSwipeCommits, swipeBackCommits, swipeBackFinishMs, swipeBackOffset } from "@/lib/swipe-back";
+import { blocksSwipeBack, composerIsEditing } from "@/lib/swipe-back-target";
 import { subscribeSelectionChange } from "./lib/selection-change";
 import { useProjectListPrefs, setProjectListPrefs, projectListPrefsStore } from "@/lib/project-list-prefs";
 import { folderMenuPrefsStore, useFolderMenuPrefs } from "@/lib/folder-menu-prefs";
@@ -11518,64 +11519,6 @@ function useIsMobile() {
     return () => mq.removeEventListener("change", sync);
   }, []);
   return mobile;
-}
-
-function isTextEditingElement(el: Element | null): el is HTMLElement {
-  if (!(el instanceof HTMLElement)) return false;
-  if (el.isContentEditable) return true;
-  if (el instanceof HTMLTextAreaElement) return true;
-  if (!(el instanceof HTMLInputElement)) return false;
-  return !["button", "checkbox", "file", "hidden", "radio", "range", "reset", "submit"].includes(
-    el.type,
-  );
-}
-
-function composerIsEditing(target: EventTarget | null): boolean {
-  const el = target instanceof HTMLElement ? target : null;
-  const form = el?.closest("form");
-  if (!form) return false;
-
-  const active = document.activeElement;
-  return active instanceof HTMLElement && form.contains(active) && isTextEditingElement(active);
-}
-
-function hasHorizontalScrollAncestor(target: EventTarget | null): boolean {
-  let el = target instanceof HTMLElement ? target : null;
-  while (el && el !== document.body) {
-    const style = window.getComputedStyle(el);
-    const overflowX = style.overflowX;
-    const canScrollX =
-      el.scrollWidth > el.clientWidth + 2 &&
-      (overflowX === "auto" || overflowX === "scroll" || overflowX === "overlay");
-    if (canScrollX) return true;
-    el = el.parentElement;
-  }
-  return false;
-}
-
-/**
- * Whether a drag starting on `target` belongs to that element rather than to
- * the chat's swipe back: something being edited or selected, code and tables
- * a person reads across, and anything that scrolls sideways. Buttons and
- * links are not here: a drag is not a tap, and most of a transcript is rows
- * you can tap, so excluding them made the gesture start only some of the time.
- */
-function blocksSwipeBack(target: EventTarget | null): boolean {
-  const el = target instanceof Element ? target : null;
-  if (!el) return false;
-  if (hasHorizontalScrollAncestor(target)) return true;
-  return !!el.closest(
-    [
-      "input",
-      "textarea",
-      "select",
-      "table",
-      "pre",
-      "code",
-      "[contenteditable='true']",
-      "[data-no-composer-swipe]",
-    ].join(","),
-  );
 }
 
 // Desktop layout (rail + stage workspace). This is exactly !useIsMobile: one
