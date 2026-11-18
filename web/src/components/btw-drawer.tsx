@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, CornerDownLeft, Send, Trash2, X } from "lucide-react";
+import { ArrowUp, Check, Copy, CornerDownLeft, Trash2, X } from "lucide-react";
+import { MessageResponse } from "./ai-elements/message";
 import { Button } from "./ui/button";
+import { SlidePanel } from "./ui/slide-panel";
 import { cn } from "../lib/utils";
 import type { BtwTurn } from "../lib/btw";
 
@@ -30,7 +32,7 @@ export function BtwDrawer({
 
   useEffect(() => {
     if (!open) return;
-    const timer = setTimeout(() => inputRef.current?.focus(), 20);
+    const timer = setTimeout(() => inputRef.current?.focus(), 40);
     return () => clearTimeout(timer);
   }, [open]);
 
@@ -38,8 +40,6 @@ export function BtwDrawer({
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [turns]);
-
-  if (!open) return null;
 
   function submitDraft() {
     const q = draft.trim();
@@ -57,22 +57,11 @@ export function BtwDrawer({
     }, 1500);
   }
 
-  return (
-    <aside
-      data-btw-drawer=""
-      aria-label="Side question"
-      className={cn(
-        "flex min-h-0 flex-col bg-[var(--lfg-pane-bg,var(--background))] text-foreground",
-        desktop
-          ? "w-80 shrink-0 border-l border-border @6xl:w-[340px]"
-          : "fixed inset-x-2 bottom-[calc(4.5rem+var(--lfg-safe-bottom))] z-40 max-h-[55dvh] rounded-2xl border border-border-strong bg-card shadow-2xl",
-      )}
-    >
-      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border bg-card/80 px-2.5">
-        <div className="flex min-w-0 items-center gap-1.5">
-          <span className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-primary">
-            /btw
-          </span>
+  const content = (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <header className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border/70 px-3">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="font-mono text-xs font-semibold text-foreground">/btw</span>
           <span className="truncate text-[11px] text-muted-foreground">
             {streaming ? "Answering…" : "Tools off · Not saved"}
           </span>
@@ -83,70 +72,75 @@ export function BtwDrawer({
               type="button"
               size="icon"
               variant="ghost"
-              className="size-6 text-muted-foreground"
+              className="size-7 rounded-full text-muted-foreground"
               onClick={onClear}
               disabled={streaming}
               aria-label="Clear side thread"
               title="Clear side thread"
             >
-              <Trash2 className="size-3" />
+              <Trash2 className="size-3.5" />
             </Button>
           ) : null}
           <Button
             type="button"
             size="icon"
             variant="ghost"
-            className="size-6 text-muted-foreground"
+            className="size-7 rounded-full text-muted-foreground"
             onClick={onClose}
             aria-label="Close side question"
             title="Close (Esc)"
           >
-            <X className="size-3.5" />
+            <X className="size-4" />
           </Button>
         </div>
       </header>
 
       <div
         ref={scrollRef}
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2.5"
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3"
       >
         {turns.length === 0 ? (
-          <div className="my-auto rounded-lg border border-dashed border-border bg-card/60 p-3 text-center text-[11.5px] leading-snug text-muted-foreground">
-            Ask a quick side question without adding to the main chat.
-          </div>
+          <p className="my-auto px-2 text-center text-xs leading-relaxed text-muted-foreground">
+            Ask a quick side question without adding to the main conversation.
+          </p>
         ) : (
           turns.map((turn) => (
-            <div key={turn.id} className="flex flex-col gap-1.5">
-              <div className="ml-5 self-end rounded-xl rounded-br-xs border border-border bg-card px-2.5 py-1.5 text-xs leading-snug text-foreground">
+            <div key={turn.id} className="flex flex-col gap-2">
+              <div className="ml-6 self-end rounded-[18px] bg-accent/70 px-3 py-1.5 text-[13px] leading-snug text-foreground">
                 {turn.question}
               </div>
 
-              <div className="rounded-xl border border-border bg-card p-2.5 text-xs leading-relaxed text-foreground shadow-2xs">
+              <div className="min-w-0 text-[13px] leading-relaxed text-foreground">
                 {turn.error ? (
-                  <p className="text-[11.5px] text-destructive">{turn.error}</p>
+                  <p className="text-xs text-destructive">{turn.error}</p>
                 ) : turn.answer ? (
-                  <div className="whitespace-pre-wrap break-words">{turn.answer}</div>
+                  <MessageResponse
+                    className="markdown msg-text text-[13px] leading-relaxed"
+                    mode={turn.streaming ? "streaming" : "static"}
+                  >
+                    {turn.answer}
+                  </MessageResponse>
                 ) : (
-                  <span className="text-[11.5px] text-muted-foreground">Thinking…</span>
+                  <span className="text-xs text-muted-foreground">Thinking…</span>
                 )}
 
                 {!turn.streaming && turn.answer ? (
-                  <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-border pt-1.5">
+                  <div className="mt-2 flex flex-wrap items-center gap-1">
                     <Button
                       type="button"
                       size="sm"
-                      variant="outline"
-                      className="h-6 px-2 text-[10.5px]"
+                      variant="ghost"
+                      className="h-6 rounded-full px-2 text-[11px] text-muted-foreground hover:text-foreground"
                       onClick={() => copyAnswer(turn)}
                     >
                       {copiedId === turn.id ? (
                         <>
-                          <Check className="mr-1 size-2.5" />
+                          <Check className="mr-1 size-3" />
                           Copied
                         </>
                       ) : (
                         <>
-                          <Copy className="mr-1 size-2.5" />
+                          <Copy className="mr-1 size-3" />
                           Copy
                         </>
                       )}
@@ -154,11 +148,11 @@ export function BtwDrawer({
                     <Button
                       type="button"
                       size="sm"
-                      variant="secondary"
-                      className="h-6 px-2 text-[10.5px] text-primary"
+                      variant="ghost"
+                      className="h-6 rounded-full px-2 text-[11px] text-primary hover:bg-primary/10 hover:text-primary"
                       onClick={() => onPromoteToMain(turn)}
                     >
-                      <CornerDownLeft className="mr-1 size-2.5" />
+                      <CornerDownLeft className="mr-1 size-3" />
                       Send to main chat
                     </Button>
                   </div>
@@ -170,13 +164,13 @@ export function BtwDrawer({
       </div>
 
       <form
-        className="shrink-0 border-t border-border bg-card/80 p-2"
+        className="shrink-0 px-2.5 pb-2.5 pt-1"
         onSubmit={(e) => {
           e.preventDefault();
           submitDraft();
         }}
       >
-        <div className="flex items-end gap-1.5 rounded-lg border border-border-strong bg-background px-2 py-1 focus-within:ring-1 focus-within:ring-ring">
+        <div className="flex items-end gap-1.5 rounded-[22px] border border-border bg-[var(--stage-field,var(--card))] py-1.5 pl-3 pr-1.5 shadow-2xs focus-within:border-border-strong">
           <textarea
             ref={inputRef}
             rows={1}
@@ -194,21 +188,58 @@ export function BtwDrawer({
                 submitDraft();
               }
             }}
-            placeholder={turns.length > 0 ? "Follow-up in /btw…" : "Ask /btw…"}
-            className="max-h-20 min-h-[24px] flex-1 resize-none bg-transparent py-0.5 text-xs leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none"
+            placeholder={turns.length > 0 ? "Follow-up in /btw" : "Ask /btw"}
+            className="max-h-24 min-h-[28px] flex-1 resize-none bg-transparent py-1 text-[13px] leading-snug text-foreground placeholder:text-muted-foreground focus:outline-none"
           />
           <Button
             type="submit"
             size="icon"
             variant="default"
             disabled={streaming || !draft.trim()}
-            className="size-6 shrink-0 rounded-full"
+            className={cn(
+              "size-7 shrink-0 rounded-full",
+              !draft.trim() && "bg-accent text-muted-foreground opacity-60",
+            )}
             aria-label="Ask side question"
           >
-            <Send className="size-3" />
+            <ArrowUp className="size-4" />
           </Button>
         </div>
       </form>
-    </aside>
+    </div>
+  );
+
+  if (desktop) {
+    if (!open) return null;
+    return (
+      <aside
+        data-btw-drawer=""
+        aria-label="Side question"
+        className="flex min-h-0 w-80 shrink-0 flex-col border-l border-border bg-[var(--lfg-pane-bg,var(--background))] text-foreground @6xl:w-[340px]"
+      >
+        {content}
+      </aside>
+    );
+  }
+
+  return (
+    <SlidePanel
+      open={open}
+      edge="bottom"
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+      label="Side question"
+      slot="btw-sheet"
+      refreshKey={turns.length}
+      className="inset-x-0 bottom-0 flex max-h-[78dvh] flex-col rounded-t-[20px] border-t border-border bg-[var(--stage-surface,var(--card))] pb-[var(--lfg-safe-bottom)] shadow-2xl"
+    >
+      <div className="flex shrink-0 justify-center pt-2 pb-1">
+        <div className="h-1 w-9 rounded-full bg-border-strong/60" />
+      </div>
+      <div data-btw-drawer="" className="flex min-h-0 flex-1 flex-col">
+        {content}
+      </div>
+    </SlidePanel>
   );
 }
