@@ -69,7 +69,9 @@ test("a reference taken before the host was configured still routes to it", () =
 // host's unscoped Toaster draws every one of them a second time.
 test("without a host, toasts are tagged for LFG's own Toaster", () => {
   const loading = spyOn(sonnerToast, "loading");
-  const dismiss = spyOn(sonnerToast, "dismiss");
+  // Sonner's real dismiss schedules a requestAnimationFrame, which a test
+  // file without a DOM does not have. Only the call is under test.
+  const dismiss = spyOn(sonnerToast, "dismiss").mockImplementation((id) => id ?? "");
   try {
     routedToast.loading("Reconnecting…", { id: "ws-conn" });
     routedToast.loading("bare");

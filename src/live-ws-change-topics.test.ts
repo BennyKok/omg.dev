@@ -59,11 +59,18 @@ test("pin, repo and question writes reach an open socket as one changed frame, a
     for (let i = 0; i < 5; i++) setSessionPinned(`11111111-1111-4111-8111-11111111111${i}`, true);
     await hideRepo(join(home, "some-repo"));
     await addQuestion({ question: "Which colour?" });
-    await until(() => changed().length >= 2, 2_000);
-    // Give a second frame the chance to arrive if writes were not coalesced.
+    // The first frame waits CHANGED_FRAME_MIN_DELAY_MS (50 ms). On a loaded
+    // machine the repo and question writes can finish after it, and then
+    // reach the socket in the next frame, CHANGED_FRAME_GAP_MS later. Both
+    // are correct. One frame per write is not: seven writes, seven frames.
+    const announced = () => changed().slice(1).flatMap((f) => f.topics ?? []);
+    await until(() => ["ask", "pins", "repos"].every((t) => announced().includes(t)), 3_000);
+    // Give a further frame the chance to arrive if writes were not coalesced.
     await new Promise((r) => setTimeout(r, 200));
-    expect(changed().length).toBe(2);
-    expect([...(changed()[1].topics ?? [])].sort()).toEqual(["ask", "pins", "repos"]);
+    expect(changed().length).toBeLessThanOrEqual(3);
+    expect([...new Set(announced())].sort()).toEqual(["ask", "pins", "repos"]);
+    // Five pin writes are one announcement, not five.
+    expect(announced().filter((t) => t === "pins")).toHaveLength(1);
   } finally {
     live.close(ws);
   }

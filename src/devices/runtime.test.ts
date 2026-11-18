@@ -403,14 +403,17 @@ test("a denied, unanswered or ended extension request never changes the grant", 
   const started = await ui("start", { minutes: 60, idle: 15 });
   await until(() => store.activeGrant("receiver") !== null);
   const first = await agentApi("POST", "/api/devices/receiver/extend", { minutes: 60 });
+  // heartbeat() returns at once when one is already in flight and only asks
+  // for another, so wait for the request to reach the device.
   await runtime.heartbeat();
+  await until(() => runtime.snapshot().extension?.id === first.body.extension.id);
   await ui("extension", { token: runtime.snapshot().extension!.token, allow: false });
   await until(() => store.getExtension(first.body.extension.id)?.status === "denied");
   expect(runtime.snapshot().grant!.endsAt).toBe(started.body.grant.endsAt);
   // The agent waits with `wait`, and sees the answer when access ends instead.
   const second = await agentApi("POST", "/api/devices/receiver/extend", { minutes: 60 });
   await runtime.heartbeat();
-  expect(runtime.snapshot().extension?.id).toBe(second.body.extension.id);
+  await until(() => runtime.snapshot().extension?.id === second.body.extension.id);
   await ui("stop");
   await until(() => store.getExtension(second.body.extension.id)?.status !== "pending");
   expect(store.getExtension(second.body.extension.id)?.status).toBe("denied");

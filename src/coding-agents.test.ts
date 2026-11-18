@@ -332,6 +332,12 @@ describe("coding agent auth detection", () => {
     setEnv("DEEPSEEK_API_KEY", undefined);
     setEnv("DSH_HOME", undefined);
     setEnv("LFG_DEEPSEEK_PATH", undefined);
+    // listCodingAgents probes every agent CLI on PATH. The real ones on a dev
+    // machine take seconds each under load, and these checks read only files
+    // and env, so an empty PATH keeps them fast and off the real installs.
+    const bin = join(tmpHome, "bin");
+    mkdirSync(bin, { recursive: true });
+    setEnv("PATH", bin);
     return tmpHome;
   };
 

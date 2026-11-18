@@ -183,8 +183,20 @@ orphaned `tsc` at 325 percent CPU for ten minutes by calling it with
 `--ignoreConfig`, which bypasses every setting above. Use the project
 configuration.
 
-The full suite peaks at about 505 MB and takes about 49 seconds with no bundle
-build.
+`bun run test` runs the test files in 8 worker processes (`--parallel=8`).
+Each file gets a fresh global object, so a file must set up every global it
+uses. It must not rely on what an earlier file left behind. Bun starts the
+slowest files first, from the durations in `test-timings.json`. Measured on
+2026-11-18 at load 10 on 12 cores, the suite took 45 seconds with a peak of
+720 MB. One process running every file in sequence took 4 minutes. After you
+add or slow down a test file, run `bun run test:timings` and commit the
+updated `test-timings.json`. A stale file only changes the start order.
+
+A test that waits for work in another process or on a timer must wait for
+the result. It must not assume that one call or one fixed delay is enough.
+Parallel runs add load, and fixed-delay tests then fail at random. A test must
+also not run the real agent CLIs installed on this machine. Point `PATH` or
+the agent path override at a fake instead.
 
 ### Runtime choice for Vite
 
