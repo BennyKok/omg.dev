@@ -1,7 +1,10 @@
 # User accounts
 
 Status: step 1 implemented in `src/tailnet-gate.ts` (2026-11-16), off by
-default. Steps 2 and 3 are not built.
+default. Step 2 is not built. Step 3 is partly built: Settings > People &
+roles has a People tab that shows each person and sets their role (2026-11-16,
+`a2d1b4bf1`). The server does not yet enforce a role on each request, and the
+tab does not add a person.
 
 ## Decision
 
@@ -60,8 +63,12 @@ the listener admits no person, as before.
 - Step 2: every route that takes a user from the query or the body uses the
   admitted person. Today only `/api/me` does. A person on the tailnet can
   still send another user's name to those routes.
-- Step 3: roles enforced on the server for each request, and a People page in
-  Settings to add a person and set a role.
+- Step 3, remaining: a role enforced on the server for each request, and
+  adding a person from the People tab. The People tab sets a role today. Roles
+  already gate MCP tool access through `enforceRole` in
+  `src/policy/mcp-filter.ts`, but that is not per-request enforcement of the
+  admitted Tailscale person. The People tab is read-only apart from the role
+  select.
 - Not verified on a real tailnet: that `tailscale serve` replaces a
   `Tailscale-User-Login` header that the caller sent. The gate depends on
   this. Check it before you turn the switch on.
