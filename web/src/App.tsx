@@ -407,7 +407,9 @@ import {
   writeFastMode,
 } from "./lib/fast-mode";
 import { BtwDrawer } from "./components/btw-drawer";
+import { ComposerHighlightBackdrop } from "./components/composer-highlight-backdrop";
 import { parseBtwCommand, useBtwSession } from "./lib/btw";
+import { hasComposerHighlight, tokenizeComposerText } from "./lib/composer-highlight";
 import { ConnectionStatusToasts } from "./ConnectionStatus";
 import type {
   ClipboardEvent,
@@ -16732,14 +16734,34 @@ function ThreadComposerBar({ testId, placeholder, onSend, autoFocus, onTyping, m
 const renderThreadComposer = (props: ThreadComposerProps) => <ThreadComposerBar {...props} />;
 
 function ComposerTextarea({ className, ...props }: SkillTextareaProps) {
+  const [scrollTop, setScrollTop] = useState(0);
+  const value = typeof props.value === "string" ? props.value : "";
+  const segments = tokenizeComposerText(value);
+  const showHighlight = hasComposerHighlight(segments);
+  const sharedClassName = cn(
+    "max-h-40 min-w-0 flex-1 resize-none overflow-y-auto [field-sizing:fixed] md:max-h-36",
+    className,
+  );
+
   return (
-    <SkillTextarea
-      {...props}
-      className={cn(
-        "max-h-40 min-w-0 flex-1 resize-none overflow-y-auto [field-sizing:fixed] md:max-h-36",
-        className,
-      )}
-    />
+    <div className="relative flex min-w-0 flex-1">
+      {showHighlight ? (
+        <ComposerHighlightBackdrop
+          segments={segments}
+          value={value}
+          scrollTop={scrollTop}
+          className={sharedClassName}
+        />
+      ) : null}
+      <SkillTextarea
+        {...props}
+        onScroll={(e) => {
+          setScrollTop(e.currentTarget.scrollTop);
+          props.onScroll?.(e);
+        }}
+        className={cn(sharedClassName, showHighlight && "relative z-10 bg-transparent")}
+      />
+    </div>
   );
 }
 
