@@ -36,7 +36,7 @@ export const FINDINGS_PILL_GAP_REM = 0.5;
 /** Where the pill sits, given whether the inline composer is on screen. */
 export function findingsPillBottom(aboveComposer: boolean): string {
   return aboveComposer
-    ? `calc(var(--lfg-inline-composer-height, var(--lfg-composer-clear)) + ${FINDINGS_PILL_GAP_REM}rem)`
+    ? `calc(var(--lfg-host-bottom-inset, 0px) + var(--lfg-inline-composer-height, var(--lfg-composer-clear)) + ${FINDINGS_PILL_GAP_REM}rem)`
     : `calc(var(--lfg-safe-bottom) + ${FINDINGS_PILL_GAP_REM}rem)`;
 }
 
@@ -60,11 +60,12 @@ export function FindingsPill({
       // The band behind the pill fades the list out before it reaches the
       // pill. Without it a chat title ran under the pill and the two labels
       // read as one ("weekly re 10 updates").
-      // Above the composer the band runs down through the gap and the
+      // Above the composer the band runs down through the gap and behind the
       // button bar's 1rem fade, so the list cannot show through between the
-      // pill and the button (a card edge did, 2026-11-17).
+      // pill and the button (a card edge did, 2026-11-17). Stay below the
+      // composer bar's z-index so the curtain can never slice the button.
       className={cn(
-        "pointer-events-none fixed inset-x-0 z-[56] flex justify-center px-4 before:absolute before:inset-x-0 before:-top-5 before:bg-gradient-to-t before:from-background before:from-60% before:to-transparent before:content-['']",
+        "pointer-events-none fixed inset-x-0 z-[54] flex justify-center px-4 before:pointer-events-none before:absolute before:inset-x-0 before:-top-5 before:bg-gradient-to-t before:from-background before:from-60% before:to-transparent before:content-['']",
         aboveComposer ? "before:-bottom-6" : "before:-bottom-2",
       )}
       style={{ bottom: findingsPillBottom(aboveComposer) }}

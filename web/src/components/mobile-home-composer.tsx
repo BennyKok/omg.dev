@@ -31,9 +31,23 @@ export function MobileNewSessionButton({ onOpen, hidden = false }: { onOpen: () 
       root.style.setProperty("--lfg-inline-composer-height", `${Math.ceil(bar.getBoundingClientRect().height)}px`);
     };
     sync();
+    // Safe-area padding lives on the bar's border box while the button keeps a
+    // fixed 48px content box; content-box observation misses env() settling.
     const ro = new ResizeObserver(sync);
-    ro.observe(bar);
+    try {
+      ro.observe(bar, { box: "border-box" });
+    } catch {
+      ro.observe(bar);
+    }
+    const raf = requestAnimationFrame(sync);
+    window.addEventListener("resize", sync, { passive: true });
+    window.addEventListener("pageshow", sync, { passive: true });
+    window.visualViewport?.addEventListener("resize", sync, { passive: true });
     return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("pageshow", sync);
+      window.visualViewport?.removeEventListener("resize", sync);
       ro.disconnect();
       root.style.removeProperty("--lfg-inline-composer-height");
     };
@@ -44,8 +58,8 @@ export function MobileNewSessionButton({ onOpen, hidden = false }: { onOpen: () 
       inert={hidden}
       aria-hidden={hidden}
       className={cn(
-        "relative z-[55] mt-auto shrink-0 bg-gradient-to-t from-background from-[calc(100%-1rem)] to-transparent px-4 pt-4 pb-[max(var(--lfg-device-safe-bottom),0.75rem)]",
-        hidden && "invisible pointer-events-none",
+        "pointer-events-none relative z-[55] mt-auto shrink-0 bg-gradient-to-t from-background from-[calc(100%-1rem)] to-transparent px-4 pt-4 pb-[max(var(--lfg-device-safe-bottom),0.75rem)]",
+        hidden && "invisible",
       )}
     >
       <input
@@ -66,7 +80,7 @@ export function MobileNewSessionButton({ onOpen, hidden = false }: { onOpen: () 
           keyboardRef.current?.focus({ preventScroll: true });
           onOpen();
         }}
-        className="mx-auto flex h-12 w-full max-w-lg items-center justify-center gap-2 rounded-full border border-border bg-secondary text-[15px] font-semibold text-secondary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-[transform,background-color] active:scale-[0.98] active:bg-accent"
+        className="pointer-events-auto mx-auto flex h-12 w-full max-w-lg items-center justify-center gap-2 rounded-full border border-border bg-secondary text-[15px] font-semibold text-secondary-foreground shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-[transform,background-color] active:scale-[0.98] active:bg-accent"
       >
         <Plus className="size-5" strokeWidth={2.5} />
         New session

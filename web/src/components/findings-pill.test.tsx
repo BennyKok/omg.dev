@@ -33,12 +33,19 @@ test("the pill shows the count and opens", () => {
   expect(opened).toBe(1);
 });
 
-test("it clears the composer when the composer is on screen, and the safe area when it is not", () => {
+test("it clears the composer and host bottom inset when the composer is on screen, and the safe area when it is not", () => {
   // The pill floats OVER the list, so where it sits and how much room the
   // list leaves for it have to come from this one function.
   expect(findingsPillBottom(true)).toContain("--lfg-inline-composer-height");
+  expect(findingsPillBottom(true)).toContain("--lfg-host-bottom-inset");
   expect(findingsPillBottom(false)).toContain("--lfg-safe-bottom");
   for (const above of [true, false]) {
     expect(findingsPillBottom(above)).toContain("0.5rem");
   }
+});
+
+test("the pill wrapper stacks below the composer bar so its fade curtain cannot cover the button", () => {
+  ui.render(<FindingsPill count={2} onOpen={() => {}} aboveComposer />);
+  const wrapper = pill()?.parentElement;
+  expect(wrapper?.className).toContain("z-[54]");
 });

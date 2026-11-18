@@ -31,6 +31,32 @@ test("the home button is out of reach under an open chat", () => {
   expect(bar.getAttribute("aria-hidden")).toBe("true");
 });
 
+test("the home button observes border-box height so safe-area padding updates the CSS variable", () => {
+  const originalRO = globalThis.ResizeObserver;
+  let observedBox: ResizeObserverBoxOptions | undefined;
+  let notify: ResizeObserverCallback | null = null;
+  globalThis.ResizeObserver = class {
+    constructor(cb: ResizeObserverCallback) {
+      notify = cb;
+    }
+    observe(_target: Element, options?: ResizeObserverOptions) {
+      observedBox = options?.box;
+    }
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+  try {
+    ui.render(<MobileNewSessionButton onOpen={() => {}} />);
+    expect(observedBox).toBe("border-box");
+    const bar = ui.host.firstElementChild as HTMLElement;
+    bar.getBoundingClientRect = () => ({ height: 98 } as DOMRect);
+    notify?.([], {} as ResizeObserver);
+    expect(document.documentElement.style.getPropertyValue("--lfg-inline-composer-height")).toBe("98px");
+  } finally {
+    globalThis.ResizeObserver = originalRO;
+  }
+});
+
 test("the screen shows No project and the first folders as chips, and picks one", () => {
   const picks: string[] = [];
   let closed = 0;
