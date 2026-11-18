@@ -498,6 +498,7 @@ import { isBrowserLoginCall } from "../../packages/protocol/src/browser-login";
 import { haptic } from "@/lib/haptics";
 import { isPhonePageTab, phonePageAfterSwipe, phonePageSwipe, scrollsSideways } from "./lib/phone-pages";
 import { PhoneFolders } from "./components/phone-folders";
+import { agentsThatNameFolders } from "./lib/folder-options";
 import { logChatError, notifyChatFailure } from "./lib/chat-failure";
 import { HapticTap } from "@/components/haptic-tap";
 import { feedback } from "@/lib/feedback";
@@ -7315,7 +7316,8 @@ export function App() {
     const folders = Array.from(
       new Set([
         ...repos.map((repo) => repoProject(repo)),
-        ...autoAgents.map((agent) => autoAgentProject(agent, repos)),
+        // Only agents that are on: see agentsThatNameFolders.
+        ...agentsThatNameFolders(autoAgents).map((agent) => autoAgentProject(agent, repos)),
         ...userScopedSessions.map((s) => s.project).filter((p): p is string => !!p),
       ]),
     ).sort((a, b) => shortProject(a).localeCompare(shortProject(b)));
