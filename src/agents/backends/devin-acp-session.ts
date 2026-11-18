@@ -11,6 +11,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import {
   applyAcpSessionUpdate,
   bindAcpConversation,
+  childAliveCheck,
   type AcpUpdateState,
 } from "./acp-session.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
@@ -60,6 +61,7 @@ export async function cmdDevinAcpSession(argv: string[]): Promise<void> {
         stdio: ["pipe", "pipe", "inherit"],
       });
       if (!child.stdin || !child.stdout) throw new Error("Devin ACP stdio was not available");
+      const alive = childAliveCheck(child);
       const stream = acp.ndJsonStream(
         Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
         Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
@@ -90,18 +92,28 @@ export async function cmdDevinAcpSession(argv: string[]): Promise<void> {
           applyAcpSessionUpdate(params.update, sink, state);
         });
       const connection = app.connect(stream);
-      const opened = await bindAcpConversation({
-        context: connection.agent,
-        cwd,
-        // Devin reads its MCP servers from its own `devin mcp` configuration.
-        // Client-supplied servers over ACP are unverified, so none are passed.
-        mcpServers: [],
-        state,
-        sink,
-      });
+      // A failed open must not leave the agent running: a replacement can
+      // be retried on every later turn.
+      let opened: Awaited<ReturnType<typeof bindAcpConversation>>;
+      try {
+        opened = await bindAcpConversation({
+          context: connection.agent,
+          cwd,
+          // Devin reads its MCP servers from its own `devin mcp` configuration.
+          // Client-supplied servers over ACP are unverified, so none are passed.
+          mcpServers: [],
+          state,
+          sink,
+        });
+      } catch (error) {
+        connection.close();
+        child.kill();
+        throw error;
+      }
       const sessionId = opened.sessionId;
       return {
         nativeSessionId: sessionId,
+        alive,
         async runTurn(prompt) {
           state.draft = "";
           state.thought = "";

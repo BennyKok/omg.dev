@@ -29,6 +29,7 @@ import {
 import {
   runManagedSdkSession,
   type ManagedSdkEventSink,
+  type ManagedSdkRestart,
   type ManagedSdkRuntime,
 } from "./managed-sdk-session.ts";
 import { recordAntigravityLevels } from "../../model-discovery.ts";
@@ -167,13 +168,14 @@ export type AntigravityRuntimeOptions = {
   model: string;
   thinkingLevel?: string;
   resume?: string;
+  /**
+   * True when this runtime replaces one whose `agy` ended. The model and
+   * thinking-level notices were shown at launch, so they are not repeated.
+   */
+  quiet?: boolean;
   /** Tests replace this so they do not write the real discovery cache. */
   recordLevels?: (model: string, levels: string[]) => Promise<unknown>;
 };
-
-/** Shown when a turn had to start a new `agy` because the old one was gone. */
-export const ANTIGRAVITY_RESTARTED_NOTICE =
-  "The Antigravity process for this session had stopped. omg.dev started it again and resumed the same conversation.";
 
 type AntigravityLink = {
   child: ReturnType<typeof spawn>;
@@ -189,15 +191,9 @@ type AntigravityLink = {
 /**
  * One managed Antigravity session over `agy acp`.
  *
- * The session owns its `agy` child, and that child can end while the session
- * waits for the next message: a crash, an out-of-memory kill, or any process
- * on the box that signals every `agy` (`pkill -f "agy acp"` from a debugging
- * shell did exactly this on 2026-11-18). The pipe is then dead, and a turn
- * sent on it fails at once with "ACP connection closed". So each turn checks
- * the child first. When it is gone, the turn starts a new `agy` and resumes
- * the same Antigravity conversation by id, then re-applies the model and the
- * current thinking level. A child that dies DURING a turn still fails that
- * turn: the prompt may have run tools, so it is not sent twice.
+ * The runtime owns one `agy` child and reports through `alive` when it has
+ * ended. runManagedSdkSession then builds a replacement with the same
+ * conversation id as `resume`, and `agy` continues it with session/resume.
  */
 export async function createAntigravityRuntime(
   options: AntigravityRuntimeOptions,
@@ -205,7 +201,7 @@ export async function createAntigravityRuntime(
 ): Promise<ManagedSdkRuntime> {
   const { key, cwd, model } = options;
   const recordLevels = options.recordLevels ?? recordAntigravityLevels;
-  let thinkingLevel = options.thinkingLevel;
+  const thinkingLevel = options.thinkingLevel;
   const state: AcpUpdateState = { draft: "", thought: "", replaying: false };
 
   async function open(resume: string | undefined, quiet: boolean): Promise<AntigravityLink> {
@@ -331,25 +327,16 @@ export async function createAntigravityRuntime(
     });
   }
 
-  let link = await open(options.resume, false);
+  const link = await open(options.resume, options.quiet === true);
   const sessionId = link.sessionId;
-
-  /** The live link, after a restart and resume when the old `agy` is gone. */
-  async function liveLink(): Promise<AntigravityLink> {
-    if (link.alive) return link;
-    link.shutdown();
-    link = await open(sessionId, true);
-    sink.notice?.(ANTIGRAVITY_RESTARTED_NOTICE);
-    return link;
-  }
 
   return {
     nativeSessionId: sessionId,
+    alive: () => link.alive,
     async runTurn(prompt) {
-      const current = await liveLink();
       state.draft = "";
       state.thought = "";
-      await current.connection.agent.request(acp.methods.agent.session.prompt, {
+      await link.connection.agent.request(acp.methods.agent.session.prompt, {
         sessionId,
         prompt: [{ type: "text", text: prompt }],
       });
@@ -363,8 +350,8 @@ export async function createAntigravityRuntime(
       if (link.alive) return link.connection.agent.notify(acp.methods.agent.session.cancel, { sessionId });
     },
     async setThinkingLevel(level) {
-      thinkingLevel = level;
-      // A dead link picks the new level up when the next turn reopens it.
+      // With `agy` gone there is nothing to set. runManagedSdkSession still
+      // records the level and hands it to the replacement runtime.
       if (link.alive) await applyThinking(link, level);
     },
     async close() {
@@ -376,6 +363,27 @@ export async function createAntigravityRuntime(
       link.shutdown();
     },
   };
+}
+
+/**
+ * `createRuntime` for runManagedSdkSession. At launch it opens with the
+ * launch flags. As a replacement for an `agy` that ended, it resumes the
+ * conversation the old one served, with the current model and thinking level.
+ */
+export function antigravityRuntimeFactory(
+  launch: Omit<AntigravityRuntimeOptions, "quiet">,
+): (sink: ManagedSdkEventSink, restart?: ManagedSdkRestart) => Promise<ManagedSdkRuntime> {
+  return (sink, restart) =>
+    createAntigravityRuntime(
+      {
+        ...launch,
+        model: restart?.model ?? launch.model,
+        thinkingLevel: restart?.thinkingLevel ?? launch.thinkingLevel,
+        resume: restart?.resume ?? launch.resume,
+        quiet: restart != null,
+      },
+      sink,
+    );
 }
 
 export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
@@ -400,7 +408,7 @@ export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
     thinkingLevel,
     recoveredAt,
     initialPrompt,
-    createRuntime: (sink) => createAntigravityRuntime({ key, cwd, model, thinkingLevel, resume }, sink),
+    createRuntime: antigravityRuntimeFactory({ key, cwd, model, thinkingLevel, resume }),
   });
 }
 

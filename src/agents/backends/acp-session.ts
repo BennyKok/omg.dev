@@ -23,6 +23,22 @@ export type AcpUpdateState = {
   replaying: boolean;
 };
 
+/**
+ * A check that reads false once `child` has exited or failed to start. A
+ * managed runtime returns it as `alive`, so runManagedSdkSession can replace
+ * a runtime whose agent process ended between turns.
+ */
+export function childAliveCheck(child: { once(event: "exit" | "error", listener: () => void): unknown }): () => boolean {
+  let alive = true;
+  child.once("exit", () => {
+    alive = false;
+  });
+  child.once("error", () => {
+    alive = false;
+  });
+  return () => alive;
+}
+
 export function advertisedAcpSessionMethods(
   init: { agentCapabilities?: acp.AgentCapabilities | null },
 ): AcpAdvertisedSessionMethods {

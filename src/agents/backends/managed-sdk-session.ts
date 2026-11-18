@@ -60,7 +60,48 @@ export type ManagedSdkRuntime = {
   close(): Promise<void> | void;
   setModel?(model: string): Promise<void> | void;
   setThinkingLevel?(thinkingLevel: string): Promise<void> | void;
+  /**
+   * False once the agent process behind this runtime has ended. A runtime that
+   * reports this is replaced before the next turn; see `liveRuntime`.
+   */
+  alive?(): boolean;
 };
+
+/**
+ * What a replacement runtime must continue from. `createRuntime` gets it only
+ * when it replaces a runtime whose agent process ended: `resume` is the native
+ * conversation id the old runtime served, and `model` and `thinkingLevel` are
+ * the current choices, which can differ from the launch flags.
+ */
+export type ManagedSdkRestart = {
+  resume: string;
+  model: string;
+  thinkingLevel?: string;
+};
+
+/** Shown when a turn replaced a dead agent process and kept the conversation. */
+const AGENT_NAMES: Record<ManagedSdkAgent, string> = {
+  grok: "Grok",
+  cursor: "Cursor",
+  fx: "fx",
+  muse: "Muse",
+  deepseek: "DeepSeek",
+  devin: "Devin",
+  antigravity: "Antigravity",
+  copilot: "Copilot",
+  jcode: "jcode",
+};
+
+export function managedRestartResumedNotice(agent: ManagedSdkAgent): string {
+  const name = AGENT_NAMES[agent];
+  return `The ${name} process for this session had stopped. omg.dev started it again and resumed the same conversation.`;
+}
+
+/** Shown when the replacement could not resume, so the agent starts fresh. */
+export function managedRestartFreshNotice(agent: ManagedSdkAgent): string {
+  const name = AGENT_NAMES[agent];
+  return `The ${name} process for this session had stopped. omg.dev started it again, but ${name} could not resume the conversation, so it does not remember the earlier messages.`;
+}
 
 export type ManagedSdkSessionOptions = {
   key: string;
@@ -72,7 +113,7 @@ export type ManagedSdkSessionOptions = {
   resume?: string;
   thinkingLevel?: string;
   recoveredAt?: number | null;
-  createRuntime(sink: ManagedSdkEventSink): Promise<ManagedSdkRuntime>;
+  createRuntime(sink: ManagedSdkEventSink, restart?: ManagedSdkRestart): Promise<ManagedSdkRuntime>;
   /** Defaults to process.exit. Tests replace this so shutdown can return. */
   exitProcess?: (code: number) => void;
 };
@@ -226,6 +267,36 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
   process.on("SIGUSR1", consumeCommands);
   patchEntry(key, { commandWakeSignal: "SIGUSR1" });
 
+  /**
+   * The runtime for the next turn. The agent process behind a runtime can end
+   * while the session waits: a crash, an out-of-memory kill, or a shell that
+   * signals every copy of the agent by name (`pkill -f "agy acp"` did this to
+   * idle Antigravity sessions on 2026-11-18). Its pipe is then dead, and a
+   * turn sent on it fails at once with "ACP connection closed". So this
+   * starts a replacement that resumes the same native conversation. A process
+   * that dies DURING a turn still fails that turn: the prompt may already have
+   * run tools, so it is not sent twice.
+   */
+  async function liveRuntime(): Promise<ManagedSdkRuntime> {
+    const current = runtime!;
+    if (!current.alive || current.alive()) return current;
+    try {
+      await current.close();
+    } catch {}
+    const previous = current.nativeSessionId;
+    const next = await options.createRuntime(sink, { resume: previous, model, thinkingLevel });
+    runtime = next;
+    if (next.nativeSessionId && next.nativeSessionId !== previous) {
+      patchEntry(key, { threadId: next.nativeSessionId });
+    }
+    sink.notice?.(
+      previous && next.nativeSessionId === previous
+        ? managedRestartResumedNotice(agent)
+        : managedRestartFreshNotice(agent),
+    );
+    return next;
+  }
+
   async function runTurn(prompt: string): Promise<void> {
     if (!runtime) return;
     indexSessionMessagesDirect(key, [row("user", "text", prompt)]);
@@ -233,7 +304,8 @@ export async function runManagedSdkSession(options: ManagedSdkSessionOptions): P
     thought = "";
     publishDraft("", true);
     try {
-      const result = await runtime.runTurn(prompt, sink);
+      const current = await liveRuntime();
+      const result = await current.runTurn(prompt, sink);
       const rows: SessionMsg[] = [];
       const finalThought = result.thinking?.trim() || thought.trim();
       const finalText = result.text?.trim() || draft.trim();

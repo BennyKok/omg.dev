@@ -8,6 +8,7 @@ import { omgAcpMcpServers } from "./acp-mcp.ts";
 import {
   applyAcpSessionUpdate,
   bindAcpConversation,
+  childAliveCheck,
   type AcpUpdateState,
 } from "./acp-session.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
@@ -43,7 +44,7 @@ export async function cmdGrokAcpSession(argv: string[]): Promise<void> {
     thinkingLevel,
     recoveredAt,
     initialPrompt,
-    async createRuntime(sink) {
+    async createRuntime(sink, restart) {
       const childArgs = ["agent", "--always-approve"];
       if (model) childArgs.push("--model", model);
       const effort = grokEffortFor(thinkingLevel, model);
@@ -55,6 +56,7 @@ export async function cmdGrokAcpSession(argv: string[]): Promise<void> {
         stdio: ["pipe", "pipe", "inherit"],
       });
       if (!child.stdin || !child.stdout) throw new Error("Grok ACP stdio was not available");
+      const alive = childAliveCheck(child);
       const stream = acp.ndJsonStream(
         Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
         Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
@@ -83,17 +85,27 @@ export async function cmdGrokAcpSession(argv: string[]): Promise<void> {
           applyAcpSessionUpdate(params.update, sink, state);
         });
       const connection = app.connect(stream);
-      const opened = await bindAcpConversation({
-        context: connection.agent,
-        cwd,
-        mcpServers: omgAcpMcpServers(key),
-        resume,
-        state,
-        sink,
-      });
+      // A failed open must not leave the agent running: a replacement can
+      // be retried on every later turn.
+      let opened: Awaited<ReturnType<typeof bindAcpConversation>>;
+      try {
+        opened = await bindAcpConversation({
+          context: connection.agent,
+          cwd,
+          mcpServers: omgAcpMcpServers(key),
+          resume: restart?.resume ?? resume,
+          state,
+          sink,
+        });
+      } catch (error) {
+        connection.close();
+        child.kill();
+        throw error;
+      }
       const sessionId = opened.sessionId;
       return {
         nativeSessionId: sessionId,
+        alive,
         async runTurn(prompt) {
           state.draft = "";
           state.thought = "";

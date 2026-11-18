@@ -14,6 +14,7 @@ import { omgAcpMcpServers } from "./acp-mcp.ts";
 import {
   applyAcpSessionUpdate,
   bindAcpConversation,
+  childAliveCheck,
   type AcpUpdateState,
 } from "./acp-session.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
@@ -65,13 +66,14 @@ export async function cmdFxAcpSession(argv: string[]): Promise<void> {
     resume,
     recoveredAt,
     initialPrompt,
-    async createRuntime(sink) {
+    async createRuntime(sink, restart) {
       const child = spawn(fxPath(), fxAcpChildArgs(model), {
         cwd,
         env: process.env,
         stdio: ["pipe", "pipe", "inherit"],
       });
       if (!child.stdin || !child.stdout) throw new Error("fx ACP stdio was not available");
+      const alive = childAliveCheck(child);
       const stream = acp.ndJsonStream(
         Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
         Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
@@ -98,14 +100,23 @@ export async function cmdFxAcpSession(argv: string[]): Promise<void> {
           applyAcpSessionUpdate(params.update, sink, state);
         });
       const connection = app.connect(stream);
-      const opened = await bindAcpConversation({
-        context: connection.agent,
-        cwd,
-        mcpServers: omgAcpMcpServers(key),
-        resume,
-        state,
-        sink,
-      });
+      // A failed open must not leave the agent running: a replacement can
+      // be retried on every later turn.
+      let opened: Awaited<ReturnType<typeof bindAcpConversation>>;
+      try {
+        opened = await bindAcpConversation({
+          context: connection.agent,
+          cwd,
+          mcpServers: omgAcpMcpServers(key),
+          resume: restart?.resume ?? resume,
+          state,
+          sink,
+        });
+      } catch (error) {
+        connection.close();
+        child.kill();
+        throw error;
+      }
       const sessionId = opened.sessionId;
       // Best effort: an older fx without the mode registry must not abort the
       // launch. It only means the session keeps asking before each change.
@@ -117,6 +128,7 @@ export async function cmdFxAcpSession(argv: string[]): Promise<void> {
       } catch {}
       return {
         nativeSessionId: sessionId,
+        alive,
         async runTurn(prompt) {
           state.draft = "";
           state.thought = "";

@@ -8,6 +8,7 @@ import { omgAcpMcpServers } from "./acp-mcp.ts";
 import {
   applyAcpSessionUpdate,
   bindAcpConversation,
+  childAliveCheck,
   type AcpUpdateState,
 } from "./acp-session.ts";
 import { registerCursorExtensionHandlers } from "./cursor-acp-extensions.ts";
@@ -42,7 +43,7 @@ export async function cmdCursorAcpSession(argv: string[]): Promise<void> {
     resume,
     recoveredAt,
     initialPrompt,
-    async createRuntime(sink) {
+    async createRuntime(sink, restart) {
       // `--force` (alias `--yolo`) is a root flag, so it goes before the `acp`
       // subcommand, the same as `--trust` and `--model`. Without it the ACP
       // server raises session/request_permission per tool call, which we would
@@ -64,6 +65,7 @@ export async function cmdCursorAcpSession(argv: string[]): Promise<void> {
         stdio: ["pipe", "pipe", "inherit"],
       });
       if (!child.stdin || !child.stdout) throw new Error("Cursor ACP stdio was not available");
+      const alive = childAliveCheck(child);
       const stream = acp.ndJsonStream(
         Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
         Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
@@ -90,17 +92,27 @@ export async function cmdCursorAcpSession(argv: string[]): Promise<void> {
           applyAcpSessionUpdate(params.update, sink, state);
         });
       const connection = app.connect(stream);
-      const opened = await bindAcpConversation({
-        context: connection.agent,
-        cwd,
-        mcpServers: omgAcpMcpServers(key),
-        resume,
-        state,
-        sink,
-      });
+      // A failed open must not leave the agent running: a replacement can
+      // be retried on every later turn.
+      let opened: Awaited<ReturnType<typeof bindAcpConversation>>;
+      try {
+        opened = await bindAcpConversation({
+          context: connection.agent,
+          cwd,
+          mcpServers: omgAcpMcpServers(key),
+          resume: restart?.resume ?? resume,
+          state,
+          sink,
+        });
+      } catch (error) {
+        connection.close();
+        child.kill();
+        throw error;
+      }
       const sessionId = opened.sessionId;
       return {
         nativeSessionId: sessionId,
+        alive,
         async runTurn(prompt) {
           state.draft = "";
           state.thought = "";

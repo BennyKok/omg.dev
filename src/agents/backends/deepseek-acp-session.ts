@@ -10,6 +10,7 @@ import * as acp from "@agentclientprotocol/sdk";
 import {
   applyAcpSessionUpdate,
   bindAcpConversation,
+  childAliveCheck,
   type AcpUpdateState,
 } from "./acp-session.ts";
 import { runManagedSdkSession } from "./managed-sdk-session.ts";
@@ -59,6 +60,7 @@ export async function cmdDeepseekAcpSession(argv: string[]): Promise<void> {
         stdio: ["pipe", "pipe", "inherit"],
       });
       if (!child.stdin || !child.stdout) throw new Error("DeepSeek Harness ACP stdio was not available");
+      const alive = childAliveCheck(child);
       const stream = acp.ndJsonStream(
         Writable.toWeb(child.stdin) as WritableStream<Uint8Array>,
         Readable.toWeb(child.stdout) as ReadableStream<Uint8Array>,
@@ -89,18 +91,28 @@ export async function cmdDeepseekAcpSession(argv: string[]): Promise<void> {
           applyAcpSessionUpdate(params.update, sink, state);
         });
       const connection = app.connect(stream);
-      const opened = await bindAcpConversation({
-        context: connection.agent,
-        cwd,
-        // DeepSeek Harness ACP currently rejects client-supplied MCP servers.
-        // Its own profile remains the single owner of model-facing tools.
-        mcpServers: [],
-        state,
-        sink,
-      });
+      // A failed open must not leave the agent running: a replacement can
+      // be retried on every later turn.
+      let opened: Awaited<ReturnType<typeof bindAcpConversation>>;
+      try {
+        opened = await bindAcpConversation({
+          context: connection.agent,
+          cwd,
+          // DeepSeek Harness ACP currently rejects client-supplied MCP servers.
+          // Its own profile remains the single owner of model-facing tools.
+          mcpServers: [],
+          state,
+          sink,
+        });
+      } catch (error) {
+        connection.close();
+        child.kill();
+        throw error;
+      }
       const sessionId = opened.sessionId;
       return {
         nativeSessionId: sessionId,
+        alive,
         async runTurn(prompt) {
           state.draft = "";
           state.thought = "";

@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { appendCmd, readEntry, wakeHarnessCommandReader } from "../../aisdk-registry.ts";
 import { PATHS } from "../../config.ts";
 import { indexedRecentMessages, sessionIndexKey, resetTranscriptIndexConnectionForTests } from "../../transcript-index.ts";
-import { runManagedSdkSession } from "./managed-sdk-session.ts";
+import {
+  managedRestartFreshNotice,
+  managedRestartResumedNotice,
+  runManagedSdkSession,
+  type ManagedSdkRestart,
+  type ManagedSdkRuntime,
+} from "./managed-sdk-session.ts";
 
 const originalData = PATHS.data;
 const originalCwd = process.cwd();
@@ -341,5 +347,161 @@ describe("managed SDK questions answered by a typed message", () => {
     const { turns, picks } = await run("wait until the tests pass");
     expect(picks).toEqual([null]);
     expect(turns).toEqual(["go", "wait until the tests pass"]);
+  });
+});
+
+describe("managed SDK runtime whose agent process ended between turns", () => {
+  type FakeRuntime = ManagedSdkRuntime & { dead: boolean; prompts: string[]; closed: boolean };
+
+  function fakeRuntime(nativeSessionId: string): FakeRuntime {
+    const runtime: FakeRuntime = {
+      nativeSessionId,
+      dead: false,
+      prompts: [],
+      closed: false,
+      alive: () => !runtime.dead,
+      async runTurn(prompt) {
+        if (runtime.dead) throw new Error("ACP connection closed");
+        runtime.prompts.push(prompt);
+        return { text: `${nativeSessionId}: ${prompt}` };
+      },
+      interrupt() {},
+      close() {
+        runtime.closed = true;
+      },
+    };
+    return runtime;
+  }
+
+  async function texts(): Promise<string[]> {
+    return (await indexedRecentMessages(sessionIndexKey(KEY), KEY)).map((row) => row.text);
+  }
+
+  async function send(text: string): Promise<void> {
+    appendCmd(KEY, { type: "send", text });
+    wakeHarnessCommandReader(readEntry(KEY)!);
+  }
+
+  async function stop(done: Promise<void>): Promise<void> {
+    appendCmd(KEY, { type: "close" });
+    wakeHarnessCommandReader(readEntry(KEY)!);
+    await done;
+  }
+
+  test("replaces the runtime and resumes the same conversation on the next turn", async () => {
+    const created: FakeRuntime[] = [];
+    const restarts: (ManagedSdkRestart | undefined)[] = [];
+    const done = runManagedSdkSession({
+      key: KEY, agent: "grok", cwd: root, model: "grok-5", thinkingLevel: "high",
+      managedName: "restart-resume", initialPrompt: "first", exitProcess: () => {},
+      async createRuntime(_sink, restart) {
+        restarts.push(restart);
+        const runtime = fakeRuntime("native-grok-1");
+        created.push(runtime);
+        return runtime;
+      },
+    });
+    try {
+      await waitFor(() => created[0]?.prompts.includes("first") === true);
+      // What `pkill -f "agy acp"` did to idle sessions on 2026-11-18.
+      created[0]!.dead = true;
+      await send("still there?");
+      await waitFor(() => created[1]?.prompts.includes("still there?") === true);
+
+      expect(restarts).toEqual([undefined, { resume: "native-grok-1", model: "grok-5", thinkingLevel: "high" }]);
+      expect(created[0]!.closed).toBe(true);
+      await waitFor(() => readEntry(KEY)?.busy === false);
+      const rows = await texts();
+      expect(rows).toContain(managedRestartResumedNotice("grok"));
+      expect(rows).toContain("native-grok-1: still there?");
+      expect(rows.some((text) => text.includes("turn failed"))).toBe(false);
+    } finally {
+      await stop(done);
+    }
+  });
+
+  test("says the agent starts fresh when the replacement could not resume", async () => {
+    const created: FakeRuntime[] = [];
+    const done = runManagedSdkSession({
+      key: KEY, agent: "devin", cwd: root, model: "auto",
+      managedName: "restart-fresh", initialPrompt: "first", exitProcess: () => {},
+      async createRuntime() {
+        const runtime = fakeRuntime(`native-devin-${created.length + 1}`);
+        created.push(runtime);
+        return runtime;
+      },
+    });
+    try {
+      await waitFor(() => created[0]?.prompts.includes("first") === true);
+      created[0]!.dead = true;
+      await send("again");
+      await waitFor(() => created[1]?.prompts.includes("again") === true);
+      await waitFor(() => readEntry(KEY)?.busy === false);
+      expect(await texts()).toContain(managedRestartFreshNotice("devin"));
+      expect(readEntry(KEY)?.threadId).toBe("native-devin-2");
+    } finally {
+      await stop(done);
+    }
+  });
+
+  test("a failed replacement fails that turn and the next turn tries again", async () => {
+    const created: FakeRuntime[] = [];
+    let failNext = false;
+    const done = runManagedSdkSession({
+      key: KEY, agent: "cursor", cwd: root, model: "auto",
+      managedName: "restart-retry", initialPrompt: "first", exitProcess: () => {},
+      async createRuntime() {
+        if (failNext) {
+          failNext = false;
+          throw new Error("cursor-agent is not signed in");
+        }
+        const runtime = fakeRuntime("native-cursor-1");
+        created.push(runtime);
+        return runtime;
+      },
+    });
+    try {
+      await waitFor(() => created[0]?.prompts.includes("first") === true);
+      created[0]!.dead = true;
+      failNext = true;
+      await send("one");
+      const failed = "cursor turn failed: cursor-agent is not signed in";
+      for (let i = 0; i < 100 && !(await texts()).includes(failed); i++) await Bun.sleep(20);
+      expect(created).toHaveLength(1);
+      await send("two");
+      await waitFor(() => created[1]?.prompts.includes("two") === true);
+      const rows = await texts();
+      expect(rows).toContain(failed);
+      expect(rows).toContain("native-cursor-1: two");
+    } finally {
+      await stop(done);
+    }
+  });
+
+  test("a runtime without an alive check is never replaced", async () => {
+    let creations = 0;
+    const done = runManagedSdkSession({
+      key: KEY, agent: "copilot", cwd: root, model: "auto",
+      managedName: "restart-none", initialPrompt: "first", exitProcess: () => {},
+      async createRuntime() {
+        creations++;
+        return {
+          nativeSessionId: "native-copilot",
+          async runTurn() {
+            return { text: "ok" };
+          },
+          interrupt() {},
+          close() {},
+        };
+      },
+    });
+    try {
+      await send("second");
+      await waitFor(() => readEntry(KEY)?.busy === false);
+      await Bun.sleep(50);
+      expect(creations).toBe(1);
+    } finally {
+      await stop(done);
+    }
   });
 });
