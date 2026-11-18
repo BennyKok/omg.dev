@@ -240,10 +240,10 @@ describe("modelDiscoveryKeysForAgent", () => {
 });
 
 describe("parseAntigravityModels", () => {
-  // Real `agy models` 1.5.9 output, spinner included. The ACP session on the
-  // same account offered exactly: gemini-4-argon, gemini-4-hydrogen,
-  // gemini-pro-orchestrator-g1-pro, gemini-3.8-flash, claude-opus-5-5,
-  // claude-sonnet-5-5, gpt-oss-120b-medium.
+  // Real `agy models` 1.5.10 output, spinner included, 2026-11-18. The ACP
+  // session on the same account offered exactly: gemini-4-argon,
+  // gemini-4-hydrogen, gemini-pro-orchestrator-g1-pro, gemini-3.8-flash,
+  // claude-opus-5-5, claude-sonnet-5-5, gpt-oss-120b-medium.
   const OUT = [
     "\u280b Fetching available models...\u001b[K",
     "gemini-4-argon-medium\tGemini 4 Argon (Medium)",
@@ -251,11 +251,16 @@ describe("parseAntigravityModels", () => {
     "gemini-4-argon-low\tGemini 4 Argon (Low)",
     "gemini-4-hydrogen-high\tGemini 4 Hydrogen (High)",
     "gemini-4-hydrogen-xhigh\tGemini 4 Hydrogen (XHigh)",
+    "gemini-4-hydrogen-medium\tGemini 4 Hydrogen (Medium)",
+    "gemini-4-hydrogen-low\tGemini 4 Hydrogen (Low)",
     "gemini-pro-orchestrator-g1-pro\tOrchestrator (Argon)",
     "gemini-3.8-flash-high\tGemini 3.8 Flash (High)",
+    "gemini-3.8-flash-medium\tGemini 3.8 Flash (Medium)",
     "gemini-3.8-flash-low\tGemini 3.8 Flash (Low)",
     "claude-opus-5-5-low\tClaude Opus 5.5 (Low)",
+    "claude-opus-5-5-medium\tClaude Opus 5.5 (Medium)",
     "claude-opus-5-5-high\tClaude Opus 5.5 (High)",
+    "claude-sonnet-5-5-low\tClaude Sonnet 5.5 (Low)",
     "claude-sonnet-5-5-medium\tClaude Sonnet 5.5 (Medium)",
     "claude-sonnet-5-5-high\tClaude Sonnet 5.5 (High)",
     "gpt-oss-120b-medium\tGPT-OSS 120B (Medium)",
@@ -276,11 +281,30 @@ describe("parseAntigravityModels", () => {
     expect(parsed.labels["gpt-oss-120b-medium"]).toBe("GPT-OSS 120B (Medium)");
   });
 
-  test("a signed-out or empty answer lists no models", () => {
-    expect(parseAntigravityModels("Please sign in").models).toEqual([]);
+  // The picker must offer only levels the plan prints. This plan has no Extra
+  // and no Max on any model, and only Hydrogen runs Extra (agy's -xhigh, which
+  // omg.dev stores as "xhigh").
+  test("offers per model exactly the levels the plan's effort suffixes name", () => {
+    const parsed = parseAntigravityModels(OUT);
+    expect(parsed.variants).toEqual({
+      "gemini-4-argon": ["low", "medium", "high"],
+      "gemini-4-hydrogen": ["low", "medium", "high", "xhigh"],
+      "gemini-pro-orchestrator-g1-pro": ["low", "medium", "high"],
+      "gemini-3.8-flash": ["low", "medium", "high"],
+      "claude-opus-5-5": ["low", "medium", "high"],
+      "claude-sonnet-5-5": ["low", "medium", "high"],
+      "gpt-oss-120b-medium": ["medium"],
+      default: ["low", "medium", "high"],
+    });
   });
 
-  // No "default" entry: the plan's first model is what a new session uses.
+  test("a signed-out or empty answer lists no models", () => {
+    expect(parseAntigravityModels("Please sign in").models).toEqual([]);
+    expect(parseAntigravityModels("Please sign in").variants).toEqual({});
+  });
+
+  // No "default" model entry: the plan's first model is what a new session uses.
+  // "default" in `variants` carries that family's levels instead.
   test("the first listed model becomes the picker default", () => {
     const { models } = parseAntigravityModels(OUT);
     expect(defaultModelForCatalogItem("antigravity", models, false)).toBe("gemini-4-argon");

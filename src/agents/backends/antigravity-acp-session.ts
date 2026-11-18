@@ -20,6 +20,7 @@ import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
 import { omgAcpMcpServers } from "./acp-mcp.ts";
 import {
+  acpConfigChoices,
   applyAcpSessionUpdate,
   bindAcpConversation,
   resolveAcpConfigChoice,
@@ -68,6 +69,44 @@ export function antigravityAutoAllowOption(options: readonly PermissionOption[])
 /** omg.dev's "xhigh" is the level Antigravity names "Extra". */
 export function antigravityThinkingValue(level: string): string {
   return level === "xhigh" ? "extra" : level;
+}
+
+/** omg.dev's rank for a level, over Antigravity's ACP value ids. */
+const ANTIGRAVITY_LEVEL_RANK: Record<string, number> = {
+  low: 0,
+  medium: 1,
+  high: 2,
+  extra: 3,
+  max: 4,
+};
+
+/**
+ * A Google plan offers a subset of Antigravity's vocabulary: a plan whose
+ * models stop at High has no Extra, and Max is rarer still. `agy` refuses a
+ * level it did not list, so a stored "xhigh" would otherwise be dropped and
+ * the session silently run on the account default. Clamp to the highest level
+ * the plan offers at or below the ask instead — the same convention
+ * grokEffortFor and piThinkingFor use. Null keeps the account default: the
+ * option is missing, or the ask is not a level this vocabulary can rank.
+ */
+export function antigravityClampedLevel(
+  options: readonly acp.SessionConfigOption[],
+  wanted: string,
+): { configId: string; value: string; name: string } | null {
+  const offered = acpConfigChoices(options, "thought_level");
+  if (!offered) return null;
+  const acpWanted = antigravityThinkingValue(wanted).toLowerCase();
+  const exact = offered.choices.find((choice) => choice.value.toLowerCase() === acpWanted);
+  if (exact) return { configId: offered.configId, value: exact.value, name: exact.name ?? exact.value };
+  const rank = ANTIGRAVITY_LEVEL_RANK[acpWanted];
+  if (rank == null) return null;
+  const candidates = offered.choices.filter(
+    (choice) => (ANTIGRAVITY_LEVEL_RANK[choice.value] ?? -1) <= rank && ANTIGRAVITY_LEVEL_RANK[choice.value] != null,
+  );
+  const best = [...candidates].sort(
+    (a, b) => ANTIGRAVITY_LEVEL_RANK[b.value]! - ANTIGRAVITY_LEVEL_RANK[a.value]!,
+  )[0];
+  return best ? { configId: offered.configId, value: best.value, name: best.name ?? best.value } : null;
 }
 
 /** The text shown when `agy` has no usable Google login. */
@@ -185,8 +224,27 @@ export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
           value: choice.value,
         });
       };
+      // A level above the plan's ceiling clamps to what the plan offers, and
+      // says so, instead of quietly keeping the account default.
+      const applyThinking = async (wanted: string) => {
+        const level = antigravityClampedLevel(configOptions, wanted);
+        if (!level) {
+          sink.notice?.(`Antigravity does not offer thinking level "${wanted}" for this account. It keeps its default.`);
+          return;
+        }
+        if (level.value.toLowerCase() !== antigravityThinkingValue(wanted).toLowerCase()) {
+          sink.notice?.(
+            `Antigravity offers thinking levels up to ${level.name} on this account. It uses that instead of "${wanted}".`,
+          );
+        }
+        await connection.agent.request(acp.methods.agent.session.setConfigOption, {
+          sessionId,
+          configId: level.configId,
+          value: level.value,
+        });
+      };
       if (model && model !== "default") await applyChoice("model", model, "model");
-      if (thinkingLevel) await applyChoice("thought_level", antigravityThinkingValue(thinkingLevel), "thinking level");
+      if (thinkingLevel) await applyThinking(thinkingLevel);
 
       return {
         nativeSessionId: sessionId,
@@ -204,7 +262,7 @@ export async function cmdAntigravityAcpSession(argv: string[]): Promise<void> {
           return { text: state.draft, thinking: state.thought };
         },
         interrupt: () => connection.agent.notify(acp.methods.agent.session.cancel, { sessionId }),
-        setThinkingLevel: (level) => applyChoice("thought_level", antigravityThinkingValue(level), "thinking level"),
+        setThinkingLevel: (level) => applyThinking(level),
         async close() {
           if (opened.methods.close) {
             try {

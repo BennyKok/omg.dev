@@ -155,6 +155,20 @@ function flatSelectOptions(option: acp.SessionConfigOption): acp.SessionConfigSe
 }
 
 /**
+ * The select option an agent advertised under `category`, with its value
+ * choices. Callers that need more than one exact id — a level clamp wants to
+ * rank every offered value — read this instead of resolveAcpConfigChoice.
+ */
+export function acpConfigChoices(
+  options: readonly acp.SessionConfigOption[],
+  category: string,
+): { configId: string; choices: acp.SessionConfigSelectOption[] } | null {
+  const option = options.find((entry) => entry.type === "select" && entry.category === category);
+  if (!option) return null;
+  return { configId: option.id, choices: flatSelectOptions(option) };
+}
+
+/**
  * Resolve a requested value against an agent-advertised select option.
  *
  * ACP agents publish their own value ids (an opaque model id, "extra" for a

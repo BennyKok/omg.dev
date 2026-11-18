@@ -230,7 +230,24 @@ function addModel(
   if (cleanLabel && cleanLabel !== id) labels[id] = cleanLabel;
 }
 
-const ANTIGRAVITY_EFFORT_SUFFIX = /-(?:low|medium|high|xhigh|max)$/;
+/**
+ * The level each `agy models` effort suffix names, in omg.dev's vocabulary.
+ * Antigravity's own ACP option names the two upper levels Extra and Max; omg.dev
+ * stores Extra as "xhigh", and the session maps it back (antigravityThinkingValue).
+ */
+const ANTIGRAVITY_LEVEL_SUFFIXES: Record<string, string> = {
+  low: "low",
+  medium: "medium",
+  high: "high",
+  extra: "xhigh",
+  xhigh: "xhigh",
+  max: "max",
+};
+
+/** Canonical order for a model's levels, so the picker never lists them shuffled. */
+const ANTIGRAVITY_LEVEL_ORDER = ["low", "medium", "high", "xhigh", "max"] as const;
+
+const ANTIGRAVITY_EFFORT_SUFFIX = /-(?:low|medium|high|xhigh|extra|max)$/;
 
 /**
  * `agy models` prints one `<id>\t<name>` line per model and effort level,
@@ -241,30 +258,64 @@ const ANTIGRAVITY_EFFORT_SUFFIX = /-(?:low|medium|high|xhigh|max)$/;
  * that is also how ACP names it (`gpt-oss-120b-medium`). The list carries no
  * "default" entry: the first model agy prints, the plan's own default, becomes
  * the picker's default (defaultModelForCatalogItem).
+ *
+ * It also returns the thinking levels each model's plan offers, read from the
+ * same effort suffixes (`variants`): a picker must offer only levels the plan
+ * actually has, because `agy` refuses to apply a level it did not list and the
+ * session would then silently run on the account default.
  */
-export function parseAntigravityModels(text: string): { models: string[]; labels: Record<string, string> } {
+export function parseAntigravityModels(text: string): {
+  models: string[];
+  labels: Record<string, string>;
+  variants: Record<string, string[]>;
+} {
   const rows: Array<{ id: string; name: string }> = [];
   for (const raw of cleanText(text).split("\n")) {
     const [id, ...rest] = raw.trim().split("\t");
     if (!id || !MODEL_ID_RE.test(id) || !rest.length) continue;
     rows.push({ id, name: rest.join(" ").trim() });
   }
-  const variants = new Map<string, number>();
+  const variantCount = new Map<string, number>();
   for (const row of rows) {
     const base = row.id.replace(ANTIGRAVITY_EFFORT_SUFFIX, "");
-    if (base !== row.id) variants.set(base, (variants.get(base) ?? 0) + 1);
+    if (base !== row.id) variantCount.set(base, (variantCount.get(base) ?? 0) + 1);
   }
   const models: string[] = [];
   const labels: Record<string, string> = {};
+  const levelsByModel = new Map<string, Set<string>>();
+  let planDefaultFamily: string | null = null;
   for (const row of rows) {
     const base = row.id.replace(ANTIGRAVITY_EFFORT_SUFFIX, "");
-    if (base !== row.id && (variants.get(base) ?? 0) > 1) {
+    const collapsed = base !== row.id && (variantCount.get(base) ?? 0) > 1;
+    if (!planDefaultFamily) planDefaultFamily = collapsed ? base : row.id;
+    // A single-variant id without an effort suffix (gemini-pro-orchestrator-g1-pro)
+    // tells its level only through Google's picker. Offer the Low/Medium/High
+    // tier every model has; the session clamps or falls back if it offers less.
+    const suffix = collapsed || base !== row.id ? row.id.slice(base.length + 1) : null;
+    const level = suffix ? ANTIGRAVITY_LEVEL_SUFFIXES[suffix] : null;
+    if (!collapsed && !level && base === row.id) {
+      levelsByModel.set(row.id, new Set(["low", "medium", "high"]));
+    } else if (level) {
+      let set = levelsByModel.get(collapsed ? base : row.id);
+      if (!set) {
+        set = new Set();
+        levelsByModel.set(collapsed ? base : row.id, set);
+      }
+      set.add(level);
+    }
+    if (collapsed) {
       addModel(models, labels, base, row.name.replace(/\s*\([^)]*\)\s*$/, ""));
     } else {
       addModel(models, labels, row.id, row.name);
     }
   }
-  return { models, labels };
+  const variants: Record<string, string[]> = {};
+  for (const [model, levels] of levelsByModel) {
+    variants[model] = ANTIGRAVITY_LEVEL_ORDER.filter((level) => levels.has(level));
+  }
+  const defaultFamily = planDefaultFamily ? variants[planDefaultFamily] : undefined;
+  if (defaultFamily?.length) variants.default = [...defaultFamily];
+  return { models, labels, variants };
 }
 
 export function parseCodexModels(text: string): { models: string[]; labels: Record<string, string> } {

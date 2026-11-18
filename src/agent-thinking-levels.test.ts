@@ -19,6 +19,7 @@ import {
   GROK_THINKING_LEVELS,
   JCODE_THINKING_LEVELS,
   PI_THINKING_LEVELS,
+  antigravityLevelsFor,
   thinkingLevelsForAgent,
 } from "./agent-catalog.ts";
 import { claudeEffortFor, grokEffortFor } from "./tmux.ts";
@@ -79,6 +80,28 @@ describe("levels offered per agent", () => {
     // OpenCode is intentionally absent: its levels come from each discovered
     // model's `variants`, covered by the model-discovery regression tests.
     expect(thinkingLevelsForAgent("copilot")).toBeNull();
+  });
+
+  // Antigravity's full vocabulary (Low/Medium/High/Extra/Max) belongs to the
+  // richest plan only. A plan whose `agy models` stops at High must not be
+  // offered Extra or Max: `agy` refuses them, and the session used to silently
+  // run on the account default. The levels come from discovery's per-model
+  // `variants`, so they are tested on the pure resolver.
+  test("antigravity offers per model exactly the levels its plan lists", () => {
+    const variants = {
+      "gemini-4-argon": ["low", "medium", "high"],
+      "gemini-4-hydrogen": ["low", "medium", "high", "xhigh"],
+      "gpt-oss-120b-medium": ["medium"],
+      default: ["low", "medium", "high"],
+    };
+    expect(antigravityLevelsFor(variants, "gemini-4-argon")).toEqual(["low", "medium", "high"]);
+    expect(antigravityLevelsFor(variants, "gemini-4-hydrogen")).toEqual(["low", "medium", "high", "xhigh"]);
+    expect(antigravityLevelsFor(variants, "gpt-oss-120b-medium")).toEqual(["medium"]);
+    // The plan default family's levels, before a model is picked.
+    expect(antigravityLevelsFor(variants)).toEqual(["low", "medium", "high", "xhigh"]);
+    // An id outside the cache offers no knob rather than one that never applies.
+    expect(antigravityLevelsFor(variants, "unknown-model")).toBeNull();
+    expect(antigravityLevelsFor({}, "unknown-model")).toBeNull();
   });
 });
 
