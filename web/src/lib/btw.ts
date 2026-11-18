@@ -110,15 +110,28 @@ export async function streamBtwQuestion(input: {
 
 export function useBtwSession(input: {
   sid: string | null | undefined;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onPromoteText: (text: string) => void;
   focusInputRef: RefObject<HTMLTextAreaElement | null>;
 }) {
-  const { sid, onPromoteText, focusInputRef } = input;
-  const [open, setOpen] = useState(false);
+  const { sid, open: controlledOpen, onOpenChange, onPromoteText, focusInputRef } = input;
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
+  const open = controlledOpen ?? uncontrolledOpen;
+  const setOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    const resolved = typeof next === "function" ? next(open) : next;
+    if (onOpenChange) onOpenChange(resolved);
+    else setUncontrolledOpen(resolved);
+  };
   const [turns, setTurns] = useState<BtwTurn[]>([]);
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const turnsRef = useRef<BtwTurn[]>([]);
+  const openRef = useRef(open);
+
+  useEffect(() => {
+    openRef.current = open;
+  }, [open]);
 
   useEffect(() => {
     turnsRef.current = turns;
@@ -127,21 +140,24 @@ export function useBtwSession(input: {
   useEffect(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    setOpen(false);
+    if (onOpenChange) onOpenChange(false);
+    else setUncontrolledOpen(false);
     setTurns([]);
     setStreaming(false);
-  }, [sid]);
+  }, [sid, onOpenChange]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key === ";") {
         e.preventDefault();
-        setOpen((prev) => !prev);
+        const next = !openRef.current;
+        if (onOpenChange) onOpenChange(next);
+        else setUncontrolledOpen(next);
       }
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [onOpenChange]);
 
   async function ask(question: string) {
     const q = question.trim();

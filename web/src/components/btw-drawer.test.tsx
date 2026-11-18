@@ -51,8 +51,7 @@ describe("BtwDrawer", () => {
       />,
     );
 
-    expect(ui.text()).toContain("Not saved to session");
-    expect(ui.text()).toContain("Reads main transcript · Tools off");
+    expect(ui.text()).toContain("Tools off · Not saved");
     expect(ui.text()).toContain("Why does sendq probe?");
     expect(ui.text()).toContain("It confirms the user turn surfaced.");
 

@@ -16852,8 +16852,16 @@ function SessionChat(rawProps: SessionChatProps) {
   const plan = useSessionPlan(botId ? null : sid, onSubscribeTranscript);
   const team = useSessionTeam(botId ? null : sid);
   const planPaneOpen = usePlanPaneOpen();
+  const [btwOpen, setBtwOpen] = useState(false);
+  const prevPlanPaneOpen = useRef(planPaneOpen);
+  useEffect(() => {
+    if (planPaneOpen && !prevPlanPaneOpen.current && btwOpen) {
+      setBtwOpen(false);
+    }
+    prevPlanPaneOpen.current = planPaneOpen;
+  }, [planPaneOpen, btwOpen]);
   const sendToAgent = useSessionSend(sid);
-  const showPlanPane = !botId && planPaneOpen && hasPanel(plan, team);
+  const showPlanPane = !botId && planPaneOpen && hasPanel(plan, team) && !btwOpen;
   return (
     <>
       {/* Always the same wrapper, so opening the pane never remounts the chat.
@@ -16866,7 +16874,11 @@ function SessionChat(rawProps: SessionChatProps) {
             transport={chatTransport}
             onError={reportError}
           >
-            <SessionChatBody {...props} />
+            <SessionChatBody
+              {...props}
+              btwOpen={btwOpen}
+              onBtwOpenChange={setBtwOpen}
+            />
           </OmgChatEngine>
         </Suspense>
         {showPlanPane ? (
@@ -16903,7 +16915,12 @@ function SessionChatBody({
   onRefresh,
   onDictatingChange,
   beforeComposer,
-}: SessionChatProps) {
+  btwOpen,
+  onBtwOpenChange,
+}: SessionChatProps & {
+  btwOpen?: boolean;
+  onBtwOpenChange?: (open: boolean) => void;
+}) {
   "use memo";
   const sid = session.sessionId;
   const reviewingShipped = !!session.shippedReview;
@@ -17177,6 +17194,8 @@ function SessionChatBody({
 
   const btw = useBtwSession({
     sid,
+    open: btwOpen,
+    onOpenChange: onBtwOpenChange,
     onPromoteText: setMessageText,
     focusInputRef: messageInputRef,
   });
