@@ -2,26 +2,24 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-18.
+Last refresh: 2026-11-19.
 
 ## Active work (last 14 days)
 
 - **Agent sessions**: failed Claude turns appear in the transcript (#513).
-  tmux passes typed text as text after ending option parsing (#512). Skill
-  suggestions use the active agent's skill catalog (#509).
+  tmux ends option parsing before passing typed text (#512). Skill suggestions
+  use the active agent's skill catalog (#509).
 - **Local runtime and repository**: the README describes the self-run version
   (#501). Native clients and legacy deploy templates were removed (#498).
   Snapshot fork bases install dependencies for nested Bun projects (#497).
-- **Computer**: native macOS screen capture, input, and clipboard landed
-  (#505). Personal Computer connections were removed (#493).
-- **Security and dependencies**: audit fixes and mobile install patches landed
-  (#494). A production host address and tailnet name were removed (#496).
-  GitHub Actions use pinned SHAs, releases have approval gates, and npm uses
-  trusted publishing (#491).
-- **Automations**: finding autopilot starts sessions for open findings (#490).
-- **Docs**: the former Cloud and deploy design was marked superseded (#504).
-  STATE.md refreshes landed in #495, #499, #500, #503, #506, #507, #508, #510,
-  and #511.
+- **Computer**: native macOS screen capture, input, and clipboard landed (#505).
+- **Security and releases**: a production host address and tailnet name were
+  removed (#496). GitHub Actions use pinned SHAs, releases have approval gates,
+  and npm uses trusted publishing (#491).
+- **Docs**: the accounts design records the shipped People tab and pending
+  server-side role enforcement (#515). The former Cloud and deploy design is
+  marked superseded (#504). STATE.md refreshes landed in #499, #500, #503,
+  #506, #507, #508, #510, #511, and #514.
 
 ## Open pull requests
 
