@@ -51,7 +51,7 @@ const LOCAL_MACHINE = { id: "local", name: "This computer" } as const;
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime, composerSendMode } from "./lib/runtime-availability";
 import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
-import { useOpenSession, useStageSessionPathSync } from "./lib/open-session";
+import { matchOpenSession, useOpenSession, useStageSessionPathSync } from "./lib/open-session";
 import { AutoAgentPage, AutoAgentPageInStage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -7463,9 +7463,7 @@ export function App() {
       return;
     }
     if (loading || identityGateOpen || alignedPathSessionRef.current === openSessionId) return;
-    const target = allLiveSessions.find(
-      (session) => session.sessionId === openSessionId || session.nativeSessionId === openSessionId,
-    );
+    const target = matchOpenSession(openSessionId, allLiveSessions);
     if (!target) return;
     alignedPathSessionRef.current = openSessionId;
     if (!sessionMatchesUserFilter(target, userFilter)) {
@@ -12829,6 +12827,7 @@ function RailStage({
     if (shippedReview?.sessionId) m.set(shippedReview.sessionId, shippedReview);
     return m;
   }, [sessions, openSessionRow, shippedReview]);
+  const resolvedOpenSessionId = openSessionRow?.sessionId ?? openSessionId;
 
   // Soft primary glow on the stage column for the given sid so multi-pane
   // layouts make the just-selected window obvious.
@@ -12851,20 +12850,20 @@ function RailStage({
     handledFocusRef.current = token;
     setPreview(sid);
     setCursor(sid);
-    if (railSurface === "sessions" && openSessionId !== sid) {
+    if (railSurface === "sessions" && resolvedOpenSessionId !== sid) {
       onOpenSessionPage?.(sid);
     }
     pulseStage(sid);
     requestAnimationFrame(() => {
       document.querySelector(`[data-rail-sid="${sid}"]`)?.scrollIntoView({ block: "center" });
     });
-  }, [focus, bySid, pulseStage, railSurface, openSessionId, onOpenSessionPage]);
+  }, [focus, bySid, pulseStage, railSurface, resolvedOpenSessionId, onOpenSessionPage]);
 
   // URL path (`/sessions/<id>`): when the route names a session, reflect it on
   // the desktop stage so links, in-message references, and back/forward update
   // the rendered pane.
   useStageSessionPathSync({
-    openSessionId,
+    openSessionId: resolvedOpenSessionId,
     onSelectSession: (sid) => {
       setPreview(sid);
       setCursor(sid);
@@ -12893,7 +12892,7 @@ function RailStage({
   // explicitly names the open session (`/sessions/<id>`).
   useLayoutEffect(() => {
     setPinned(readPinned());
-    setPreview((p) => (openSessionId && p === openSessionId ? p : openSessionId));
+    setPreview((p) => (resolvedOpenSessionId && p === resolvedOpenSessionId ? p : resolvedOpenSessionId));
     setRailCollapsed(readRailCollapsed());
     anchorRef.current = null;
   }, [readPinned, readRailCollapsed]);
@@ -13124,7 +13123,7 @@ function RailStage({
     onCloseStageSheet?.();
     // A session picked while a thread fills the stage replaces the thread.
     if (openThreadId) onCloseThread?.();
-    if (railSurface === "sessions" && openSessionId !== sid) {
+    if (railSurface === "sessions" && resolvedOpenSessionId !== sid) {
       onOpenSessionPage?.(sid);
     }
     // Board mode shows one session beside the board, pinned or not.
@@ -13152,7 +13151,7 @@ function RailStage({
   const closeColumn = (sid: string) => {
     setPinned((prev) => prev.filter((x) => x !== sid));
     setPreview((p) => (p === sid ? null : p));
-    if (railSurface === "sessions" && openSessionId === sid) {
+    if (railSurface === "sessions" && resolvedOpenSessionId === sid) {
       onCloseSessionPage?.();
     }
   };
@@ -13440,7 +13439,7 @@ function RailStage({
     orderedSids,
     cursor,
     preview,
-    openSessionId,
+    openSessionId: resolvedOpenSessionId,
     railSurface,
     onCloseSessionPage,
     columnIds,

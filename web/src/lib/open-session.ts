@@ -13,7 +13,49 @@ import { useEffect, useRef, useState } from "react";
  */
 export const OPEN_SESSION_GONE_GRACE_MS = 15_000;
 
-type SessionRow = { sessionId?: string | null };
+type SessionRow = { sessionId?: string | null; nativeSessionId?: string | null };
+
+/**
+ * Resolve a `/sessions/<id>` route parameter (exact id, native id, or
+ * unambiguous prefix) to the matching row in `sessions`.
+ */
+export function matchOpenSession<S extends SessionRow>(
+  openSessionId: string | null | undefined,
+  sessions: readonly S[],
+): S | null {
+  if (!openSessionId) return null;
+  for (const session of sessions) {
+    if (session.sessionId === openSessionId || session.nativeSessionId === openSessionId) {
+      return session;
+    }
+  }
+  const lower = openSessionId.toLowerCase();
+  let prefixMatch: S | null = null;
+  let seenKey: string | null = null;
+  for (const session of sessions) {
+    const sid = session.sessionId;
+    const nid = session.nativeSessionId;
+    const hit =
+      (!!sid && sid.toLowerCase().startsWith(lower)) ||
+      (!!nid && nid.toLowerCase().startsWith(lower));
+    if (!hit) continue;
+    const key = sid ?? nid ?? "";
+    if (prefixMatch && seenKey !== key) return null;
+    prefixMatch = session;
+    seenKey = key;
+  }
+  return prefixMatch;
+}
+
+function sessionMatchesOpenId(session: SessionRow | null | undefined, openSessionId: string | null): boolean {
+  if (!session || !openSessionId) return false;
+  if (session.sessionId === openSessionId || session.nativeSessionId === openSessionId) return true;
+  const lower = openSessionId.toLowerCase();
+  return (
+    (!!session.sessionId && session.sessionId.toLowerCase().startsWith(lower)) ||
+    (!!session.nativeSessionId && session.nativeSessionId.toLowerCase().startsWith(lower))
+  );
+}
 
 /**
  * The session `/sessions/<id>` names, looked up by id.
@@ -43,15 +85,15 @@ export function useOpenSession<S extends SessionRow>({
   graceMs?: number;
 }): S | null {
   const live = openSessionId
-    ? liveSessions.find((session) => session.sessionId === openSessionId) ??
-      (shippedReview?.sessionId === openSessionId ? shippedReview : null)
+    ? matchOpenSession(openSessionId, liveSessions) ??
+      (sessionMatchesOpenId(shippedReview, openSessionId) ? shippedReview ?? null : null)
     : null;
 
   // Hold the last row for the open id, so a short absence does not unmount
   // the page under the person reading it.
   const lastRef = useRef<S | null>(null);
   if (live) lastRef.current = live;
-  else if (lastRef.current?.sessionId !== openSessionId) lastRef.current = null;
+  else if (!sessionMatchesOpenId(lastRef.current, openSessionId)) lastRef.current = null;
 
   // Only once a list has actually arrived. An empty list is the boot state as
   // well as the "nothing is running" state, and treating the first as the

@@ -7,9 +7,9 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
 const { useState } = await import("react");
-const { useOpenSession, useStageSessionPathSync } = await import("./open-session");
+const { matchOpenSession, useOpenSession, useStageSessionPathSync } = await import("./open-session");
 
-type Row = { sessionId: string; project: string };
+type Row = { sessionId: string; nativeSessionId?: string | null; project: string };
 const SID = "46cf9e62-1068-4a2d-9fce-5bae2c86157b";
 const GRACE = 40;
 
@@ -160,4 +160,23 @@ test("stage session path sync selects a session when the URL path changes and cl
   ui.render(<StageProbe openSessionId={null} />);
   expect(ui.query('[data-testid="preview"]')?.textContent).toBe("none");
   expect(ui.query('[data-testid="cursor"]')?.textContent).toBe("second-session");
+});
+
+test("useOpenSession and matchOpenSession resolve short 8-char prefixes and nativeSessionId", async () => {
+  const row: Row = {
+    sessionId: SID,
+    nativeSessionId: "native-942f5e7d-full",
+    project: "lfg",
+  };
+  const other: Row = {
+    sessionId: "99aabbcc-1122-3344-5566-77889900aabb",
+    project: "other",
+  };
+  expect(matchOpenSession("46cf9e62", [row, other])).toBe(row);
+  expect(matchOpenSession("native-942f5e7d", [row, other])).toBe(row);
+
+  ui.render(<Probe openSessionId="46cf9e62" liveSessions={[row, other]} />);
+  expect(shown?.sessionId).toBe(SID);
+  await ui.flushAsync(() => wait(GRACE * 3));
+  expect(closes).toBe(0);
 });
