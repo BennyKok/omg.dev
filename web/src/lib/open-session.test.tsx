@@ -6,7 +6,8 @@
 // its page open.
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mount, type Mounted } from "../test-support/render";
-const { useOpenSession } = await import("./open-session");
+const { useState } = await import("react");
+const { useOpenSession, useStageSessionPathSync } = await import("./open-session");
 
 type Row = { sessionId: string; project: string };
 const SID = "46cf9e62-1068-4a2d-9fce-5bae2c86157b";
@@ -106,4 +107,57 @@ test("a shipped session opened for review stays open though it is not live", asy
   expect(shown).toBe(review);
   await ui.flushAsync(() => wait(GRACE * 3));
   expect(closes).toBe(0);
+});
+
+test("stage session path sync selects a session when the URL path changes and clears it on return to root", () => {
+  const pulsed: string[] = [];
+  let sheetCloses = 0;
+
+  function StageProbe({ openSessionId }: { openSessionId: string | null }) {
+    const [preview, setPreview] = useState<string | null>(null);
+    const [cursor, setCursor] = useState<string | null>(null);
+    useStageSessionPathSync({
+      openSessionId,
+      onSelectSession: (sid) => {
+        setPreview(sid);
+        setCursor(sid);
+      },
+      onClearSession: (previousSid) => {
+        setPreview((p) => (p === previousSid ? null : p));
+      },
+      onCloseStageSheet: () => {
+        sheetCloses += 1;
+      },
+      onPulse: (sid) => {
+        pulsed.push(sid);
+      },
+    });
+    return (
+      <div>
+        <span data-testid="preview">{preview ?? "none"}</span>
+        <span data-testid="cursor">{cursor ?? "none"}</span>
+      </div>
+    );
+  }
+
+  ui.render(<StageProbe openSessionId={null} />);
+  expect(ui.query('[data-testid="preview"]')?.textContent).toBe("none");
+
+  // Navigating to /sessions/<id> selects and pulses the session on the stage.
+  ui.render(<StageProbe openSessionId={SID} />);
+  expect(ui.query('[data-testid="preview"]')?.textContent).toBe(SID);
+  expect(ui.query('[data-testid="cursor"]')?.textContent).toBe(SID);
+  expect(pulsed).toEqual([SID]);
+  expect(sheetCloses).toBe(1);
+
+  // Navigating to another session updates the stage preview and pulses the new one.
+  ui.render(<StageProbe openSessionId="second-session" />);
+  expect(ui.query('[data-testid="preview"]')?.textContent).toBe("second-session");
+  expect(ui.query('[data-testid="cursor"]')?.textContent).toBe("second-session");
+  expect(pulsed).toEqual([SID, "second-session"]);
+
+  // Navigating back to / clears the preview while preserving the last cursor.
+  ui.render(<StageProbe openSessionId={null} />);
+  expect(ui.query('[data-testid="preview"]')?.textContent).toBe("none");
+  expect(ui.query('[data-testid="cursor"]')?.textContent).toBe("second-session");
 });

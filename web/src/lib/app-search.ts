@@ -93,11 +93,27 @@ export function tabToPath(tab: string): string {
   return canonical === DEFAULT_TAB ? "/" : `/${encodeURIComponent(canonical)}`;
 }
 
-/** Same-tab requests are state updates, not route changes. Avoiding a redundant
- * navigation also preserves active search contracts such as `session` and
- * `embed`, which the router would otherwise clear when no `search` is supplied. */
-export function shouldNavigateToTab(currentTab: string, nextTab: string): boolean {
-  return currentTab !== nextTab;
+/** Same-tab requests are state updates, not route changes — except when a
+ *  session or thread detail route (`/sessions/<id>`, `/threads/<id>`) is open
+ *  over Live, where choosing "live" returns to the root list (`/`). Avoiding a
+ *  redundant navigation on the root itself preserves active search contracts
+ *  such as `session` and `embed`, which the router would otherwise clear when
+ *  no `search` is supplied. */
+export function shouldNavigateToTab(
+  currentTab: string,
+  nextTab: string,
+  currentPathname?: string,
+): boolean {
+  if (currentTab !== nextTab) return true;
+  if (
+    nextTab === DEFAULT_TAB &&
+    currentPathname &&
+    (pathnameToSessionId(currentPathname) !== null ||
+      pathnameToThreadId(currentPathname) !== null)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /** Read the session contract from the browser URL before router search state is
@@ -174,7 +190,11 @@ export function validateIndexSearch(search: Record<string, unknown>): IndexSearc
 
 /** Whether routing should prioritize focusing a live session over other shell
  *  work (filters, identity gate, secondary tab warmups). True when a session
- *  deep-link is present. */
-export function shouldPrioritizeSession(search: AppSearch | null | undefined): boolean {
-  return typeof search?.session === "string" && search.session.length > 0;
+ *  deep-link or `/sessions/<id>` path is present. */
+export function shouldPrioritizeSession(
+  search: AppSearch | null | undefined,
+  pathname?: string,
+): boolean {
+  if (typeof search?.session === "string" && search.session.length > 0) return true;
+  return !!pathname && pathnameToSessionId(pathname) !== null;
 }

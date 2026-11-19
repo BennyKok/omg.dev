@@ -88,3 +88,52 @@ export function useOpenSession<S extends SessionRow>({
 
   return live ?? lastRef.current;
 }
+
+/**
+ * Sync the desktop stage preview and cursor with the `/sessions/<id>` URL path.
+ *
+ * When the URL names a session (`openSessionId`), that session becomes the stage
+ * preview and cursor. When the URL returns to `/` (`openSessionId === null`),
+ * only a preview that was opened for the previous URL session is cleared, so
+ * stage pins and unrelated previews are left untouched.
+ */
+export function useStageSessionPathSync({
+  openSessionId,
+  onSelectSession,
+  onClearSession,
+  onCloseStageSheet,
+  onPulse,
+}: {
+  openSessionId: string | null;
+  onSelectSession: (sid: string) => void;
+  onClearSession: (previousSid: string) => void;
+  onCloseStageSheet?: () => void;
+  onPulse?: (sid: string) => void;
+}): void {
+  const prevOpenSessionIdRef = useRef<string | null>(null);
+  const handlersRef = useRef({
+    onSelectSession,
+    onClearSession,
+    onCloseStageSheet,
+    onPulse,
+  });
+  handlersRef.current = {
+    onSelectSession,
+    onClearSession,
+    onCloseStageSheet,
+    onPulse,
+  };
+  useEffect(() => {
+    const previous = prevOpenSessionIdRef.current;
+    prevOpenSessionIdRef.current = openSessionId;
+    if (openSessionId) {
+      handlersRef.current.onCloseStageSheet?.();
+      handlersRef.current.onSelectSession(openSessionId);
+      if (previous !== openSessionId) handlersRef.current.onPulse?.(openSessionId);
+      return;
+    }
+    if (previous) {
+      handlersRef.current.onClearSession(previous);
+    }
+  }, [openSessionId]);
+}

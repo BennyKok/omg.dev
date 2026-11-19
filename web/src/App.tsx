@@ -51,7 +51,7 @@ const LOCAL_MACHINE = { id: "local", name: "This computer" } as const;
 import { useHeaderProfile } from "./lib/header-profile";
 import { RuntimeAvailabilityContext, useRuntimeAvailability, shouldReloadRuntime, composerSendMode } from "./lib/runtime-availability";
 import { RuntimeRecovery, RuntimeEmptyState } from "./components/runtime-recovery";
-import { useOpenSession } from "./lib/open-session";
+import { useOpenSession, useStageSessionPathSync } from "./lib/open-session";
 import { AutoAgentPage, AutoAgentPageInStage } from "./components/auto-agent-page";
 import { Component, createContext, type ComponentProps, forwardRef, memo, Suspense, useCallback, useContext, useEffect, useEffectEvent, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
@@ -64,6 +64,7 @@ import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router";
 import {
   DEFAULT_TAB,
   pathnameToTab,
+  readLocationSessionId,
   shouldNavigateToTab,
   shouldPrioritizeSession,
 } from "./lib/app-search";
@@ -5723,7 +5724,9 @@ export function App() {
   const bare = false;
   // Session deep-links win over filter/identity work so the target card opens
   // as soon as bootstrap returns sessions.
-  const prioritizeSession = shouldPrioritizeSession(deepLinkSearch) || !!sessionDeepLinkRef.current;
+  const initialPathname = useRouterState({ select: (s) => s.location.pathname });
+  const prioritizeSession =
+    shouldPrioritizeSession(deepLinkSearch, initialPathname) || !!sessionDeepLinkRef.current;
   const isMobile = useIsMobile();
   const isWide = useIsWide();
   // Narrow layout floats the top chrome over an absolutely-positioned scroll
@@ -6120,10 +6123,12 @@ export function App() {
   // from a ref, not a closure) so passing it to children doesn't churn them.
   const tabRef = useRef(tab);
   tabRef.current = tab;
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
   const setTab = useCallback(
     (next: string | ((current: string) => string)) => {
       const resolved = typeof next === "function" ? next(tabRef.current) : next;
-      if (!shouldNavigateToTab(tabRef.current, resolved)) return;
+      if (!shouldNavigateToTab(tabRef.current, resolved, pathnameRef.current)) return;
       // Carry the host-mode contract across the navigation. The router clears
       // search when none is supplied (see shouldNavigateToTab's note), so
       // without this, moving to Shipped or Artifacts dropped `embed` — and LFG
@@ -6294,10 +6299,9 @@ export function App() {
   const [userFilter, setUserFilter] = useState(() => {
     // Session deep-links also start open so a linked session isn't filtered out
     // before the resolver runs.
-    try {
-      const sid = new URLSearchParams(window.location.search).get("session");
-      if (sid) return "__all";
-    } catch { /* ignore */ }
+    if (readLocationSessionId() || (typeof window !== "undefined" && pathnameToSessionId(window.location.pathname))) {
+      return "__all";
+    }
     // Honor ANY explicit saved filter, including "__all". Treating "__all" as
     // "unset" and falling through to lfg_user made "Everyone" non-sticky: the
     // next load re-applied the profile and hid every unassigned session. That
@@ -7448,6 +7452,29 @@ export function App() {
     },
     [allLiveSessions, identity, setTab],
   );
+
+  // A `/sessions/<id>` route navigated to directly or via in-app session ref
+  // also ensures the target session's user and project folder filters are open
+  // so the rail and list include the session.
+  const alignedPathSessionRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!openSessionId) {
+      alignedPathSessionRef.current = null;
+      return;
+    }
+    if (loading || identityGateOpen || alignedPathSessionRef.current === openSessionId) return;
+    const target = allLiveSessions.find(
+      (session) => session.sessionId === openSessionId || session.nativeSessionId === openSessionId,
+    );
+    if (!target) return;
+    alignedPathSessionRef.current = openSessionId;
+    if (!sessionMatchesUserFilter(target, userFilter)) {
+      setUserFilter("__all");
+    }
+    if (!sessionMatchesProjectFilter(target, projectFilter)) {
+      setProjectFilter(target.project ? target.project : NO_PROJECT_FILTER);
+    }
+  }, [openSessionId, allLiveSessions, loading, identityGateOpen, userFilter, projectFilter]);
 
   // A `?session=` deep-link (a Shipped push, an artifact link) resolves against
   // the live fleet first. Match the native id too: dual-id backends post under
@@ -10094,8 +10121,10 @@ export function App() {
         }}
         onCreated={async (result) => {
           setNewOpen(false);
-          setTab("live");
           await refreshSessions({ seed: result?.session ?? null });
+          const sid = result?.sessionId ?? result?.session?.sessionId;
+          if (sid) openSessionPage(sid);
+          else setTab("live");
         }}
       />
 
@@ -12187,6 +12216,10 @@ function LiveView({
         onOpenThread={onOpenThread}
         onCloseThread={onCloseSessionPage}
         onOpenThreadTask={openThreadTask}
+        openSessionId={openSessionId}
+        openSessionRow={openSession}
+        onOpenSessionPage={onOpenSessionPage}
+        onCloseSessionPage={onCloseSessionPage}
         sessions={sessions}
         shippedReview={shippedReview}
         users={users}
@@ -12619,6 +12652,10 @@ function RailStage({
   onOpenThread,
   onCloseThread,
   onOpenThreadTask,
+  openSessionId = null,
+  openSessionRow = null,
+  onOpenSessionPage,
+  onCloseSessionPage,
 }: {
   threadViewer?: string;
   threadReplies?: string | null;
@@ -12629,6 +12666,12 @@ function RailStage({
   onOpenThread?: (id: string) => void;
   onCloseThread?: () => void;
   onOpenThreadTask?: (sid: string) => void;
+  /** The session `/sessions/<id>` names, or null on the plain list. */
+  openSessionId?: string | null;
+  /** The resolved session row for `/sessions/<id>` across all live sessions. */
+  openSessionRow?: Session | null;
+  onOpenSessionPage?: (sid: string) => void;
+  onCloseSessionPage?: () => void;
   sessions: Session[];
   shippedReview?: Session | null;
   users: User[];
@@ -12782,9 +12825,10 @@ function RailStage({
   const bySid = useMemo(() => {
     const m = new Map<string, Session>();
     for (const s of sessions) if (s.sessionId) m.set(s.sessionId, s);
+    if (openSessionRow?.sessionId) m.set(openSessionRow.sessionId, openSessionRow);
     if (shippedReview?.sessionId) m.set(shippedReview.sessionId, shippedReview);
     return m;
-  }, [sessions, shippedReview]);
+  }, [sessions, openSessionRow, shippedReview]);
 
   // Soft primary glow on the stage column for the given sid so multi-pane
   // layouts make the just-selected window obvious.
@@ -12807,11 +12851,30 @@ function RailStage({
     handledFocusRef.current = token;
     setPreview(sid);
     setCursor(sid);
+    if (railSurface === "sessions" && openSessionId !== sid) {
+      onOpenSessionPage?.(sid);
+    }
     pulseStage(sid);
     requestAnimationFrame(() => {
       document.querySelector(`[data-rail-sid="${sid}"]`)?.scrollIntoView({ block: "center" });
     });
-  }, [focus, bySid, pulseStage]);
+  }, [focus, bySid, pulseStage, railSurface, openSessionId, onOpenSessionPage]);
+
+  // URL path (`/sessions/<id>`): when the route names a session, reflect it on
+  // the desktop stage so links, in-message references, and back/forward update
+  // the rendered pane.
+  useStageSessionPathSync({
+    openSessionId,
+    onSelectSession: (sid) => {
+      setPreview(sid);
+      setCursor(sid);
+    },
+    onClearSession: (previousSid) => {
+      setPreview((p) => (p === previousSid ? null : p));
+    },
+    onCloseStageSheet,
+    onPulse: pulseStage,
+  });
 
   // Drop pinned/preview ids the server has stopped returning (session ended),
   // so columns vanish cleanly instead of rendering blanks.
@@ -12826,10 +12889,11 @@ function RailStage({
   }, [bySid]);
 
   // Reload layout state when switching projects; each project gets its own local
-  // pinned columns and rail collapsed state.
+  // pinned columns and rail collapsed state. Preserve the preview when the URL
+  // explicitly names the open session (`/sessions/<id>`).
   useLayoutEffect(() => {
     setPinned(readPinned());
-    setPreview(null);
+    setPreview((p) => (openSessionId && p === openSessionId ? p : openSessionId));
     setRailCollapsed(readRailCollapsed());
     anchorRef.current = null;
   }, [readPinned, readRailCollapsed]);
@@ -13011,6 +13075,7 @@ function RailStage({
   const startNew = () => {
     if (railSurface === "sessions" && validPinned.length === 0) {
       setPreview(null);
+      if (openSessionId) onCloseSessionPage?.();
       return;
     }
     onNew();
@@ -13049,11 +13114,19 @@ function RailStage({
     // From Schedules, picking a session in the rail goes back to Chat: the
     // stage is showing the schedule list, and a preview set underneath it
     // would be an open session nobody can see.
-    if (railSurface === "auto" || railSurface === "page") onOpenSessions();
+    if (railSurface === "auto" || railSurface === "page") {
+      onCloseStageSheet?.();
+      onOpenSessionPage?.(sid);
+      setPreview(sid);
+      return;
+    }
     // A report in the stage gives way to the session picked beside it.
     onCloseStageSheet?.();
     // A session picked while a thread fills the stage replaces the thread.
     if (openThreadId) onCloseThread?.();
+    if (railSurface === "sessions" && openSessionId !== sid) {
+      onOpenSessionPage?.(sid);
+    }
     // Board mode shows one session beside the board, pinned or not.
     if (railSurface !== "board" && validPinned.includes(sid)) return; // already a persistent column
     setPreview(sid);
@@ -13079,6 +13152,9 @@ function RailStage({
   const closeColumn = (sid: string) => {
     setPinned((prev) => prev.filter((x) => x !== sid));
     setPreview((p) => (p === sid ? null : p));
+    if (railSurface === "sessions" && openSessionId === sid) {
+      onCloseSessionPage?.();
+    }
   };
 
   /**
@@ -13364,6 +13440,9 @@ function RailStage({
     orderedSids,
     cursor,
     preview,
+    openSessionId,
+    railSurface,
+    onCloseSessionPage,
     columnIds,
     activate,
     pulseStage,
@@ -13466,7 +13545,11 @@ function RailStage({
             return;
           }
           if (s.preview) {
+            const closing = s.preview;
             s.setPreview(null);
+            if (s.railSurface === "sessions" && s.openSessionId === closing) {
+              s.onCloseSessionPage?.();
+            }
             return;
           }
           const target = cur && s.busyBySid[cur] ? cur : order.find((id) => s.busyBySid[id]) ?? null;
@@ -13609,16 +13692,21 @@ function RailStage({
           return { sid: sourceSid, session: shippedReview };
         }
         const node = railTree.nodeForSessionId(sourceSid);
-        const sid = node?.session.sessionId ?? sourceSid;
-        if (!node || !sid) return null;
-        return { sid, session: node.session };
+        if (node?.session.sessionId) {
+          return { sid: node.session.sessionId, session: node.session };
+        }
+        const direct = bySid.get(sourceSid);
+        if (direct?.sessionId) {
+          return { sid: direct.sessionId, session: direct };
+        }
+        return null;
       })
       .filter(
         (
           column,
         ): column is { sid: string; session: Session } => !!column,
       );
-  }, [columnIds, railTree, shippedReview]);
+  }, [columnIds, railTree, bySid, shippedReview]);
 
   const renderStageCard = (
     session: Session,
@@ -14314,6 +14402,7 @@ function RailStage({
                 const sid = result?.sessionId ?? result?.session?.sessionId;
                 if (sid) {
                   setPreview(sid);
+                  onOpenSessionPage?.(sid);
                   pulseStage(sid);
                 }
               },
