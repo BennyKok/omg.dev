@@ -35,12 +35,33 @@ import {
  */
 const MAX_FINDINGS_PER_RUN = 5;
 
-// The opening sentence is shared with the resume-cache scan, which uses it to
-// keep scheduled runs out of the archive picker. See watch-agent-signature.ts.
-const SYSTEM = `${WATCH_AGENT_OPENING} Carry out the instruction below.
+const READONLY_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
-You have read-only tools (Read, Grep, Glob, WebSearch, WebFetch) — use them to
-gather your own context. Decide what, if anything, is worth surfacing as a
+/**
+ * The header every auto-agent run gets.
+ *
+ * The tool sentence must match the grants on the agent row. It used to say
+ * "read-only" unconditionally, which contradicted agents granted Bash: the
+ * librarian is told to open a docs PR every night, saw a header claiming it
+ * could not write, and filed "blocked by read-only access" instead of doing
+ * the work. Reads are listed first because most runs only report; a run that
+ * was granted a write tool is told to carry out its own instruction with it.
+ */
+export function systemPrompt(agent: Pick<AutoAgent, "tools">): string {
+  const extraTools = (agent.tools ?? []).filter((t) => !READONLY_TOOLS.includes(t));
+  const tools = extraTools.length
+    ? `You have read-only tools (${READONLY_TOOLS.join(", ")}) and ${extraTools.join(", ")}.
+Use them to gather your own context. When the instruction below tells you to
+change something — write a file, commit, push, open or merge a pull request —
+carry it out yourself with the granted tools; do not report it as blocked.`
+    : `You have read-only tools (${READONLY_TOOLS.join(", ")}) — use them to
+gather your own context.`;
+
+  // The opening sentence is shared with the resume-cache scan, which uses it to
+  // keep scheduled runs out of the archive picker. See watch-agent-signature.ts.
+  return `${WATCH_AGENT_OPENING} Carry out the instruction below.
+
+${tools} Decide what, if anything, is worth surfacing as a
 notification right now. Be strict: most runs should surface nothing. Only
 surface something concrete, high-leverage, and actionable — never filler.
 
@@ -64,6 +85,7 @@ Each finding must stand alone: its title names one specific problem, and its
 reasoning and suggest refer only to that problem.
 
 Rules: title is one line. At most 4 short reasoning bullets per finding. No essay.`;
+}
 
 function normSeverity(s: unknown): Severity {
   const v = String(s ?? "").toLowerCase();
@@ -159,8 +181,6 @@ export function parseFindings(text: string): unknown[] | null {
   if ("title" in j) return [j];
   return null;
 }
-
-const READONLY_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
 
 /**
  * Environment that bills this run to the agent's pinned Claude account, or
@@ -447,7 +467,7 @@ async function runAutoAgentInner(
   const mine = (await listFindings()).filter((f) => f.agentId === agent.id);
   const feedback = buildFindingFeedback(mine);
 
-  const prompt = `${SYSTEM}\n\n## Instruction\n${agent.prompt}${feedback}`;
+  const prompt = `${systemPrompt(agent)}\n\n## Instruction\n${agent.prompt}${feedback}`;
   // The agent's base repo (chosen from the repo list in the UI) is where it runs
   // and from which it inherits .claude/settings.json. If it's unset, fall back to
   // the repo root but say so loudly — a missing base means the agent is watching
