@@ -2,22 +2,21 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-20.
+Last refresh: 2026-11-21.
 
 ## Active work (last 14 days)
 
+- **Dashboard**: a shared To-do tab lets people manage items on the local box.
+  Agents use the same list through `omg_todo` (#518).
 - **Agent sessions**: failed Claude turns appear in the transcript (#513).
   tmux ends option parsing before passing typed text (#512). Skill suggestions
   use the active agent's skill catalog (#509).
-- **Local runtime and repository**: the README describes the self-run version
-  (#501). Native clients and legacy deploy templates were removed (#498).
 - **Computer**: native macOS screen capture, input, and clipboard landed (#505).
-- **Security and releases**: GitHub Actions use pinned SHAs, releases have
-  approval gates, and npm uses trusted publishing (#491).
-- **Docs**: the accounts design records the shipped People tab and pending
-  server-side role enforcement (#515). The former Cloud and deploy design is
-  marked superseded (#504). STATE.md refreshes landed in #500, #503, #506,
-  #507, #508, #510, #511, #514, and #516.
+- **Docs**: the README describes the self-run version (#501). The former Cloud
+  and deploy design is marked superseded (#504). The accounts design records
+  the shipped People tab and pending server-side role enforcement (#515).
+  STATE.md refreshes landed in #503, #506, #507, #508, #510, #511, #514, #516,
+  and #517.
 
 ## Open pull requests
 
