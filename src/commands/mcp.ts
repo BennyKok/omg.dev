@@ -1226,6 +1226,35 @@ export function buildOmgMcpServer(): McpServer {
   );
 
   server.registerTool(
+    "omg_todo",
+    {
+      title: "Read Or Update The Shared To-do List",
+      description:
+        "The box's shared to-do list, shown in the To-do tab of the omg.dev Dashboard. Every person on the box and every agent sees the same list. Use it to see what the team wants done next, add an item, tick one off when its work is verified, or remove one. Items are short lines (max 280 chars).",
+      inputSchema: {
+        action: z.enum(["list", "add", "done", "undo", "edit", "remove"]).default("list").describe("list (read all), add (needs text), done / undo (needs id), edit (needs id and text), remove (needs id)."),
+        id: z.string().max(40).optional().describe("Item id from list."),
+        text: z.string().max(280).optional().describe("Item text for add or edit."),
+      },
+    },
+    async ({ action = "list", id, text }) => {
+      if (action === "list") return result(await api("/api/todos"));
+      const sid = await activeSessionId().catch(() => null);
+      const headers = { "Content-Type": "application/json", ...(sid ? { "X-OMG-Session-ID": sid } : {}) };
+      if (action === "add") {
+        if (!text?.trim()) throw new Error("text is required for add");
+        return result(await api("/api/todos", { method: "POST", headers, body: JSON.stringify({ text }) }));
+      }
+      if (!id?.trim()) throw new Error(`id is required for ${action}`);
+      const target = `/api/todos/${encodeURIComponent(id.trim())}`;
+      if (action === "remove") return result(await api(target, { method: "DELETE", headers }));
+      if (action === "edit" && !text?.trim()) throw new Error("text is required for edit");
+      const patch = action === "edit" ? { text } : { done: action === "done" };
+      return result(await api(target, { method: "PATCH", headers, body: JSON.stringify(patch) }));
+    },
+  );
+
+  server.registerTool(
     "omg_publish_artifact",
     {
       title: "Publish HTML Artifact In omg.dev",

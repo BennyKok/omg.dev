@@ -153,3 +153,11 @@ test("a table with more than three columns also gets a stacked form for phones",
   ui.render(<DashboardTableCard table={{ title: "Ads", columns: columns.slice(0, 3), rows: [{ cells: { campaign: "YouTube" } }] }} />);
   expect(ui.query('[data-testid="dashboard-table-stacked"]')).toBeNull();
 });
+
+test("the To-do tab is always there and opens the add box", () => {
+  ui.render(<DashboardPage active={false} initialData={SAMPLE_PAYLOAD} onEdit={() => {}} />);
+  expect(ui.query('[data-testid="todo-input"]')).toBeNull();
+  ui.flush(() => (ui.query('[data-testid="dashboard-tab-todo"]') as HTMLElement).click());
+  expect(ui.query('[data-testid="todo-input"]')).not.toBeNull();
+  expect(ui.query('[data-testid="dashboard-edit"]')).toBeNull();
+});

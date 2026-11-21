@@ -12,6 +12,7 @@ import {
   setDashboardEditorSession,
   upsertDashboardView,
 } from "../dashboard.ts";
+import { TodoInputError, addTodo, deleteTodo, listTodos, updateTodo } from "../todos.ts";
 import { endedTeam } from "../session-team-history.ts";
 import { existingNoProjectWorkspace, NO_PROJECT, noProjectWorkspacePath, prepareNoProjectWorkspace } from "../no-project-chat.ts";
 import { APP_BUILDER_MODEL, validateBuilderPreset } from "../agents/backends/app-builder.ts";
@@ -10706,6 +10707,40 @@ a{color:#60a5fa}
           resetDashboardBuiltinViews();
           return json({ ok: true, dashboard: await buildDashboardState() });
         }
+      }
+
+      // The shared to-do list (src/todos.ts, omg_todo, the dashboard's To-do tab).
+      // A tailnet person is always their own login; otherwise the browser's
+      // user pick, or the calling agent session.
+      if (path === "/api/todos" || path.startsWith("/api/todos/")) {
+        const body =
+          req.method === "POST" || req.method === "PATCH"
+            ? ((await req.json().catch(() => null)) as Record<string, unknown> | null)
+            : null;
+        const sid = callerSessionHeader(req);
+        const by =
+          tailnetPersonOf(req)?.login ??
+          (typeof body?.by === "string" && body.by.trim() ? body.by : sid ? `agent ${sid.slice(0, 8)}` : undefined);
+        try {
+          if (path === "/api/todos" && req.method === "GET") return json(listTodos());
+          if (path === "/api/todos" && req.method === "POST") {
+            const item = addTodo(body?.text, by);
+            return json({ ok: true, item, ...listTodos() });
+          }
+          const m = path.match(/^\/api\/todos\/([a-zA-Z0-9-]{1,40})$/);
+          if (m && req.method === "PATCH") {
+            const item = updateTodo(m[1], { done: body?.done, text: body?.text }, by);
+            return json({ ok: true, item, ...listTodos() });
+          }
+          if (m && req.method === "DELETE") {
+            const deleted = deleteTodo(m[1]);
+            return json({ ok: true, deleted, ...listTodos() });
+          }
+        } catch (e) {
+          if (e instanceof TodoInputError) return err(400, e.message);
+          throw e;
+        }
+        return err(405, "method not allowed");
       }
 
       {
