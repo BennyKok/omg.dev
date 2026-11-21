@@ -9,7 +9,12 @@ import { Button } from "@/components/ui/button";
 import { api } from "@/lib/omg-client";
 import { toast } from "@/lib/notify";
 import { cn } from "@/lib/utils";
-import { PhoneHeaderActions, usePhoneHeaderSlot } from "@/components/phone-header-actions";
+import { PhoneHeaderActions } from "@/components/phone-header-actions";
+import TodoPanel from "./todo-panel";
+
+/** The To-do tab is built in and always first; it is not a stored view. */
+const TODO_TAB = "__todo";
+const TODO_TAB_KEY = "omg_dashboard_todo_tab";
 
 export type DashboardTone = "good" | "warn" | "bad" | "neutral";
 
@@ -667,7 +672,22 @@ export default function DashboardPage({
 }) {
   const [data, setData] = useState<DashboardPayload | null>(initialData);
   // Null until a tab is picked: the first view (lowest order) opens by default.
-  const [selectedViewId, setSelectedViewId] = useState<string | null>(null);
+  // The To-do tab is remembered, so whoever keeps it open lands back on it.
+  const [selectedViewId, setSelectedViewIdState] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(TODO_TAB_KEY) === "1" ? TODO_TAB : null;
+    } catch {
+      return null;
+    }
+  });
+  const setSelectedViewId = (id: string) => {
+    setSelectedViewIdState(id);
+    try {
+      localStorage.setItem(TODO_TAB_KEY, id === TODO_TAB ? "1" : "0");
+    } catch {
+      // Private mode: the pick just isn't remembered.
+    }
+  };
   const [refreshing, setRefreshing] = useState(false);
   const agentBusy = !!(data?.editorSessionId && isSessionBusy?.(data.editorSessionId));
 
@@ -689,9 +709,10 @@ export default function DashboardPage({
   }, [active, agentBusy, load]);
 
   const views = useMemo(() => data?.views ?? [], [data]);
+  const todoActive = selectedViewId === TODO_TAB;
   const activeView = useMemo(
-    () => views.find((v) => v.id === selectedViewId) ?? views[0] ?? null,
-    [views, selectedViewId],
+    () => (todoActive ? null : views.find((v) => v.id === selectedViewId) ?? views[0] ?? null),
+    [views, selectedViewId, todoActive],
   );
 
   const handleRefresh = async () => {
@@ -712,23 +733,35 @@ export default function DashboardPage({
     }
   };
 
-  const phoneHeaderSlot = usePhoneHeaderSlot();
 
   return (
     <div className="mx-auto max-w-5xl space-y-3 pb-28" data-lfg-page-column data-testid="dashboard-page">
       {/* On a phone the title and the actions are in the header bar. The row
           stays only when it has view tabs to show. */}
-      <div className={cn("flex items-center gap-2 px-1", phoneHeaderSlot && views.length <= 1 && "hidden")}>
+      <div className="flex items-center gap-2 px-1">
         {/* A phone names the page in its header bar (mobileHeader). */}
         <h1 className="shrink-0 text-lg font-semibold tracking-[-0.01em] max-md:hidden">Dashboard</h1>
 
-        {views.length > 1 ? (
+        {(
           <div
             role="tablist"
             aria-label="Dashboard views"
             data-no-page-swipe
             className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-full bg-muted/70 p-0.5"
           >
+            <button
+              type="button"
+              role="tab"
+              data-testid="dashboard-tab-todo"
+              aria-selected={todoActive}
+              onClick={() => setSelectedViewId(TODO_TAB)}
+              className={cn(
+                "h-7 shrink-0 rounded-full px-3 text-xs font-medium transition-colors",
+                todoActive ? "bg-background text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              To-do
+            </button>
             {views.map((view) => {
               const selected = view.id === activeView?.id;
               return (
@@ -751,7 +784,7 @@ export default function DashboardPage({
               );
             })}
           </div>
-        ) : null}
+        )}
 
         <PhoneHeaderActions>
         <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -769,7 +802,7 @@ export default function DashboardPage({
               <span className="max-md:sr-only">Updating…</span>
             </Button>
           ) : null}
-          {onEdit ? (
+          {onEdit && !todoActive ? (
             <Button
               size="sm"
               variant="ghost"
@@ -782,7 +815,7 @@ export default function DashboardPage({
               <span>Edit</span>
             </Button>
           ) : null}
-          <Button
+          {todoActive ? null : <Button
             size="icon-sm"
             variant="ghost"
             aria-label="Refresh dashboard"
@@ -791,12 +824,14 @@ export default function DashboardPage({
             onClick={() => void handleRefresh()}
           >
             <RotateCcw className={cn("size-4", refreshing && "animate-spin")} />
-          </Button>
+          </Button>}
         </div>
         </PhoneHeaderActions>
       </div>
 
-      {activeView === null ? (
+      {todoActive ? (
+        <TodoPanel active={active} />
+      ) : activeView === null ? (
         <div className="py-10 text-center text-sm text-muted-foreground">Loading…</div>
       ) : (
         <div className="space-y-3">

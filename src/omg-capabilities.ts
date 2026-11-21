@@ -4,7 +4,7 @@ import { DEFAULT_MAX_BOT_SCHEDULES } from "./settings.ts";
 // Bump whenever an agent-facing omg.dev capability or its operating guidance
 // changes. Managed sessions persist the value they launched with, which lets
 // the UI identify long-lived sessions whose MCP/tool catalog predates a ship.
-export const OMG_CAPABILITY_VERSION = "2026-11-17.1";
+export const OMG_CAPABILITY_VERSION = "2026-11-21.1";
 
 export const OMG_CAPABILITIES = [
   {
@@ -51,6 +51,12 @@ export const OMG_CAPABILITIES = [
     useWhen: "The user asks to view, customize, or add analytics, metrics, charts, tables, or status views to the local omg.dev Dashboard page (/dashboard).",
     guidance:
       "Use action 'get' to inspect current views and 'upsert_view' to create or update a view (KPI tiles, bar/line/breakdown charts, tables, and 'Needs you' lists). Show labels and numbers only — no prose explanations. Optionally attach an executable refresh script inside the session cwd.",
+  },
+  {
+    tool: "omg_todo",
+    useWhen: "The person mentions the to-do list, asks what to work on next, or asks you to note something for later.",
+    guidance:
+      "One shared list for the whole box, also shown in the Dashboard's To-do tab. 'list' reads it; 'add' a short line; 'done' an item only after its work is verified; 'remove' only when asked.",
   },
   {
     tool: "omg_input",
