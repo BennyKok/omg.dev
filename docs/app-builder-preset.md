@@ -1,22 +1,19 @@
 # App Builder preset
 
-Status: experimental opt-in workflow. General remains the default.
+Status: experimental opt-in workflow, started through the launch API only.
+General remains the default.
 
-OMG Agent runs this preset through the OpenCode SDK. The web composer offers
-App Builder in the final Workflows section of the OMG Agent model list on
-desktop and mobile web.
-Its subtitle is “Haiku · Apex code review · Luna design review”. Selecting
-the row selects Haiku with low reasoning and activates the workflow. The
-composer pill shows App Builder. Selecting a regular model or another agent
-exits the workflow. The separate Preset dropdown was removed.
-Choose a Git project before using this workflow. Quick Chat without a project
-is not supported. The picker explains this requirement, and the launch API
-rejects it before starting a session. The native client is unchanged.
+OMG Agent runs this preset through the OpenCode SDK. The web model picker no
+longer offers App Builder. The Workflows row, the composer option, and the
+`builderPreset` field the composer sent were removed.
 
 The launch API accepts `builderPreset: "app-builder-v1"` with `agent: "omg"`.
 When no model or reasoning level is given, the preset uses
 `omg/anthropic/claude-haiku-5.5` and `low`. Other agents reject this preset.
 The preset is stored with the session and in the resume cache.
+
+Choose a Git project before using this workflow. Quick Chat without a project
+is not supported, and the launch API rejects it before starting a session.
 
 The controller owns the review loop:
 
