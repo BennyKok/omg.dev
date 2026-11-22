@@ -2,7 +2,7 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-21.
+Last refresh: 2026-11-22.
 
 ## Active work (last 14 days)
 
@@ -12,11 +12,9 @@ Last refresh: 2026-11-21.
   tmux ends option parsing before passing typed text (#512). Skill suggestions
   use the active agent's skill catalog (#509).
 - **Computer**: native macOS screen capture, input, and clipboard landed (#505).
-- **Docs**: the README describes the self-run version (#501). The former Cloud
-  and deploy design is marked superseded (#504). The accounts design records
-  the shipped People tab and pending server-side role enforcement (#515).
-  STATE.md refreshes landed in #503, #506, #507, #508, #510, #511, #514, #516,
-  and #517.
+- **Docs**: the accounts design records the shipped People tab and pending
+  server-side role enforcement (#515). STATE.md refreshes landed in
+  #506–#508, #510–#511, #514, #516–#517, and #519.
 
 ## Open pull requests
 
