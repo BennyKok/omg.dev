@@ -1,4 +1,6 @@
 import { cleanupSessionMcpConfigs } from "../private-mcp-config.ts";
+import { generateSessionTitle } from "../session-auto-title.ts";
+import { regenerateSessionTitle } from "../session-title-regenerate.ts";
 import { deviceRuntime } from "../devices/runtime.ts";
 import { readSessionView, summarizeSessionPlan, type SessionPlanSummary } from "../session-plan.ts";
 import { handlePanelRequest } from "../session-panel.ts";
@@ -10340,6 +10342,21 @@ a{color:#60a5fa}
                 : undefined,
           }),
         }).finally(backgroundRelease);
+        // Keep creation fast and resilient. The prompt-derived title appears
+        // immediately, then the box's own title model (a custom model from
+        // ~/.omg/models.json or Claude haiku) may replace it. A human rename
+        // wins the compare-and-swap if it lands before this call finishes.
+        // With no model the generator returns null and the prompt title stays.
+        if (getGlobalSettingsSync().autoSessionTitles === "on" && !requestedTitle && fallbackTitle) {
+          void generateSessionTitle(body?.prompt)
+            .then((generatedTitle) => {
+              if (!generatedTitle) return;
+              if (replaceManagedTitle(tmuxName, fallbackTitle, generatedTitle)) {
+                invalidateListSessionsCache();
+              }
+            })
+            .catch(() => {});
+        }
         // Hand the caller the session row itself, not just an id. A client that
         // gets only an id has to go re-derive the row from GET /api/sessions,
         // which is a full process+transcript scan — so the create is instant
@@ -11914,6 +11931,31 @@ a{color:#60a5fa}
           await setSessionTitle(m[1], body?.title ?? "");
           invalidateListSessionsCache();
           return json({ ok: true });
+        }
+      }
+
+      {
+        // Re-run the automatic title for a session the user already has open.
+        // The spawn-time pass is fire-and-forget and only runs for sessions
+        // created without an explicit title, so this is the way back to a
+        // generated title after a rename or a failed first attempt.
+        const m = path.match(/^\/api\/sessions\/([0-9a-fA-F-]{36})\/title\/generate$/);
+        if (m && req.method === "POST") {
+          // "manual" still allows this: it is the mode where a title is only
+          // ever written because the user asked for one. Only "off" refuses.
+          if (getGlobalSettingsSync().autoSessionTitles === "off")
+            return err(403, "automatic session titles are turned off");
+          const result = await regenerateSessionTitle(m[1], {
+            resolveTranscript,
+            // Index-backed, so this works for every adapter.
+            digestRows: (p) => indexedTitleDigestRows(p, m[1]),
+            // The override store, the same one a human rename writes, so the
+            // generated name beats any managed registry title.
+            setTitle: setSessionTitle,
+          });
+          if (!result.ok) return err(result.status, result.error);
+          invalidateListSessionsCache();
+          return json({ ok: true, title: result.title });
         }
       }
 

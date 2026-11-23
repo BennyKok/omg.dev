@@ -2191,6 +2191,16 @@ function putSessionTitle(sid: string, title: string) {
   });
 }
 
+// Ask the server to re-run the automatic title for an existing session. The
+// server persists the result as a title override, so this wins over a managed
+// registry title the same way a human rename does.
+function postGenerateSessionTitle(sid: string) {
+  return api<{ ok?: boolean; title?: string }>(
+    `/api/sessions/${encodeURIComponent(sid)}/title/generate`,
+    { method: "POST" },
+  );
+}
+
 type RenameSession = (sid: string, title: string) => Promise<void>;
 
 /**
@@ -18188,6 +18198,40 @@ function useSessionActions({
   };
 }
 
+/**
+ * Shared "Rename with AI" action for the session card and the session sheet.
+ *
+ * The server picks this box's own title model (a custom model or Claude),
+ * generates the title AND persists it. Pushing the result back through
+ * `onRenameSession` re-uses the optimistic update and the per-session write
+ * queue, so the new name shows at once and cannot be reordered behind a
+ * slower manual rename.
+ */
+function useRegenerateSessionTitle(sid: string | null | undefined, onRenameSession: RenameSession) {
+  // "off" hides the row rather than letting it fail: the server answers 403
+  // for that mode. "manual" keeps it, because that mode exists precisely to
+  // make this the only way a title is generated.
+  const { autoSessionTitles } = useContext(ViewPrefsContext);
+  const pendingRef = useRef(false);
+  const run = useCallback(async () => {
+    if (!sid || pendingRef.current) return;
+    pendingRef.current = true;
+    const toastId = toast.loading("Naming the session…");
+    try {
+      const result = await postGenerateSessionTitle(sid);
+      const title = result?.title?.trim();
+      if (!title) throw new Error("no title was generated");
+      await onRenameSession(sid, title);
+      toast.success("Session renamed", { id: toastId, duration: 4000 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      toast.error(`Could not rename: ${message}`, { id: toastId, duration: 6000 });
+    } finally {
+      pendingRef.current = false;
+    }
+  }, [sid, onRenameSession]);
+  return autoSessionTitles === "off" ? null : run;
+}
 
 function SessionActionsMenu({
   session,
@@ -18196,6 +18240,7 @@ function SessionActionsMenu({
   onRefresh,
   onRemove,
   onRename,
+  onRegenerateTitle,
   triggerClassName,
   pinned,
   onTogglePin,
@@ -18206,6 +18251,7 @@ function SessionActionsMenu({
   onRefresh: () => Promise<void>;
   onRemove: (sid: string) => void;
   onRename?: () => void;
+  onRegenerateTitle?: () => void;
   triggerClassName?: string;
   pinned?: boolean;
   onTogglePin?: (sid: string) => void;
@@ -18368,6 +18414,12 @@ function SessionActionsMenu({
             <DropdownMenuItem disabled={!sid} onClick={() => onRename()}>
               <Pencil className="size-4" />
               Rename
+            </DropdownMenuItem>
+          ) : null}
+          {onRegenerateTitle ? (
+            <DropdownMenuItem disabled={!sid} onClick={() => onRegenerateTitle()}>
+              <Sparkles className="size-4" />
+              Rename with AI
             </DropdownMenuItem>
           ) : null}
           {canDriveSession(session) && !busy && !session.botId ? (
@@ -18841,6 +18893,7 @@ function SessionTitleSheet({
     page.style.transform = planOpen ? "translate3d(0, 0, 0)" : "translate3d(100%, 0, 0)";
   }, [planOpen]);
 
+  const regenerateTitle = useRegenerateSessionTitle(sid, onRenameSession);
 
   const commitInlineRename = useCallback(
     async (next: string) => {
@@ -19251,6 +19304,9 @@ function SessionTitleSheet({
             onRemove={onRemove}
             onRename={
               session.shippedReview ? undefined : () => setRenamingInline(true)
+            }
+            onRegenerateTitle={
+              session.shippedReview ? undefined : (regenerateTitle ?? undefined)
             }
             triggerClassName="size-9"
             pinned={pinned}
@@ -19678,6 +19734,7 @@ const SessionCard = memo(function SessionCard({
     setRenamingInline(true);
   }, [sid]);
 
+  const regenerateTitle = useRegenerateSessionTitle(sid, onRenameSession);
 
   const commitInlineRename = useCallback(
     async (next: string) => {
@@ -20169,6 +20226,9 @@ const onTouchStart = (e: ReactTouchEvent) => {
             onRefresh={onRefresh}
             onRemove={onRemove}
             onRename={session.shippedReview ? undefined : startRename}
+            onRegenerateTitle={
+              session.shippedReview ? undefined : (regenerateTitle ?? undefined)
+            }
             pinned={pinned}
             onTogglePin={session.shippedReview ? undefined : onTogglePin}
           />
@@ -30623,6 +30683,44 @@ function ViewSettingsSection({
                     className={cn(
                       "px-3 py-1 capitalize transition-colors",
                       settings.composerSendMode === mode
+                        ? "bg-foreground text-background"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {mode}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-4 px-4 py-2.5">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">Name sessions with AI</div>
+                <div className="text-xs text-muted-foreground">
+                  {settings.autoSessionTitles === "off"
+                    ? "Sessions keep the name taken from their first prompt. Rename with AI is hidden."
+                    : settings.autoSessionTitles === "manual"
+                      ? "Only when you pick Rename with AI. Nothing is sent while a session starts."
+                      : "A new session is named automatically, and Rename with AI can redo it later."}{" "}
+                  {settings.autoSessionTitles === "off"
+                    ? null
+                    : "Uses your selected custom model when it is online, else Claude Haiku, else any online model from ~/.omg/models.json."}
+                </div>
+              </div>
+              <div
+                role="radiogroup"
+                aria-label="Name sessions with AI"
+                className="flex shrink-0 overflow-hidden rounded-full border border-border text-xs"
+              >
+                {(["on", "manual", "off"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    role="radio"
+                    aria-checked={settings.autoSessionTitles === mode}
+                    onClick={() => void onChange({ autoSessionTitles: mode })}
+                    className={cn(
+                      "px-3 py-1 capitalize transition-colors",
+                      settings.autoSessionTitles === mode
                         ? "bg-foreground text-background"
                         : "text-muted-foreground hover:text-foreground",
                     )}

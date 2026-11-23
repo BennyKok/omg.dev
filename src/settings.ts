@@ -107,15 +107,15 @@ export type GlobalSettings = {
   // (Cmd/Ctrl+Enter, hold the send button).
   composerSendMode: ComposerSendMode;
 
-  // Whether a session may have its title written by the managed AI route.
-  // "on": at spawn and from the session menu. "manual": only from the menu,
-  // so nothing leaves the box until the user asks for it. "off": neither, and
-  // the menu row is hidden.
+  // Whether a session may have its title written by a model
+  // (session-auto-title.ts: a custom model from ~/.omg/models.json or the
+  // installed Claude CLI). "on": at spawn and from the session menu.
+  // "manual": only from the menu, so nothing is sent until the user asks for
+  // it. "off": neither, and the menu row is hidden.
   //
-  // Default "on". A box with no reachable model is NOT a reason to default
-  // this off: the generator already returns null when there is no account and
-  // the caller keeps the prompt-derived title, so "on" costs such a box
-  // nothing and needs no setup from the user who does have an account.
+  // Default "on". A box with no usable model is NOT a reason to default this
+  // off: the generator returns null when there is none and the caller keeps
+  // the prompt-derived title, so "on" costs such a box nothing.
   autoSessionTitles: AutoSessionTitles;
 
   // How the folder menu lists this box's folders, shared by every client.
