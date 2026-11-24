@@ -2,7 +2,7 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-23.
+Last refresh: 2026-11-24.
 
 ## Active work (last 14 days)
 
@@ -14,7 +14,7 @@ Last refresh: 2026-11-23.
 - **Computer**: native macOS screen capture, input, and clipboard landed (#505).
 - **Docs**: the accounts design records the shipped People tab and pending
   server-side role enforcement (#515). STATE.md refreshes landed in
-  #506–#508, #510–#511, #514, #516–#517, and #519–#520.
+  #506–#508, #510–#511, #514, #516–#517, and #519–#521.
 
 ## Open pull requests
 
