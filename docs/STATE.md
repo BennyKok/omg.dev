@@ -2,7 +2,7 @@
 
 Read this first. The nightly librarian refreshes this file from merged pull
 requests. Verify a fact in code before you depend on it.
-Last refresh: 2026-11-25.
+Last refresh: 2026-11-26.
 
 ## Active work (last 14 days)
 
@@ -12,8 +12,8 @@ Last refresh: 2026-11-25.
   tmux stops parsing options before it sends typed text (#512). Skill
   suggestions use the active agent's skill catalog (#509).
 - **Docs**: the accounts design records the People tab and pending server-side
-  role enforcement (#515). STATE.md refreshes landed in #507–#508, #510–#511,
-  #514, #516–#517, and #519–#522.
+  role enforcement (#515). STATE.md refreshes landed in #508, #510–#511,
+  #514, #516–#517, and #519–#523.
 
 ## Open pull requests
 
