@@ -33,7 +33,7 @@ type TailscaleStatus = {
   };
 };
 
-function parseJsonObject(text: string): Record<string, unknown> | null {
+function parseJsonObjectStrict(text: string): Record<string, unknown> | null {
   try {
     const value = JSON.parse(text) as unknown;
     return value && typeof value === "object" && !Array.isArray(value)
@@ -42,6 +42,17 @@ function parseJsonObject(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+// The macOS app's command can print a notice (for example a client and
+// daemon version mismatch) on stdout before the JSON document, so a failed
+// parse retries on the outermost object.
+function parseJsonObject(text: string): Record<string, unknown> | null {
+  const strict = parseJsonObjectStrict(text);
+  if (strict) return strict;
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  return start >= 0 && end > start ? parseJsonObjectStrict(text.slice(start, end + 1)) : null;
 }
 
 export function parseTailscaleStatus(text: string): {
@@ -54,9 +65,11 @@ export function parseTailscaleStatus(text: string): {
     typeof rawName === "string" && rawName.trim()
       ? rawName.trim().replace(/\.+$/, "")
       : null;
+  // `Running` with a device name is a connected node. `Self.Online` is the
+  // coordination server's view of this node and can lag or be false on the
+  // macOS network extension while the tunnel works, so it is not required.
   return {
-    connected:
-      value?.BackendState === "Running" && value?.Self?.Online === true && dnsName != null,
+    connected: value?.BackendState === "Running" && dnsName != null,
     dnsName,
   };
 }
@@ -100,9 +113,14 @@ function tailscalePath(): string | null {
     "/opt/homebrew/bin/tailscale",
     "/usr/local/bin/tailscale",
     "/usr/bin/tailscale",
+    // The Mac App Store and standalone Tailscale apps ship the command inside
+    // the bundle and install nothing on PATH until "Install CLI" is chosen.
+    "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
   ];
   return candidates.find((candidate) => existsSync(candidate)) ?? null;
 }
+
+const TAILSCALE_COMMAND_TIMEOUT_MS = 6_000;
 
 async function runTailscaleCommand(argv: string[]): Promise<TailscaleCommandResult> {
   const executable = tailscalePath();
@@ -114,7 +132,9 @@ async function runTailscaleCommand(argv: string[]): Promise<TailscaleCommandResu
   });
   const result = await Promise.race([
     child.exited.then((code) => ({ type: "exit" as const, code })),
-    Bun.sleep(2_000).then(() => ({ type: "timeout" as const })),
+    // The macOS app's command starts the app binary, which can take several
+    // seconds on a cold start. A timeout reads as "not connected".
+    Bun.sleep(TAILSCALE_COMMAND_TIMEOUT_MS).then(() => ({ type: "timeout" as const })),
   ]);
   if (result.type === "timeout") {
     try {

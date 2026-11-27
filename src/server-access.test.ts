@@ -24,6 +24,27 @@ describe("Tailscale server access", () => {
     });
   });
 
+  test("reads a running node whose self status is not online", () => {
+    const status = JSON.stringify({
+      BackendState: "Running",
+      Self: { DNSName: "mac.example.ts.net.", Online: false },
+    });
+    expect(parseTailscaleStatus(status)).toEqual({ connected: true, dnsName: "mac.example.ts.net" });
+  });
+
+  test("reads the status after a notice line printed before the JSON", () => {
+    const text = `Warning: client version "1.90.1" != tailscaled server version "1.88.3"\n${STATUS}\n`;
+    expect(parseTailscaleStatus(text)).toEqual({ connected: true, dnsName: "computer.example.ts.net" });
+  });
+
+  test("does not report a stopped or logged-out node as connected", () => {
+    for (const state of ["Stopped", "NeedsLogin", "Starting"]) {
+      const status = JSON.stringify({ BackendState: state, Self: { DNSName: "mac.example.ts.net.", Online: true } });
+      expect(parseTailscaleStatus(status).connected).toBe(false);
+    }
+    expect(parseTailscaleStatus("not json").connected).toBe(false);
+  });
+
   test("recognizes only a loopback proxy for this server port", () => {
     expect(
       tailscaleServeTargetsPort(
