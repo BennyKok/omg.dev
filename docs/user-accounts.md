@@ -1,7 +1,8 @@
 # User accounts
 
 Status: step 1 implemented in `src/tailnet-gate.ts` (2026-11-16), off by
-default. Step 2 is not built. Step 3 is partly built: Settings > People &
+default. Step 2 is partly built: the To-do write routes record the admitted
+person (2026-11-21, `241baa010`). Step 3 is partly built: Settings > People &
 roles has a People tab that shows each person and sets their role (2026-11-16,
 `a2d1b4bf1`). The server does not yet enforce a role on each request, and the
 tab does not add a person.
@@ -55,14 +56,18 @@ the listener admits no person, as before.
 - Admits a person by Tailscale login, and refuses every other login.
 - `GET /api/me` answers for the Tailscale login and ignores the profile the
   browser sent. The answer carries `identity`.
+- `POST /api/todos` and `PATCH /api/todos/:id` record the Tailscale login as
+  the person who added or changed the item. A `by` value from the caller is
+  ignored for an admitted person (2026-11-21, `241baa010`).
 - The web UI makes that login the browser's profile, so the "Who are you?"
   screen does not show for a known person.
 
 ## Not built yet
 
-- Step 2: every route that takes a user from the query or the body uses the
-  admitted person. Today only `/api/me` does. A person on the tailnet can
-  still send another user's name to those routes.
+- Step 2, remaining: every route that takes a user from the query or the body
+  uses the admitted person. `/api/me` and the To-do write routes do. Every
+  other such route still takes the caller's value, so a person on the tailnet
+  can still send another user's name to those routes.
 - Step 3, remaining: a role enforced on the server for each request, and
   adding a person from the People tab. The People tab sets a role today. Roles
   already gate MCP tool access through `enforceRole` in
