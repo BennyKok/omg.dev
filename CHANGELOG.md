@@ -2,7 +2,7 @@
 
 Recent product updates and deployment notes.
 
-## November 28, 2026 - Approve agent access from your phone
+## November 28, 2026 - Approve agent access from your phone (v0.7.14)
 
 - A phone can answer for the computer that shares access, from anywhere. It can allow or deny an action that waits for approval, allow or deny an agent's request for more time, start access (up to 4 hours) and stop access.
 - Add the phone at the computer: Agent access → Approve from your phone → Add a phone shows a code. Scan it in Subtract on the iPhone (Servers → the computer → Use this iPhone to approve). A code works once, for 10 minutes.
