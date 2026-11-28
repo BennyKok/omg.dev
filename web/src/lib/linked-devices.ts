@@ -125,6 +125,11 @@ export type ReceiverState = {
     approval: DeviceApproval;
     expiresAt: number;
   } | null;
+  /** Phones the person added here: they can approve, start and stop access from anywhere. */
+  approvers?: Array<{ id: string; name: string; addedAt: number }>;
+  /** The code a phone scans here to become an approver, while one is open. */
+  approverInvite?: { payload: string; code: string; expiresAt: number } | null;
+  remote?: { watching: boolean; error: string | null };
   activity: Array<{
     at: number;
     kind: string;

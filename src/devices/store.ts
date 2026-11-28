@@ -34,6 +34,13 @@ import {
   type RequestStatus,
   type WireRequest,
   type WireUpdate,
+  APPROVER_ID_RE,
+  APPROVER_NAME_MAX,
+  REMOTE_WINDOW_MS,
+  type WireApprover,
+  type WireEnrolment,
+  type WireRemoteDecision,
+  type WireRemoteResult,
 } from "./protocol.ts";
 
 export type Device = {
@@ -230,7 +237,9 @@ export function removeDevice(id: string): Promise<boolean> {
     await logEvent({ kind: "removed", device: id });
     grants.delete(id);
     for (const [key, x] of extensions) if (x.deviceId === id) extensions.delete(key);
+    remote.delete(id);
     wake(id);
+    wakeRemote(id);
     return true;
   });
 }
@@ -671,4 +680,130 @@ export async function missedRequests(deviceId: string, now = Date.now()): Promis
 export function resetGrantState() {
   grants.clear();
   extensions.clear();
+}
+
+// ---- remote decisions -------------------------------------------------------------
+// A phone the person added as an approver AT THE DEVICE signs a decision; this
+// server only carries it to the device and carries the device's verdict back.
+// The device checks the signature against keys it enrolled itself, so nothing
+// here (or an agent that can call these routes) can make a decision. In memory:
+// a decision is good for minutes, and a restart only drops ones in flight.
+
+type Relayed<T> = { item: T; nonce: string; receivedAt: number; deliveredAt?: number; result?: { ok: boolean; reason?: string } };
+type RemoteState = {
+  approvers: WireApprover[];
+  seenAt: number;
+  invite: boolean;
+  decisions: Relayed<WireRemoteDecision>[];
+  enrolments: Relayed<WireEnrolment>[];
+};
+
+/** A device that polled for decisions this recently is listening. */
+export const REMOTE_SEEN_MS = 60_000;
+const REMOTE_KEEP_MS = 2 * REMOTE_WINDOW_MS;
+const MAX_RELAYED = 20;
+const remote = new Map<string, RemoteState>();
+const remoteWaiters = new Map<string, Set<() => void>>();
+
+function remoteState(deviceId: string): RemoteState {
+  let s = remote.get(deviceId);
+  if (!s) remote.set(deviceId, (s = { approvers: [], seenAt: 0, invite: false, decisions: [], enrolments: [] }));
+  return s;
+}
+
+function pruneRelayed(s: RemoteState, now: number) {
+  s.decisions = s.decisions.filter((r) => now - r.receivedAt < REMOTE_KEEP_MS);
+  s.enrolments = s.enrolments.filter((r) => now - r.receivedAt < REMOTE_KEEP_MS);
+}
+
+function wakeRemote(deviceId: string) {
+  const set = remoteWaiters.get(deviceId);
+  if (!set) return;
+  remoteWaiters.delete(deviceId);
+  for (const fn of set) fn();
+}
+
+function cleanApprovers(raw: unknown): WireApprover[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 10).flatMap((a) => {
+    if (!a || typeof a !== "object") return [];
+    const { id, name, addedAt } = a as Record<string, unknown>;
+    if (typeof id !== "string" || !APPROVER_ID_RE.test(id) || typeof name !== "string") return [];
+    return [{ id, name: name.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, " ").trim().slice(0, APPROVER_NAME_MAX), addedAt: typeof addedAt === "number" && Number.isFinite(addedAt) ? addedAt : 0 }];
+  });
+}
+
+/** The device's poll: takes its verdicts and what it reports, hands over what waits for it. */
+export function remotePoll(deviceId: string, body: { approvers?: unknown; results?: unknown; invite?: unknown }, now = Date.now()) {
+  const s = remoteState(deviceId);
+  s.seenAt = now;
+  if (body.approvers !== undefined) s.approvers = cleanApprovers(body.approvers);
+  if (body.invite !== undefined) s.invite = body.invite === true;
+  for (const raw of Array.isArray(body.results) ? body.results.slice(0, 50) : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const r = raw as WireRemoteResult;
+    if (typeof r.nonce !== "string" || typeof r.ok !== "boolean") continue;
+    const hit = s.decisions.find((x) => x.nonce === r.nonce) ?? s.enrolments.find((x) => x.nonce === r.nonce);
+    if (hit && !hit.result) {
+      hit.result = { ok: r.ok, reason: typeof r.reason === "string" ? r.reason.slice(0, 300) : undefined };
+      void logEvent({ kind: "remote-result", device: deviceId, ok: r.ok, reason: hit.result.reason });
+    }
+  }
+  pruneRelayed(s, now);
+  const fresh = <T>(rows: Relayed<T>[]) => rows.filter((r) => !r.deliveredAt).map((r) => { r.deliveredAt = now; return r.item; });
+  return { decisions: fresh(s.decisions), enrolments: fresh(s.enrolments) };
+}
+
+export function waitForRemote(deviceId: string, ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const set = remoteWaiters.get(deviceId) ?? new Set();
+    remoteWaiters.set(deviceId, set);
+    const done = () => {
+      clearTimeout(timer);
+      set.delete(done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    set.add(done);
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+/** A phone's decision or enrolment, for the device to check. Shape only here. */
+export async function relayToDevice(deviceId: string, kind: "decision" | "enrolment", item: WireRemoteDecision | WireEnrolment, now = Date.now()): Promise<void> {
+  if (!(await getDevice(deviceId))) throw new Error(`unknown device "${deviceId}"`);
+  if (item.device !== deviceId) throw new Error("this is signed for another device");
+  const s = remoteState(deviceId);
+  pruneRelayed(s, now);
+  if (now - s.seenAt > REMOTE_SEEN_MS) throw new Error(`"${deviceId}" is not listening for a phone right now. It needs omg.dev running there${kind === "decision" ? " and a phone added as an approver" : ""}.`);
+  const rows = kind === "decision" ? s.decisions : s.enrolments;
+  if (rows.some((r) => r.nonce === item.nonce)) throw new Error("already sent");
+  if (rows.filter((r) => !r.result).length >= MAX_RELAYED) throw new Error("too many decisions waiting for the device");
+  (rows as Relayed<typeof item>[]).push({ item, nonce: item.nonce, receivedAt: now });
+  await logEvent({ kind: `remote-${kind}`, device: deviceId, decision: kind === "decision" ? { kind: (item as WireRemoteDecision).kind, target: (item as WireRemoteDecision).target, allow: (item as WireRemoteDecision).allow, approver: (item as WireRemoteDecision).approver } : undefined });
+  wakeRemote(deviceId);
+}
+
+/** The device's verdict on one relayed item, waiting up to ms. Null: no word yet. */
+export async function waitForRemoteResult(deviceId: string, nonce: string, ms: number): Promise<{ ok: boolean; reason?: string } | null> {
+  const end = Date.now() + ms;
+  for (;;) {
+    const s = remote.get(deviceId);
+    const hit = s?.decisions.find((r) => r.nonce === nonce) ?? s?.enrolments.find((r) => r.nonce === nonce);
+    if (hit?.result) return hit.result;
+    if (!hit || Date.now() >= end) return null;
+    await Bun.sleep(Math.min(250, Math.max(0, end - Date.now())));
+  }
+}
+
+/** What the person's phone sees about a device's approvers. */
+export function remoteView(deviceId: string, now = Date.now()) {
+  const s = remote.get(deviceId);
+  return { listening: !!s && now - s.seenAt <= REMOTE_SEEN_MS, approvers: s?.approvers ?? [], invite: s?.invite ?? false };
+}
+
+/** For tests. */
+export function resetRemoteState() {
+  remote.clear();
+  for (const id of [...remoteWaiters.keys()]) wakeRemote(id);
 }

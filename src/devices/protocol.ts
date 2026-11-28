@@ -7,7 +7,7 @@
 // binds the method, path, time, a one-use nonce and the body hash, so a captured
 // call cannot be replayed, retargeted or given a different body.
 
-import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
+import { createHash, createHmac, createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes, sign, verify } from "node:crypto";
 
 export const LINK_PREFIX = "/api/devices/link/";
 export const MAX_CLOCK_SKEW_MS = 120_000;
@@ -184,4 +184,122 @@ export function checkArgs(args: unknown, specs: Record<string, ArgSpec>): { ok: 
     if (typeof value === "string" && value !== "") out[name] = value;
   }
   return { ok: true, args: out };
+}
+
+// ---- approvers: phones the person added at the device ------------------------------
+//
+// A phone the person enrolled at the device (by scanning a code shown there) can
+// answer for them from anywhere: approve or deny a waiting action or extension,
+// start access, stop it. The phone holds a P-256 key that never leaves it (the
+// iPhone's Secure Enclave, behind Face ID) and signs each decision. The server
+// only carries the decision; the DEVICE checks the signature against the keys it
+// enrolled itself, the time, a one-use nonce, and that the decision names exactly
+// what is waiting there (the request id, its action and the digest of its
+// arguments). A server, or an agent on it, can relay decisions but never make one.
+
+export const APPROVER_ID_RE = /^ap_[a-f0-9]{16}$/;
+export const APPROVER_NAME_MAX = 60;
+/** A decision is good for this long after the phone signed it (and that long before, for clock skew). */
+export const REMOTE_WINDOW_MS = 3 * 60_000;
+const B64URL_RE = /^[A-Za-z0-9_-]{43}$/;
+
+export type ApproverKey = { x: string; y: string };
+/** What a device reports about its approvers (no keys: the server never needs them). */
+export type WireApprover = { id: string; name: string; addedAt: number };
+export type RemoteKind = "request" | "extension" | "start" | "stop";
+export const REMOTE_KINDS: readonly RemoteKind[] = ["request", "extension", "start", "stop"];
+
+/**
+ * One decision from an approver's phone. `detail` binds what was decided:
+ *   request:   "<action>\n<argsDigest(args)>"
+ *   extension: "<minutes>"
+ *   start:     "<minutes>,<idle minutes or never>"
+ *   stop:      ""
+ */
+export type WireRemoteDecision = {
+  device: string;
+  approver: string;
+  kind: RemoteKind;
+  target: string;
+  allow: boolean;
+  detail: string;
+  issuedAt: number;
+  nonce: string;
+  /** base64 DER ECDSA P-256 SHA-256 over approvalString(). */
+  sig: string;
+};
+
+/** A phone asks to become an approver. `proof` shows it read the code on the device's screen. */
+export type WireEnrolment = { device: string; name: string; x: string; y: string; nonce: string; proof: string };
+/** What the device made of a decision or an enrolment, by nonce. */
+export type WireRemoteResult = { nonce: string; ok: boolean; reason?: string };
+
+/** Arguments in one canonical form: sorted "key=value" lines (values never hold a newline). */
+export function argsDigest(args: Record<string, string>): string {
+  return sha256Hex(Object.keys(args).sort().map((k) => `${k}=${args[k]}`).join("\n"));
+}
+
+export function approvalString(d: Omit<WireRemoteDecision, "sig">): string {
+  return ["omg-approve-v1", d.device, d.approver, d.kind, d.target, d.allow ? "allow" : "deny", d.detail, String(d.issuedAt), d.nonce].join("\n");
+}
+
+export function enrolmentString(e: Omit<WireEnrolment, "proof">): string {
+  return ["omg-approver-v1", e.device, e.name, e.x, e.y, e.nonce].join("\n");
+}
+
+/** HMAC-SHA256 of the enrolment under the code the device showed, hex. */
+export function enrolmentProof(code: string, e: Omit<WireEnrolment, "proof">): string {
+  return createHmac("sha256", code).update(enrolmentString(e)).digest("hex");
+}
+
+export function validApproverKey(k: unknown): k is ApproverKey {
+  if (!k || typeof k !== "object") return false;
+  const { x, y } = k as Record<string, unknown>;
+  if (typeof x !== "string" || typeof y !== "string" || !B64URL_RE.test(x) || !B64URL_RE.test(y)) return false;
+  try {
+    createPublicKey({ key: { kty: "EC", crv: "P-256", x, y }, format: "jwk" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** A short, stable id for a key: "ap_" and 16 hex of sha256(x||y). */
+export function approverIdFor(k: ApproverKey): string {
+  return `ap_${createHash("sha256").update(Buffer.from(k.x, "base64url")).update(Buffer.from(k.y, "base64url")).digest("hex").slice(0, 16)}`;
+}
+
+export function verifyApproval(k: ApproverKey, d: WireRemoteDecision): boolean {
+  try {
+    const key = createPublicKey({ key: { kty: "EC", crv: "P-256", x: k.x, y: k.y }, format: "jwk" });
+    const { sig, ...signed } = d;
+    return verify("sha256", Buffer.from(approvalString(signed)), { key, dsaEncoding: "der" }, Buffer.from(sig, "base64"));
+  } catch {
+    return false;
+  }
+}
+
+/** Shape only, for both sides. The device still checks everything that matters. */
+export function validDecisionShape(raw: unknown): raw is WireRemoteDecision {
+  if (!raw || typeof raw !== "object") return false;
+  const d = raw as Record<string, unknown>;
+  return typeof d.device === "string" && NAME_RE.test(d.device)
+    && typeof d.approver === "string" && APPROVER_ID_RE.test(d.approver)
+    && typeof d.kind === "string" && REMOTE_KINDS.includes(d.kind as RemoteKind)
+    && typeof d.target === "string" && d.target.length <= 60
+    && typeof d.allow === "boolean"
+    && typeof d.detail === "string" && d.detail.length <= 200
+    && typeof d.issuedAt === "number" && Number.isFinite(d.issuedAt)
+    && typeof d.nonce === "string" && /^[a-f0-9]{32}$/.test(d.nonce)
+    && typeof d.sig === "string" && d.sig.length <= 200;
+}
+
+export function validEnrolmentShape(raw: unknown): raw is WireEnrolment {
+  if (!raw || typeof raw !== "object") return false;
+  const e = raw as Record<string, unknown>;
+  return typeof e.device === "string" && NAME_RE.test(e.device)
+    && typeof e.name === "string" && e.name.trim().length > 0 && e.name.length <= APPROVER_NAME_MAX && !/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/.test(e.name)
+    && validApproverKey({ x: e.x, y: e.y })
+    && typeof e.nonce === "string" && /^[a-f0-9]{32}$/.test(e.nonce)
+    && typeof e.proof === "string" && /^[a-f0-9]{64}$/.test(e.proof);
 }

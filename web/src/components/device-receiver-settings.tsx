@@ -3,6 +3,7 @@ import { changeDeviceReceiver, controllerSessionUrl, useDeviceReceiver } from ".
 import { DeviceNotificationSettings } from "./device-receiver-monitor";
 import { DevicePermissions } from "./device-activity";
 import { ActiveAccess, ExtensionApproval, MissedRequests, StartAccess } from "./device-access-controls";
+import { PhoneApprovers } from "./device-phone-approvers";
 import { SettingsFold, SettingsGroup } from "./settings-ui";
 
 const inputClass = "h-9 w-full rounded-lg border border-border bg-background px-3 text-sm";
@@ -74,6 +75,7 @@ export function DeviceReceiverSettings() {
       {state.deviceId && <MissedRequests state={state} busy={busy} act={act} />}
 
       <SettingsGroup>
+        {state.deviceId && <PhoneApprovers state={state} busy={busy} act={act} />}
         {state.deviceId && <SettingsFold
           title="Active requests"
           description={state.queueError ? "Could not read the queue" : requestCount ? `${requestCount} active` : "None"}

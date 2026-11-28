@@ -620,6 +620,8 @@ async function cmdRun(args: string[]) {
     runtime.dismissMissed();
   }
   runtime.start(await runStartOptions(args, terminalConfirm), terminalAsk());
+  // Phones added as approvers can answer here too (and stop access).
+  runtime.watchRemote();
   let warned = 0;
   const warn = setInterval(() => {
     const g = runtime.snapshot().grant;

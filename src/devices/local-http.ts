@@ -46,6 +46,15 @@ export async function handleLocalDeviceApi(req: Request, peerAddress?: string, r
         if (typeof b.token !== "string" || typeof b.allow !== "boolean") return json({ error: "An extension token and a decision are required." }, 400);
         runtime.decideExtension(b.token, b.allow);
         break;
+      case `${LOCAL_DEVICE_PREFIX}/approver-invite`:
+        runtime.openInvite();
+        break;
+      case `${LOCAL_DEVICE_PREFIX}/approver-invite-close`:
+        runtime.closeInvite();
+        break;
+      case `${LOCAL_DEVICE_PREFIX}/approver-remove`:
+        runtime.dropApprover(b.id);
+        break;
       case `${LOCAL_DEVICE_PREFIX}/dismiss-missed`:
         runtime.dismissMissed();
         break;

@@ -4,7 +4,8 @@ import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, fst
 import { join } from "node:path";
 import { actionInfos, audit, call, deviceHome, deviceLogPath, formatMinutes, Grant, GRANT_MAX_MINUTES, grantCeiling, handleRequest, loadConfig, parseIdle, UnlinkedError, type ApprovalPrompt, type Ask, type DeviceConfig } from "./agent.ts";
 import { deviceIsLocked, lockDevice } from "./lock.ts";
-import { EXTENSION_ID_RE, FINAL_STATUSES, LINK_PREFIX, MAX_EXTENSION_MINUTES, REQUEST_ID_RE, type WireExtension, type WireGrantReport, type WireMissedRequest, type WireRequest, type WireRequestState, type WireUpdate } from "./protocol.ts";
+import { acceptEnrolment, approverList, checkDecision, invitePayload, loadApprovers, newInvite, removeApprover, requestDetail, type Invite } from "./approvers.ts";
+import { EXTENSION_ID_RE, FINAL_STATUSES, LINK_PREFIX, MAX_EXTENSION_MINUTES, REQUEST_ID_RE, type WireExtension, type WireGrantReport, type WireMissedRequest, type WireRemoteResult, type WireRequest, type WireRequestState, type WireUpdate } from "./protocol.ts";
 
 export type LocalActivity = { at: number; kind: string; request?: WireRequest; update?: WireUpdate; reason?: string };
 type Pending = ApprovalPrompt & { token: string };
@@ -130,6 +131,12 @@ export class DeviceRuntime {
   private terminal: Promise<unknown> = Promise.resolve();
   private terminalAsk: Ask | undefined;
   private missed: WireMissedRequest[] = [];
+  /** The code a phone scans here to become an approver; made here, shown only here. */
+  private invite: Invite | null = null;
+  private inviteTimer: ReturnType<typeof setTimeout> | null = null;
+  private remoteAbort: AbortController | null = null;
+  private remoteResults: WireRemoteResult[] = [];
+  private remoteError: string | null = null;
   finished: Promise<void> = Promise.resolve();
 
   snapshot() {
@@ -144,7 +151,147 @@ export class DeviceRuntime {
       pending: this.pending, extension: this.extension, missed: this.unseenMissed(),
       error: this.error, activity: readLocalActivity(),
       requests: this.requests, queueError: this.queueError,
+      approvers: approverList(),
+      approverInvite: this.invite && c.deviceId && c.server && Date.now() < this.invite.expiresAt
+        ? { payload: invitePayload(this.invite, c.deviceId, c.server), code: this.invite.code, expiresAt: this.invite.expiresAt }
+        : null,
+      remote: { watching: this.remoteAbort !== null, error: this.remoteError },
     };
+  }
+
+  // ---- approvers: the person's phones, added here, answering from anywhere ----------
+
+  /** Shows a code for a phone to scan here. Only this computer's own UI can ask for one. */
+  openInvite() {
+    const c = loadConfig();
+    if (!c.deviceId || !c.server) throw new Error("Connect to a controller first.");
+    this.invite = newInvite();
+    if (this.inviteTimer) clearTimeout(this.inviteTimer);
+    this.inviteTimer = setTimeout(() => { this.invite = null; this.inviteTimer = null; this.emit(); }, this.invite.expiresAt - Date.now());
+    this.record({ kind: "approver-invite" });
+    this.watchRemote();
+  }
+
+  closeInvite() {
+    this.invite = null;
+    if (this.inviteTimer) clearTimeout(this.inviteTimer);
+    this.inviteTimer = null;
+    this.emit();
+  }
+
+  dropApprover(id: unknown) {
+    const a = loadApprovers().find((x) => x.id === id);
+    if (!a || !removeApprover(a.id)) throw new Error("That phone is not an approver here.");
+    this.record({ kind: "approver-removed", reason: a.name });
+  }
+
+  /**
+   * While a phone may answer (an approver exists, or an invite is open), keeps one
+   * long poll open to the controller for decisions and enrolments, whether or not
+   * access is on: a phone can start access. Every decision is checked here, against
+   * keys this computer enrolled, before anything happens.
+   */
+  watchRemote() {
+    if (this.remoteAbort) return;
+    const linked = () => {
+      try { const c = this.activeConfig ?? loadConfig(); return c.deviceId && c.server ? c : null; } catch { return null; }
+    };
+    const wanted = () => !!linked() && (loadApprovers().length > 0 || (this.invite !== null && Date.now() < this.invite.expiresAt));
+    if (!wanted()) return;
+    const abort = this.remoteAbort = new AbortController();
+    this.emit();
+    void (async () => {
+      let failures = 0;
+      while (!abort.signal.aborted && wanted()) {
+        const c = linked()!;
+        const results = this.remoteResults.splice(0);
+        try {
+          const r = await call<{ decisions?: unknown[]; enrolments?: unknown[] }>(c, "POST", `${LINK_PREFIX}remote`, JSON.stringify({ approvers: approverList(), results, invite: this.invite !== null }), abort.signal);
+          failures = 0;
+          if (this.remoteError) { this.remoteError = null; this.emit(); }
+          for (const e of Array.isArray(r?.enrolments) ? r.enrolments.slice(0, 5) : []) this.onEnrolment(c.deviceId!, e);
+          for (const d of Array.isArray(r?.decisions) ? r.decisions.slice(0, 20) : []) await this.onDecision(c.deviceId!, d);
+        } catch (e) {
+          this.remoteResults.unshift(...results);
+          if (abort.signal.aborted) break;
+          this.remoteError = e instanceof Error ? e.message : String(e);
+          this.emit();
+          if (e instanceof UnlinkedError) break;
+          await new Promise<void>((resolve) => {
+            const done = () => { clearTimeout(timer); abort.signal.removeEventListener("abort", done); resolve(); };
+            const timer = setTimeout(done, Math.min(60_000, 1000 * 2 ** Math.min(++failures, 6)));
+            abort.signal.addEventListener("abort", done, { once: true });
+          });
+        }
+      }
+    })().finally(() => {
+      if (this.remoteAbort === abort) this.remoteAbort = null;
+      this.emit();
+    });
+  }
+
+  private say(nonce: unknown, ok: boolean, reason?: string) {
+    if (typeof nonce === "string" && /^[a-f0-9]{32}$/.test(nonce)) this.remoteResults.push({ nonce, ok, reason });
+  }
+
+  private onEnrolment(deviceId: string, raw: unknown) {
+    const nonce = (raw as { nonce?: unknown } | null)?.nonce;
+    const result = acceptEnrolment(raw, deviceId, this.invite);
+    if (!result.ok) {
+      this.record({ kind: "approver-refused", reason: result.reason });
+      return this.say(nonce, false, result.reason);
+    }
+    this.closeInvite();
+    this.record({ kind: "approver-added", reason: result.approver.name });
+    this.say(nonce, true);
+  }
+
+  private async onDecision(deviceId: string, raw: unknown) {
+    const nonce = (raw as { nonce?: unknown } | null)?.nonce;
+    const checked = checkDecision(raw, deviceId);
+    if (!checked.ok) {
+      this.record({ kind: "remote-refused", reason: checked.reason });
+      return this.say(nonce, false, checked.reason);
+    }
+    const { approver, decision: d } = checked;
+    const by = `by ${approver.name}`;
+    try {
+      switch (d.kind) {
+        case "request": {
+          const p = this.pending;
+          if (!p || p.request.id !== d.target || d.detail !== requestDetail(p.request.action, p.request.args ?? {})) {
+            return this.say(nonce, false, "That request is no longer waiting for approval on the device.");
+          }
+          this.decide(p.token, d.allow);
+          this.record({ kind: d.allow ? "remote-approved" : "remote-denied", request: p.request, reason: by });
+          return this.say(nonce, true);
+        }
+        case "extension": {
+          const x = this.extension;
+          if (!x || x.id !== d.target || d.detail !== String(x.minutes)) return this.say(nonce, false, "That extension is no longer waiting on the device.");
+          this.decideExtension(x.token, d.allow);
+          this.record({ kind: d.allow ? "remote-approved" : "remote-denied", reason: `extension of ${formatMinutes(x.minutes)} ${by}` });
+          return this.say(nonce, true);
+        }
+        case "start": {
+          const m = d.detail.match(/^(\d{1,4}),(never|\d{1,4})$/);
+          if (!d.allow || !m) return this.say(nonce, false, "malformed start");
+          if (this.grant) return this.say(nonce, false, "Access is already on.");
+          // A phone starts a standard session at most; a long one is a choice made here.
+          this.start({ minutes: Number(m[1]), idle: m[2] === "never" ? "never" : Number(m[2]), long: false });
+          this.record({ kind: "remote-start", reason: `${formatMinutes(Number(m[1]))} ${by}` });
+          return this.say(nonce, true);
+        }
+        case "stop": {
+          if (!this.grant) return this.say(nonce, true, "Access was already off.");
+          await this.stop();
+          this.record({ kind: "remote-stop", reason: by });
+          return this.say(nonce, true);
+        }
+      }
+    } catch (e) {
+      return this.say(nonce, false, e instanceof Error ? e.message : String(e));
+    }
   }
 
   private record(entry: Omit<LocalActivity, "at">) {
@@ -479,6 +626,7 @@ export class DeviceRuntime {
     this.watchRequest?.abort();
     this.watchRequest = null;
     this.abort?.abort();
+    this.remoteAbort?.abort();
     this.answer?.(null);
     this.release?.();
   };

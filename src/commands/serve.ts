@@ -12815,6 +12815,9 @@ a{color:#60a5fa}
   startAutoScheduler((l) => console.log(l));
   // Rolling CPU/RAM/network/PSI history for the settings Performance panel.
   startMetricsSampler();
+  // This computer as a linked device: phones the person added as approvers may
+  // answer (and start access) from anywhere. A no-op unless one was added here.
+  deviceRuntime.watchRemote();
   const stopArtifactRefresh = startArtifactRefreshScheduler((l) => console.log(l));
   // Refresh scripts are detached process groups so timeouts can kill their
   // descendants. Tear all of them down before the server exits on either

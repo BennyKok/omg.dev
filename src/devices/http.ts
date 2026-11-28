@@ -15,6 +15,8 @@ import {
   MAX_FILE_BYTES,
   normalizePublicKey,
   POLL_WAIT_MS,
+  validDecisionShape,
+  validEnrolmentShape,
   verifySignature,
   type WireGrantReport,
   type WireUpdate,
@@ -108,6 +110,18 @@ export async function handleDeviceLink(req: Request): Promise<Response> {
     const b = parse(body) as WireGrantReport | null;
     if (!b || typeof b !== "object") return err(400, "a grant report is required");
     return json({ extension: await store.reportGrant(device.id, b) });
+  }
+
+  if (path === `${LINK_PREFIX}remote` && req.method === "POST") {
+    // The device's long poll for decisions from the person's phones. It sends the
+    // verdicts on the last ones, and its approver list (names only, for display).
+    const b = (parse(body) ?? {}) as { approvers?: unknown; results?: unknown; invite?: unknown; wait?: unknown };
+    let out = store.remotePoll(device.id, b);
+    if (!out.decisions.length && !out.enrolments.length && b.wait !== false) {
+      await store.waitForRemote(device.id, POLL_WAIT_MS, req.signal);
+      if (!req.signal.aborted) out = store.remotePoll(device.id, {});
+    }
+    return json(out);
   }
 
   if (path === `${LINK_PREFIX}clear` && req.method === "POST") {
@@ -221,7 +235,13 @@ export async function handleDevicesApi(
   if (path === "/api/devices" && req.method === "GET") {
     const devices = await store.listDevices();
     return json({
-      devices: devices.map(({ publicKey: _pk, ...d }) => ({ ...d, grant: store.grantView(d.id) })),
+      devices: await Promise.all(devices.map(async ({ publicKey: _pk, ...d }) => ({
+        ...d,
+        grant: store.grantView(d.id),
+        // For the person's phone: whether the device listens for it, and what waits there.
+        remote: store.remoteView(d.id),
+        open: (await store.listRequests({ deviceId: d.id, activeOnly: true })).slice(0, 20).map(({ id, action, args, status, requestedBy, createdAt, expiresAt }) => ({ id, action, args, status, requestedBy, createdAt, expiresAt })),
+      }))),
       requests: (await store.listRequests({ limit: 20 })).map(presentRequest),
     });
   }
@@ -268,6 +288,24 @@ export async function handleDevicesApi(
     } catch (e) {
       return err(400, e instanceof Error ? e.message : String(e));
     }
+  }
+
+  // A phone's signed decision, or its enrolment as an approver: carried to the
+  // device, which checks it and answers. Waits briefly for that answer.
+  const relay = path.match(/^\/api\/devices\/([a-z0-9][a-z0-9-]{0,39})\/(remote|approvers)$/);
+  if (relay && req.method === "POST") {
+    const b = (await req.json().catch(() => null)) as { decision?: unknown; enrolment?: unknown; wait?: unknown } | null;
+    const kind = relay[2] === "remote" ? "decision" : "enrolment";
+    const item = kind === "decision" ? b?.decision : b?.enrolment;
+    if (kind === "decision" ? !validDecisionShape(item) : !validEnrolmentShape(item)) return err(400, `a well-formed ${kind} is required`);
+    try {
+      await store.relayToDevice(relay[1], kind, item as never);
+    } catch (e) {
+      return err(409, e instanceof Error ? e.message : String(e));
+    }
+    const wait = Math.min(Math.max(Number(b?.wait ?? 20) || 0, 0), 60) * 1000;
+    const result = wait ? await store.waitForRemoteResult(relay[1], (item as { nonce: string }).nonce, wait) : null;
+    return json({ result, grant: store.grantView(relay[1]), remote: store.remoteView(relay[1]) });
   }
 
   const one = path.match(/^\/api\/devices\/([a-z0-9][a-z0-9-]{0,39})(\/requests)?$/);
