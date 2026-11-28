@@ -392,7 +392,7 @@ export class DeviceRuntime {
       let failures = 0;
       while (!abort.signal.aborted) {
         try {
-          const { request } = await call<{ request: WireRequest | null }>(c, "POST", `${LINK_PREFIX}poll`, JSON.stringify({ actions: actionInfos(c) }), abort.signal);
+          const { request } = await call<{ request: WireRequest | null }>(c, "POST", `${LINK_PREFIX}poll`, JSON.stringify({ actions: actionInfos(c), platform: process.platform }), abort.signal);
           failures = 0;
           this.error = null;
           if (request) await handleRequest(c, grant, request, (question, prompt) => this.ask(question, prompt!, abort.signal, ask && ((q, p, sig) => this.onTerminal(() => ask(q, p, sig)))), {

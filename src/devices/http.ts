@@ -129,8 +129,9 @@ export async function handleDeviceLink(req: Request): Promise<Response> {
   }
 
   if (path === `${LINK_PREFIX}poll`) {
-    const b = parse(body) as { actions?: unknown; wait?: unknown } | null;
-    await store.touchDevice(device.id, b?.actions !== undefined ? store.sanitizeActions(b.actions) : undefined);
+    const b = parse(body) as { actions?: unknown; wait?: unknown; platform?: unknown } | null;
+    const platform = typeof b?.platform === "string" && /^[a-z0-9]{1,16}$/.test(b.platform) ? b.platform : undefined;
+    await store.touchDevice(device.id, b?.actions !== undefined ? store.sanitizeActions(b.actions) : undefined, platform);
     let next = await store.takeNext(device.id);
     if (!next && b?.wait !== false) {
       await store.waitForWork(device.id, POLL_WAIT_MS, req.signal);

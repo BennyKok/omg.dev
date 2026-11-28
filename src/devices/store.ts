@@ -50,6 +50,8 @@ export type Device = {
   tailnetIp?: string;
   pairedAt: number;
   lastSeenAt?: number;
+  /** The device's OS as it reports it (process.platform: darwin, linux, win32), for its icon. */
+  platform?: string;
   actions: ActionInfo[];
 };
 
@@ -244,13 +246,14 @@ export function removeDevice(id: string): Promise<boolean> {
   });
 }
 
-export function touchDevice(id: string, actions?: ActionInfo[]): Promise<void> {
+export function touchDevice(id: string, actions?: ActionInfo[], platform?: string): Promise<void> {
   return serial(async () => {
     const rows = await listDevices();
     const d = rows.find((x) => x.id === id);
     if (!d) return;
     d.lastSeenAt = Date.now();
     if (actions) d.actions = actions;
+    if (platform) d.platform = platform;
     await writeJson(devicesPath(), rows);
   });
 }
