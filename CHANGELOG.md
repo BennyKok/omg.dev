@@ -2,6 +2,14 @@
 
 Recent product updates and deployment notes.
 
+## November 28, 2026 - Approve agent access from your phone
+
+- A phone can answer for the computer that shares access, from anywhere. It can allow or deny an action that waits for approval, allow or deny an agent's request for more time, start access (up to 4 hours) and stop access.
+- Add the phone at the computer: Agent access → Approve from your phone → Add a phone shows a code. Scan it in Subtract on the iPhone (Servers → the computer → Use this iPhone to approve). A code works once, for 10 minutes.
+- The phone signs each answer with a key that stays on the phone and needs Face ID. The server only carries the answer. The computer checks the signature, the time, that the answer is used once, and that it names exactly the request that waits. The server and agents cannot make an answer.
+- Remove a phone in the same place on the computer. Sessions longer than 4 hours still start only at the computer.
+- Update omg.dev on both computers. omg.dev must run on the computer that shares access.
+
 ## November 18, 2026 - GPT-6.2 in Codex sessions, project icons, a new phone new-session screen (v0.7.13)
 
 - Codex sessions can run GPT-6.2 Sol and GPT-6.2 Astra. Before, these models showed in the model picker, but each message failed with `model_not_found ... not supported when using Codex with a ChatGPT account`. omg.dev now includes Codex 0.169.0.
